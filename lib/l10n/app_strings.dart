@@ -13,6 +13,7 @@ class AppStrings {
   }
 
   bool get isKo => locale.languageCode.toLowerCase().startsWith('ko');
+  bool get isVi => locale.languageCode.toLowerCase().startsWith('vi');
 
   bool get isZhHans {
     final String languageCode = locale.languageCode.toLowerCase();
@@ -41,6 +42,7 @@ class AppStrings {
     String? zhHans,
     String? zhHant,
     String? ko,
+    String? vi,
   }) {
     if (isRu) return ru;
     if (isTr) return tr ?? en;
@@ -48,6 +50,7 @@ class AppStrings {
     if (isZhHant) return zhHant ?? zhHans ?? en;
     if (isZhHans) return zhHans ?? zhHant ?? en;
     if (isKo) return ko ?? en;
+    if (isVi) return vi ?? en;
     return en;
   }
 
@@ -63,6 +66,7 @@ class AppStrings {
     zhHans: '刷新',
     zhHant: '重新整理',
     ko: '새로고침',
+    vi: 'Làm mới',
   );
 
   String get permissionGranted => tr(
@@ -73,6 +77,7 @@ class AppStrings {
     zhHans: '通知权限已授予。',
     zhHant: '通知權限已授予。',
     ko: '알림 권한이 부여되었습니다.',
+    vi: 'Notification permission granted.',
   );
 
   String get permissionDenied => tr(
@@ -83,6 +88,7 @@ class AppStrings {
     zhHans: '未授予通知权限。',
     zhHant: '未授予通知權限。',
     ko: '알림 권한이 부여되지 않았습니다.',
+    vi: 'Notification permission was not granted.',
   );
 
   String get listenerUnavailable => tr(
@@ -94,6 +100,7 @@ class AppStrings {
     zhHans: '此设备无法打开监听器设置。',
     zhHant: '此裝置無法開啟監聽器設定。',
     ko: '기기의 알림 읽기 설정을 열 수 없습니다.',
+    vi: 'Unable to open Listener settings on this device.',
   );
 
   String get notificationsUnavailable => tr(
@@ -104,6 +111,7 @@ class AppStrings {
     zhHans: '无法打开应用通知设置。',
     zhHant: '無法開啟應用通知設定。',
     ko: '앱 알림 설정을 열 수 없습니다.',
+    vi: 'Unable to open app notification settings.',
   );
 
   String get liveUpdatesUnavailable => tr(
@@ -115,6 +123,7 @@ class AppStrings {
     zhHans: '此设备无法打开 Live Updates 设置。',
     zhHant: '此裝置無法開啟 Live Updates 設定。',
     ko: '기기의 Live Updates 설정을 열 수 없습니다.',
+    vi: 'Unable to open Live Updates settings on this device.',
   );
 
   String get githubOpenFailed => tr(
@@ -125,6 +134,7 @@ class AppStrings {
     zhHans: '无法打开 GitHub 链接。',
     zhHant: '無法開啟 GitHub 連結。',
     ko: 'GitHub 링크를 열 수 없습니다',
+    vi: 'Unable to open GitHub link.',
   );
 
   String get linkOpenFailed => tr(
@@ -135,6 +145,7 @@ class AppStrings {
     zhHans: '无法打开链接。',
     zhHant: '無法開啟連結。',
     ko: '링크를 열 수 없습니다.',
+    vi: 'Unable to open link.',
   );
 
   String get updateCheckFailed => tr(
@@ -145,6 +156,7 @@ class AppStrings {
     zhHans: '无法检查更新。请尝试关闭 VPN。',
     zhHant: '無法檢查更新。請嘗試關閉 VPN。',
     ko: '업데이트를 확인할 수 없습니다. VPN을 비활성화 해보세요.',
+    vi: 'Unable to check updates. Try disabling VPN.',
   );
 
   String get dictionaryEmpty => tr(
@@ -155,6 +167,7 @@ class AppStrings {
     zhHans: '词典为空或无效。',
     zhHant: '字典為空或無效。',
     ko: '사전이 비어있거나 문제가 있습니다.',
+    vi: 'Dictionary is empty or invalid.',
   );
 
   String get dictionaryUpdateDone => tr(
@@ -165,6 +178,7 @@ class AppStrings {
     zhHans: '词典已从 GitHub 更新。',
     zhHant: '字典已從 GitHub 更新。',
     ko: 'GitHub를 통해 사전을 업데이트했습니다.',
+    vi: 'Dictionary updated from GitHub.',
   );
 
   String get dictionaryInvalid => tr(
@@ -175,6 +189,7 @@ class AppStrings {
     zhHans: '词典 JSON 无效。',
     zhHant: '字典 JSON 無效。',
     ko: '사전 JSON에 문제가 있습니다.',
+    vi: 'Invalid dictionary JSON.',
   );
 
   String get dictionaryUpdateFailed => tr(
@@ -185,6 +200,7 @@ class AppStrings {
     zhHans: '从 GitHub 更新词典失败。',
     zhHant: '從 GitHub 更新字典失敗。',
     ko: 'GitHub에서 사전을 업데이트할 수 없습니다.',
+    vi: 'Failed to update dictionary from GitHub.',
   );
 
   String get dictionaryTitle => tr(
@@ -195,6 +211,7 @@ class AppStrings {
     zhHans: '词典',
     zhHant: '字典',
     ko: '사전',
+    vi: 'Dictionary',
   );
 
   String get dictionaryManageSubtitle => tr(
@@ -205,6 +222,7 @@ class AppStrings {
     zhHans: '点按以管理',
     zhHant: '點按以管理',
     ko: '눌러서 관리하기',
+    vi: 'tap to manage',
   );
 
   String get dictionaryLanguagesTitle => tr(
@@ -215,6 +233,7 @@ class AppStrings {
     zhHans: '词典语言',
     zhHant: '字典語言',
     ko: '사전 언어',
+    vi: 'Dictionary languages',
   );
 
   String get dictionaryLanguagesSubtitle => tr(
@@ -225,6 +244,7 @@ class AppStrings {
     zhHans: '点按以选择',
     zhHant: '點按以選擇',
     ko: '눌러서 선택하기',
+    vi: 'tap to choose',
   );
 
   String get dictionaryLanguagesPickerTitle => tr(
@@ -235,6 +255,7 @@ class AppStrings {
     zhHans: '选择用于转换的语言',
     zhHant: '選擇用於轉換的語言',
     ko: '변환용 언어 선택',
+    vi: 'Select languages for conversion',
   );
 
   String get dictionaryUpdateAction => tr(
@@ -245,6 +266,7 @@ class AppStrings {
     zhHans: '更新词典',
     zhHant: '更新字典',
     ko: '사전 업데이트',
+    vi: 'Update dictionaries',
   );
 
   String get dictionaryUpdateDescription => tr(
@@ -256,6 +278,7 @@ class AppStrings {
     zhHans: '下载已启用语言的最新解析词典',
     zhHant: '下載已啟用語言的最新解析字典',
     ko: '활성화된 언어들의 최신 파싱 사전을 다운로드합니다.',
+    vi: 'downloads the latest parser dictionaries for enabled languages',
   );
 
   String get dictionaryEditorTitle => tr(
@@ -266,6 +289,7 @@ class AppStrings {
     zhHans: '词典编辑器',
     zhHant: '字典編輯器',
     ko: '사전 편집기',
+    vi: 'Dictionary editor',
   );
 
   String get dictionaryEditorDescription => tr(
@@ -276,6 +300,7 @@ class AppStrings {
     zhHans: '应用内词典编辑会稍后添加',
     zhHant: '應用程式內字典編輯稍後會加入',
     ko: '앱 내 사전 편집기는 지원 예정입니다.',
+    vi: 'in-app dictionary editing will be added later',
   );
 
   String get dictionaryComingSoon => tr(
@@ -286,6 +311,7 @@ class AppStrings {
     zhHans: '（即将推出）',
     zhHant: '（即將推出）',
     ko: '(지원 예정)',
+    vi: '(coming soon)',
   );
 
   String get navHome => tr(
@@ -296,6 +322,7 @@ class AppStrings {
     zhHans: '主页',
     zhHant: '首頁',
     ko: '홈',
+    vi: 'Trang chủ',
   );
 
   String get navRules => tr(
@@ -306,6 +333,7 @@ class AppStrings {
     zhHans: '规则',
     zhHant: '規則',
     ko: '규칙',
+    vi: 'Quy tắc',
   );
 
   String get navSettings => tr(
@@ -316,6 +344,7 @@ class AppStrings {
     zhHans: '设置',
     zhHant: '設定',
     ko: '설정',
+    vi: 'Cài đặt',
   );
 
   String get redesignRulesTitle => tr(
@@ -326,6 +355,7 @@ class AppStrings {
     zhHans: '规则',
     zhHant: '規則',
     ko: '규칙',
+    vi: 'Quy tắc',
   );
 
   String get appConfigTitle => tr(
@@ -336,6 +366,7 @@ class AppStrings {
     zhHans: '应用设置',
     zhHant: '應用設定',
     ko: '앱 설정',
+    vi: 'App config',
   );
 
   String get backupRestoreTitle => tr(
@@ -346,6 +377,7 @@ class AppStrings {
     zhHans: '备份与恢复',
     zhHant: '備份與還原',
     ko: '백업 & 복구',
+    vi: 'Backup & Restore',
   );
 
   String get exportLiveBridgeSettingsTitle => tr(
@@ -356,6 +388,7 @@ class AppStrings {
     zhHans: '导出 LiveBridge 设置',
     zhHant: '匯出 LiveBridge 設定',
     ko: 'LiveBridge 설정 내보내기',
+    vi: 'Export LiveBridge settings',
   );
 
   String get importLiveBridgeSettingsTitle => tr(
@@ -366,6 +399,7 @@ class AppStrings {
     zhHans: '导入 LiveBridge 设置',
     zhHant: '匯入 LiveBridge 設定',
     ko: 'LiveBridge 설정 불러오기',
+    vi: 'Import LiveBridge settings',
   );
 
   String get importFromDebugTitle => tr(
@@ -376,6 +410,7 @@ class AppStrings {
     zhHans: '从 debug JSON 导入',
     zhHant: '從 debug JSON 匯入',
     ko: 'debug JSON에서 불러오기',
+    vi: 'Import from debug JSON',
   );
 
   String get liveBridgeSettingsExported => tr(
@@ -386,6 +421,7 @@ class AppStrings {
     zhHans: 'LiveBridge 设置已导出。',
     zhHant: 'LiveBridge 設定已匯出。',
     ko: 'LiveBridge 설정을 내보냈습니다.',
+    vi: 'LiveBridge settings exported.',
   );
 
   String get liveBridgeSettingsExportFailed => tr(
@@ -396,6 +432,7 @@ class AppStrings {
     zhHans: '导出 LiveBridge 设置失败。',
     zhHant: '匯出 LiveBridge 設定失敗。',
     ko: 'LiveBridge 설정을 내보낼 수 없습니다.',
+    vi: 'Failed to export LiveBridge settings.',
   );
 
   String get liveBridgeSettingsImported => tr(
@@ -406,6 +443,7 @@ class AppStrings {
     zhHans: 'LiveBridge 设置已导入。',
     zhHant: 'LiveBridge 設定已匯入。',
     ko: 'LiveBridge 설정을 불러왔습니다.',
+    vi: 'LiveBridge settings imported.',
   );
 
   String get liveBridgeSettingsImportFailed => tr(
@@ -416,6 +454,7 @@ class AppStrings {
     zhHans: '导入 LiveBridge 设置失败。',
     zhHant: '匯入 LiveBridge 設定失敗。',
     ko: 'LiveBridge 설정을 불러올 수 없습니다.',
+    vi: 'Failed to import LiveBridge settings.',
   );
 
   String get copyOldDebugJsonFirst => tr(
@@ -426,6 +465,7 @@ class AppStrings {
     zhHans: '请先复制旧的 debug JSON',
     zhHant: '請先複製舊的 debug JSON',
     ko: '구버전 debug JSON을 먼저 복사해주세요',
+    vi: 'please copy your old debug JSON first',
   );
 
   String get appLanguageTitle => tr(
@@ -436,6 +476,7 @@ class AppStrings {
     zhHans: '应用语言',
     zhHant: '應用語言',
     ko: '앱 언어',
+    vi: 'App language',
   );
 
   String get appLanguagePickerTitle => tr(
@@ -446,6 +487,7 @@ class AppStrings {
     zhHans: '选择应用语言',
     zhHant: '選擇應用語言',
     ko: '앱 언어 선택',
+    vi: 'Choose app language',
   );
 
   String get appLanguageSystem => tr(
@@ -456,6 +498,7 @@ class AppStrings {
     zhHans: '自动',
     zhHant: '自動',
     ko: '자동',
+    vi: 'Tự động',
   );
 
   String get brandSpecificTitle => tr(
@@ -466,6 +509,7 @@ class AppStrings {
     zhHans: '品牌特定',
     zhHant: '品牌特定',
     ko: '브랜드별 기능',
+    vi: 'Brand-specific',
   );
 
   String get appUpdatesTitle => tr(
@@ -476,6 +520,7 @@ class AppStrings {
     zhHans: '应用更新',
     zhHant: '應用更新',
     ko: '앱 업데이트',
+    vi: 'App updates',
   );
 
   String get statusRunning => tr(
@@ -486,6 +531,7 @@ class AppStrings {
     zhHans: '正在运行',
     zhHant: '正在執行',
     ko: '실행 중',
+    vi: 'Đang chạy',
   );
 
   String get statusDisabled => tr(
@@ -496,6 +542,7 @@ class AppStrings {
     zhHans: 'LiveBridge 已关闭',
     zhHant: 'LiveBridge 已關閉',
     ko: 'LiveBridge 꺼짐',
+    vi: 'LiveBridge is disabled',
   );
 
   String get statusByPrefix => tr(
@@ -506,6 +553,7 @@ class AppStrings {
     zhHans: '由',
     zhHant: '由',
     ko: '개발자: ',
+    vi: 'by ',
   );
 
   String get discussTitle => tr(
@@ -516,6 +564,7 @@ class AppStrings {
     zhHans: '讨论',
     zhHant: '討論',
     ko: '커뮤니티',
+    vi: 'Discuss',
   );
 
   String get discussSubtitle => tr(
@@ -526,6 +575,7 @@ class AppStrings {
     zhHans: 'telegram 话题',
     zhHant: 'telegram 話題',
     ko: '텔레그램 주제',
+    vi: 'telegram topics',
   );
 
   String get rulesModeAllApps => tr(
@@ -536,6 +586,7 @@ class AppStrings {
     zhHans: '所有应用',
     zhHant: '所有應用程式',
     ko: '모든 앱',
+    vi: 'all apps',
   );
 
   String get rulesModeOnlySelected => tr(
@@ -546,6 +597,7 @@ class AppStrings {
     zhHans: '仅已选择',
     zhHant: '僅已選取',
     ko: '선택한 앱만 포함',
+    vi: 'only selected',
   );
 
   String get rulesModeExcludeSelected => tr(
@@ -556,6 +608,7 @@ class AppStrings {
     zhHans: '排除已选择',
     zhHant: '排除已選取',
     ko: '선택합 앱만 제외',
+    vi: 'exclude selected',
   );
 
   String get permissionCheckRequired => tr(
@@ -566,6 +619,7 @@ class AppStrings {
     zhHans: '需要检查',
     zhHant: '需要檢查',
     ko: '확인 필요',
+    vi: 'check required',
   );
 
   String get permissionsAllSet => tr(
@@ -576,6 +630,7 @@ class AppStrings {
     zhHans: '已就绪',
     zhHant: '已就緒',
     ko: '정상',
+    vi: 'all set',
   );
 
   String get versionTapToUpdate => tr(
@@ -586,6 +641,7 @@ class AppStrings {
     zhHans: '点按更新',
     zhHant: '點按更新',
     ko: '눌러서 업데이트',
+    vi: 'tap to update',
   );
 
   String get versionLatestVersion => tr(
@@ -596,6 +652,7 @@ class AppStrings {
     zhHans: '最新版本',
     zhHant: '最新版本',
     ko: '최신 버전',
+    vi: 'latest version',
   );
 
   String get recentConversions => tr(
@@ -606,6 +663,7 @@ class AppStrings {
     zhHans: '最近转换',
     zhHant: '最近轉換',
     ko: '최근 변환 기록',
+    vi: 'Recent conversions',
   );
 
   String get noConversionsYet => tr(
@@ -616,6 +674,7 @@ class AppStrings {
     zhHans: '暂无转换',
     zhHant: '暫無轉換',
     ko: '변환 내역 없음',
+    vi: 'no conversions yet',
   );
 
   String get conversionLogDisabled => tr(
@@ -626,6 +685,7 @@ class AppStrings {
     zhHans: '转换日志已关闭',
     zhHant: '轉換記錄已關閉',
     ko: '변환 내역이 꺼져있음',
+    vi: 'conversion log is disabled',
   );
 
   String get enable => tr(
@@ -636,6 +696,7 @@ class AppStrings {
     zhHans: '启用',
     zhHant: '啟用',
     ko: '활성화',
+    vi: 'bật',
   );
 
   String get payloadCopied => tr(
@@ -646,6 +707,7 @@ class AppStrings {
     zhHans: 'Payload 已复制',
     zhHant: 'Payload 已複製',
     ko: 'Payload 복사됨',
+    vi: 'Payload copied',
   );
 
   String get progressTitle => tr(
@@ -656,6 +718,7 @@ class AppStrings {
     zhHans: '进度',
     zhHant: '進度',
     ko: '진행률',
+    vi: 'Tiến trình',
   );
 
   String get nativeProgressTitle => tr(
@@ -666,6 +729,7 @@ class AppStrings {
     zhHans: '原生进度',
     zhHant: '原生進度',
     ko: '네이티브 진행률',
+    vi: 'Native progress',
   );
 
   String get otpCodesTitle => tr(
@@ -676,6 +740,7 @@ class AppStrings {
     zhHans: 'OTP 验证码',
     zhHant: 'OTP 驗證碼',
     ko: 'OTP 코드',
+    vi: 'Mã OTP',
   );
 
   String get autoCopyCodeTitle => tr(
@@ -686,6 +751,7 @@ class AppStrings {
     zhHans: '自动复制验证码',
     zhHant: '自動複製驗證碼',
     ko: '코드 자동 복사',
+    vi: 'Auto-copy code',
   );
 
   String get smartConversionTitle => tr(
@@ -696,6 +762,7 @@ class AppStrings {
     zhHans: '智能转换',
     zhHant: '智慧轉換',
     ko: '지능형 변환',
+    vi: 'Smart conversion',
   );
 
   String get taxiTitle => tr(
@@ -706,6 +773,7 @@ class AppStrings {
     zhHans: '打车',
     zhHant: '叫車',
     ko: '택시',
+    vi: 'Taxi',
   );
 
   String get deliveriesTitle => tr(
@@ -716,6 +784,7 @@ class AppStrings {
     zhHans: '外卖',
     zhHant: '外送',
     ko: '배달',
+    vi: 'Giao hàng',
   );
 
   String get removeOriginalMessageTitle => tr(
@@ -726,6 +795,7 @@ class AppStrings {
     zhHans: '移除原始通知',
     zhHant: '移除原始通知',
     ko: '기존 메시지 제거',
+    vi: 'Remove original message',
   );
 
   String get experimentalSuffix => tr(
@@ -736,6 +806,7 @@ class AppStrings {
     zhHans: '（实验）',
     zhHant: '（實驗）',
     ko: '(불안정)',
+    vi: '(exp)',
   );
 
   String get allAppsTitle => tr(
@@ -746,6 +817,7 @@ class AppStrings {
     zhHans: '所有应用',
     zhHant: '所有應用程式',
     ko: '모든 앱',
+    vi: 'Tất cả ứng dụng',
   );
 
   String get onlySelectedTitle => tr(
@@ -756,6 +828,7 @@ class AppStrings {
     zhHans: '仅已选择',
     zhHant: '僅已選取',
     ko: '선택한 앱만 포함',
+    vi: 'Chỉ đã chọn',
   );
 
   String get excludeSelectedTitle => tr(
@@ -766,6 +839,7 @@ class AppStrings {
     zhHans: '排除已选择',
     zhHant: '排除已選取',
     ko: '선택한 앱만 제외',
+    vi: 'Loại trừ đã chọn',
   );
 
   String get conversionModeTitle => tr(
@@ -776,6 +850,7 @@ class AppStrings {
     zhHans: '转换模式',
     zhHant: '轉換模式',
     ko: '변환 모드',
+    vi: 'Conversion mode',
   );
 
   String get selectedAppsTitle => tr(
@@ -786,6 +861,7 @@ class AppStrings {
     zhHans: '已选择应用',
     zhHant: '已選取應用程式',
     ko: '선택한 앱',
+    vi: 'Selected apps',
   );
 
   String get showSystem => tr(
@@ -796,6 +872,7 @@ class AppStrings {
     zhHans: '显示系统',
     zhHant: '顯示系統',
     ko: '시스템 앱 포함',
+    vi: 'show system',
   );
 
   String get hideSystem => tr(
@@ -806,6 +883,7 @@ class AppStrings {
     zhHans: '隐藏系统',
     zhHant: '隱藏系統',
     ko: '시스템 앱 제외',
+    vi: 'hide system',
   );
 
   String get networkConnectionsTitle => tr(
@@ -816,6 +894,7 @@ class AppStrings {
     zhHans: '网络与连接',
     zhHant: '網路與連線',
     ko: '네트워크 및 연결',
+    vi: 'Network & Connections',
   );
 
   String get vpnsTitle => tr(
@@ -826,6 +905,7 @@ class AppStrings {
     zhHans: 'VPN',
     zhHant: 'VPN',
     ko: 'VPN',
+    vi: 'VPN',
   );
 
   String get externalDevicesTitle => tr(
@@ -836,6 +916,7 @@ class AppStrings {
     zhHans: '外接设备',
     zhHant: '外接裝置',
     ko: '외부 장치',
+    vi: 'Thiết bị ngoài',
   );
 
   String get ignoreDebuggingDevicesTitle => tr(
@@ -846,6 +927,7 @@ class AppStrings {
     zhHans: '忽略调试设备',
     zhHant: '忽略偵錯裝置',
     ko: '디버깅 기기 제외',
+    vi: 'Ignore debugging devices',
   );
 
   String get networkSpeedThresholdRedesignTitle => tr(
@@ -856,6 +938,7 @@ class AppStrings {
     zhHans: '网速阈值',
     zhHant: '網速門檻',
     ko: '네트워크 속도 기준',
+    vi: 'Network speed threshold',
   );
 
   String get miscellaneousTitle => tr(
@@ -866,6 +949,7 @@ class AppStrings {
     zhHans: '其他',
     zhHant: '其他',
     ko: '기타',
+    vi: 'Miscellaneous',
   );
 
   String get navigationMapsTitle => tr(
@@ -876,6 +960,7 @@ class AppStrings {
     zhHans: '导航（地图）',
     zhHant: '導航（地圖）',
     ko: '내비게이션 (지도)',
+    vi: 'Navigation (maps)',
   );
 
   String get mediaPlaybackRedesignTitle => tr(
@@ -886,6 +971,7 @@ class AppStrings {
     zhHans: '媒体播放',
     zhHant: '媒體播放',
     ko: '미디어 재생',
+    vi: 'Media playback',
   );
 
   String get callsTitle => tr(
@@ -896,6 +982,7 @@ class AppStrings {
     zhHans: '通话',
     zhHant: '通話',
     ko: '전화',
+    vi: 'Cuộc gọi',
   );
 
   String get showMediaOnLockTitle => tr(
@@ -906,6 +993,7 @@ class AppStrings {
     zhHans: '在锁屏显示媒体',
     zhHant: '在鎖定畫面顯示媒體',
     ko: '잠금화면에 미디어 표시',
+    vi: 'Show media on lockscreen',
   );
 
   String get useSymbolsInMediaPlayerTitle => tr(
@@ -916,6 +1004,7 @@ class AppStrings {
     zhHans: '在媒体播放器中使用符号',
     zhHant: '在媒體播放器中使用符號',
     ko: '미디어 플레이어에 기호 사용하기',
+    vi: 'Use symbols in media player',
   );
 
   String get weatherBroadcastsTitle => tr(
@@ -926,6 +1015,7 @@ class AppStrings {
     zhHans: '天气播报',
     zhHant: '天氣播報',
     ko: '일기예보',
+    vi: 'Thông báo thời tiết',
   );
 
   String get bypassTitle => tr(
@@ -936,6 +1026,7 @@ class AppStrings {
     zhHans: '绕过',
     zhHant: '繞過',
     ko: '제외할 앱',
+    vi: 'Bypass',
   );
 
   String get perAppSettingsTitle => tr(
@@ -946,6 +1037,7 @@ class AppStrings {
     zhHans: '按应用设置',
     zhHant: '各應用設定',
     ko: '앱 별 설정',
+    vi: 'Per-app settings',
   );
 
   String get defaultsTitle => tr(
@@ -956,6 +1048,7 @@ class AppStrings {
     zhHans: '默认值',
     zhHant: '預設值',
     ko: '기본 설정',
+    vi: 'Mặc định',
   );
 
   String get defaultsSubtitle => tr(
@@ -966,6 +1059,7 @@ class AppStrings {
     zhHans: '点按更改默认行为',
     zhHant: '點按變更預設行為',
     ko: '기본 변환 동작 변경',
+    vi: 'tap to change default behavior',
   );
 
   String get appsListTitle => tr(
@@ -976,6 +1070,7 @@ class AppStrings {
     zhHans: '应用列表',
     zhHant: '應用程式清單',
     ko: '앱 목록',
+    vi: 'Apps list',
   );
 
   String get exportLabel => tr(
@@ -986,6 +1081,7 @@ class AppStrings {
     zhHans: '导出',
     zhHant: '匯出',
     ko: '내보내기',
+    vi: 'Xuất',
   );
 
   String get importLabel => tr(
@@ -996,6 +1092,7 @@ class AppStrings {
     zhHans: '导入',
     zhHant: '匯入',
     ko: '불러오기',
+    vi: 'Nhập',
   );
 
   String get titleSourceTitle => tr(
@@ -1006,6 +1103,7 @@ class AppStrings {
     zhHans: '标题来源',
     zhHant: '標題來源',
     ko: '제목',
+    vi: 'Title source',
   );
 
   String get contentSourceTitle => tr(
@@ -1016,6 +1114,7 @@ class AppStrings {
     zhHans: '内容来源',
     zhHant: '內容來源',
     ko: '내용',
+    vi: 'Content source',
   );
 
   String get notificationTitleOption => tr(
@@ -1026,6 +1125,7 @@ class AppStrings {
     zhHans: '通知标题',
     zhHant: '通知標題',
     ko: '알림 제목',
+    vi: 'Notification title',
   );
 
   String get appTitleOption => tr(
@@ -1036,6 +1136,7 @@ class AppStrings {
     zhHans: '应用标题',
     zhHant: '應用標題',
     ko: '앱 이름',
+    vi: 'App title',
   );
 
   String get notificationTextOption => tr(
@@ -1046,6 +1147,7 @@ class AppStrings {
     zhHans: '通知文本',
     zhHant: '通知文字',
     ko: '알림 텍스트',
+    vi: 'Notification text',
   );
 
   String get appUpdateNewVersionTitle => tr(
@@ -1056,6 +1158,7 @@ class AppStrings {
     zhHans: '有新版本可用',
     zhHant: '有新版本可用',
     ko: '새 버전 이용 가능',
+    vi: 'New version available',
   );
 
   String get appUpdateCheckingTitle => tr(
@@ -1066,6 +1169,7 @@ class AppStrings {
     zhHans: '正在检查更新',
     zhHant: '正在檢查更新',
     ko: '업데이트 확인',
+    vi: 'Checking for updates',
   );
 
   String get appUpdateAllSetTitle => tr(
@@ -1076,6 +1180,7 @@ class AppStrings {
     zhHans: '已是最新',
     zhHant: '已是最新',
     ko: '준비 완료',
+    vi: 'You’re all set',
   );
 
   String get appUpdateDownloadsSubtitle => tr(
@@ -1086,6 +1191,7 @@ class AppStrings {
     zhHans: '点按前往下载',
     zhHant: '點按前往下載',
     ko: '눌러서 다운로드',
+    vi: 'tap to go to downloads',
   );
 
   String get appUpdatePleaseWaitSubtitle => tr(
@@ -1096,6 +1202,7 @@ class AppStrings {
     zhHans: '请稍等',
     zhHant: '請稍候',
     ko: '잠시만 기다려주세요',
+    vi: 'please wait a moment',
   );
 
   String get appUpdateLatestSubtitle => tr(
@@ -1106,6 +1213,7 @@ class AppStrings {
     zhHans: '已经是最新版本',
     zhHant: '已是最新版本',
     ko: '최신 버전이 준비됨',
+    vi: 'latest version already',
   );
 
   String get appUpdateLogTitle => tr(
@@ -1116,6 +1224,7 @@ class AppStrings {
     zhHans: '更新日志',
     zhHant: '更新紀錄',
     ko: '변경된 사항',
+    vi: 'What\',
   );
 
   String get appUpdateLogLoading => tr(
@@ -1126,6 +1235,7 @@ class AppStrings {
     zhHans: '正在加载更新日志...',
     zhHant: '正在載入更新紀錄...',
     ko: '업데이트 기록을 불러오는 중',
+    vi: 'loading update log...',
   );
 
   String get appUpdateLogUnavailable => tr(
@@ -1136,6 +1246,7 @@ class AppStrings {
     zhHans: '更新日志不可用',
     zhHant: '更新紀錄無法使用',
     ko: '업데이트 기록을 확인할 수 없음',
+    vi: 'update log is not available',
   );
 
   String get visitProjectPageTitle => tr(
@@ -1146,6 +1257,7 @@ class AppStrings {
     zhHans: '访问项目页面',
     zhHant: '前往專案頁面',
     ko: '프로젝트 페이지 열기',
+    vi: 'Visit project page',
   );
 
   String get visitGithubTitle => tr(
@@ -1156,6 +1268,7 @@ class AppStrings {
     zhHans: '访问 GitHub',
     zhHant: '前往 GitHub',
     ko: 'GitHub 열기',
+    vi: 'Visit GitHub',
   );
 
   String get updateProfileNewVersionTitle => tr(
@@ -1166,6 +1279,7 @@ class AppStrings {
     zhHans: '有新版本可用',
     zhHant: '有新版本可用',
     ko: '새 버전 이용 가능',
+    vi: 'New version available',
   );
 
   String updateProfileVersionSubtitle(String current, String latest) => tr(
@@ -1176,6 +1290,7 @@ class AppStrings {
     zhHans: '$current -> $latest | 点按查看',
     zhHant: '$current -> $latest | 點按查看',
     ko: '$current -> $latest | 눌러서 보기',
+    vi: '$current -> $latest | tap to see',
   );
 
   String get updateProfileAvailableSubtitle => tr(
@@ -1186,6 +1301,7 @@ class AppStrings {
     zhHans: '有可用更新 | 点按查看',
     zhHant: '有可用更新 | 點按查看',
     ko: '업데이트 이용 가능 | 눌러서 보기',
+    vi: 'update available | tap to see',
   );
 
   String get updateProfileOpenSubtitle => tr(
@@ -1196,6 +1312,7 @@ class AppStrings {
     zhHans: '点按打开更新设置',
     zhHant: '點按開啟更新設定',
     ko: '눌러서 업데이트 설정 열기',
+    vi: 'tap to open update settings',
   );
 
   String get conversionLogTitle => tr(
@@ -1206,6 +1323,7 @@ class AppStrings {
     zhHans: '转换日志',
     zhHant: '轉換記錄',
     ko: '변환 기록',
+    vi: 'Conversion log',
   );
 
   String get logLengthTitle => tr(
@@ -1216,6 +1334,7 @@ class AppStrings {
     zhHans: '日志大小',
     zhHant: '記錄大小',
     ko: '로그 크가',
+    vi: 'Log length',
   );
 
   String get xiaomiHyperIslandTitle => tr(
@@ -1226,6 +1345,7 @@ class AppStrings {
     zhHans: '小米 HyperIsland',
     zhHant: '小米 HyperIsland',
     ko: '샤오미 HyperIsland',
+    vi: 'Xiaomi HyperIsland',
   );
 
   String get lengthTitle => tr(
@@ -1236,6 +1356,7 @@ class AppStrings {
     zhHans: '长度',
     zhHant: '長度',
     ko: '길이',
+    vi: 'Length',
   );
 
   String get otpDedupTitle => tr(
@@ -1246,6 +1367,7 @@ class AppStrings {
     zhHans: 'OTP 去重',
     zhHant: 'OTP 去重',
     ko: 'OTP 중복 제거',
+    vi: 'OTP dedup',
   );
 
   String get smartConversionDedupTitle => tr(
@@ -1256,6 +1378,7 @@ class AppStrings {
     zhHans: '智能转换去重',
     zhHant: '智慧轉換去重',
     ko: '지능형 변환 중복 제거',
+    vi: 'Smart conversion dedup',
   );
 
   String get animatedIslandRedesignTitle => tr(
@@ -1266,6 +1389,7 @@ class AppStrings {
     zhHans: '动态岛动画',
     zhHant: '動態島動畫',
     ko: '아일랜드 애니메이션',
+    vi: 'Animated Island',
   );
 
   String get updateFrequencyTitle => tr(
@@ -1276,6 +1400,7 @@ class AppStrings {
     zhHans: '更新频率',
     zhHant: '更新頻率',
     ko: '업데이트 주기',
+    vi: 'Update frequency',
   );
 
   String get copyDebugJsonTitle => tr(
@@ -1286,6 +1411,7 @@ class AppStrings {
     zhHans: '复制调试 JSON',
     zhHant: '複製偵錯 JSON',
     ko: 'debug JSON 복사',
+    vi: 'Copy debug JSON',
   );
 
   String get copyDebugJsonDescription => tr(
@@ -1297,6 +1423,7 @@ class AppStrings {
     zhHans: '复制用于问题报告的设备、权限、设置和规则状态',
     zhHant: '複製用於問題回報的裝置、權限、設定與規則狀態',
     ko: '버그 제보를 위해 기기, 권한, 설정, 규칙 상태를 복사합니다.',
+    vi: 'copies device, permission, settings, and rules state for bug reports',
   );
 
   String get openGithubPageTitle => tr(
@@ -1307,6 +1434,7 @@ class AppStrings {
     zhHans: '打开 GitHub 页面',
     zhHant: '開啟 GitHub 頁面',
     ko: 'GitHub 페이지 열기',
+    vi: 'Open GitHub page',
   );
 
   String get openGithubPageDescription => tr(
@@ -1317,6 +1445,7 @@ class AppStrings {
     zhHans: '打开用于报告问题的 GitHub Issues 页面',
     zhHant: '開啟用於回報問題的 GitHub Issues 頁面',
     ko: '버그 제보를 위해 GitHub 이슈 페이지를 엽니다.',
+    vi: 'opens the GitHub issue page for reporting bugs',
   );
 
   String get autoCopyDebugJsonTitle => tr(
@@ -1327,6 +1456,7 @@ class AppStrings {
     zhHans: '自动复制调试 JSON',
     zhHant: '自動複製偵錯 JSON',
     ko: 'debug JSON 자동 복사',
+    vi: 'Auto-copy debug JSON',
   );
 
   String get autoCopyDebugJsonDescription => tr(
@@ -1337,6 +1467,7 @@ class AppStrings {
     zhHans: '打开 GitHub 前自动复制诊断信息',
     zhHant: '開啟 GitHub 前自動複製診斷資訊',
     ko: 'GitHub를 열기 전에 분석 내용을 자동으로 복사합니다.',
+    vi: 'copies diagnostics automatically before opening GitHub',
   );
 
   String conversionLogFrom(String appLabel) => tr(
@@ -1347,6 +1478,7 @@ class AppStrings {
     zhHans: '来自 $appLabel',
     zhHant: '來自 $appLabel',
     ko: '출처: ',
+    vi: 'from $appLabel',
   );
 
   String conversionLogAt(String time) => tr(
@@ -1357,6 +1489,7 @@ class AppStrings {
     zhHans: time,
     zhHant: time,
     ko: '시간: ',
+    vi: 'at $time',
   );
 
   String get conversionLogEntryTitleLabel => tr(
@@ -1367,6 +1500,7 @@ class AppStrings {
     zhHans: '标题',
     zhHant: '標題',
     ko: '제목',
+    vi: 'Title',
   );
 
   String get payloadJsonTitle => tr(
@@ -1377,6 +1511,7 @@ class AppStrings {
     zhHans: 'Payload JSON',
     zhHant: 'Payload JSON',
     ko: 'Payload JSON',
+    vi: 'Payload JSON',
   );
 
   String get loadingApps => tr(
@@ -1387,6 +1522,7 @@ class AppStrings {
     zhHans: '正在加载应用...',
     zhHant: '正在載入應用程式...',
     ko: '앱을 불러오는 중...',
+    vi: 'loading apps...',
   );
 
   String get searchForApps => tr(
@@ -1397,6 +1533,7 @@ class AppStrings {
     zhHans: '搜索应用...',
     zhHant: '搜尋應用程式...',
     ko: '앱을 검색하는 중...',
+    vi: 'Search for apps...',
   );
 
   String get heroTitle => 'LiveBridge';
@@ -1409,6 +1546,7 @@ class AppStrings {
     zhHans: '报告问题',
     zhHant: '回報問題',
     ko: '버그 제보',
+    vi: 'Report a bug',
   );
 
   String get supportLiveBridgeTitle => tr(
@@ -1419,6 +1557,7 @@ class AppStrings {
     zhHans: '支持 LiveBridge',
     zhHant: '支持 LiveBridge',
     ko: 'LiveBridge 지원하기',
+    vi: 'Support LiveBridge',
   );
 
   String get supportIntroTitle => tr(
@@ -1429,6 +1568,7 @@ class AppStrings {
     zhHans: '让 LiveBridge 保持免费',
     zhHant: '讓 LiveBridge 保持免費',
     ko: 'LiveBridge를 무료로 유지하기',
+    vi: 'Keep LiveBridge free',
   );
 
   String get supportIntroBody => tr(
@@ -1440,6 +1580,7 @@ class AppStrings {
     zhHans: '捐赠是自愿的，不会解锁功能。它们用于测试设备和开发时间。',
     zhHant: '捐贈是自願的，不會解鎖功能。它們用於測試裝置和開發時間。',
     ko: '기부는 선택이며 별도의 기능을 해금하지 않으며 개발자의 기기 테스트 및 개발에 사용됩니다.',
+    vi: 'Donations are optional and never unlock features. They help cover testing devices and development time.',
   );
 
   String get supportBoostyTitle => tr(
@@ -1450,6 +1591,7 @@ class AppStrings {
     zhHans: 'Boosty',
     zhHant: 'Boosty',
     ko: 'Boosty',
+    vi: 'Boosty',
   );
 
   String get supportBoostySubtitle => tr(
@@ -1460,6 +1602,7 @@ class AppStrings {
     zhHans: '银行卡和定期支持',
     zhHant: '銀行卡和定期支持',
     ko: '카드 및 정기 기부',
+    vi: 'cards and recurring support',
   );
 
   String get supportCryptoTitle => tr(
@@ -1470,6 +1613,7 @@ class AppStrings {
     zhHans: '加密货币',
     zhHant: '加密貨幣',
     ko: '암호화폐',
+    vi: 'Crypto',
   );
 
   String get supportCryptoSubtitle => tr(
@@ -1480,6 +1624,7 @@ class AppStrings {
     zhHans: '复制钱包信息',
     zhHant: '複製錢包資訊',
     ko: '지갑 정보 복사하기',
+    vi: 'copy wallet details',
   );
 
   String get supportDiscussTitle => tr(
@@ -1490,6 +1635,7 @@ class AppStrings {
     zhHans: '讨论',
     zhHant: '討論',
     ko: '커뮤니티',
+    vi: 'Discuss',
   );
 
   String get supportDiscussSubtitle => tr(
@@ -1500,6 +1646,7 @@ class AppStrings {
     zhHans: 'telegram 话题',
     zhHant: 'telegram 話題',
     ko: '탤레그램 주제',
+    vi: 'telegram topics',
   );
 
   String get supportGithubTitle => tr(
@@ -1510,6 +1657,7 @@ class AppStrings {
     zhHans: 'GitHub',
     zhHant: 'GitHub',
     ko: 'GitHub',
+    vi: 'Star on GitHub',
   );
 
   String get supportGithubSubtitle => tr(
@@ -1520,6 +1668,7 @@ class AppStrings {
     zhHans: '源代码和版本发布',
     zhHant: '原始碼和版本發布',
     ko: '소스 코드 및 릴리즈',
+    vi: 'source code and releases',
   );
 
   String get supportMethodNotConfigured => tr(
@@ -1530,6 +1679,7 @@ class AppStrings {
     zhHans: '支持方式尚未配置。',
     zhHant: '支持方式尚未設定。',
     ko: '기부 수단이 아직 정해지지 않았습니다.',
+    vi: 'Support method is not configured yet.',
   );
 
   String get supportCryptoCopied => tr(
@@ -1540,6 +1690,7 @@ class AppStrings {
     zhHans: '加密货币信息已复制',
     zhHant: '加密貨幣資訊已複製',
     ko: '암호화폐 지갑 정보가 복사됨',
+    vi: 'Crypto details copied',
   );
 
   String get bugReportCopied => tr(
@@ -1550,6 +1701,7 @@ class AppStrings {
     zhHans: '诊断信息已复制到剪贴板，请粘贴到 issue 中。',
     zhHant: '診斷資訊已複製到剪貼簿，請貼到 issue。',
     ko: '분석 정보가 클립보드에 복사되었습니다. 이슈에 붙여넣어 주세요.',
+    vi: 'Diagnostics copied to clipboard. Paste it into the issue.',
   );
 
   String get bugReportCopyFailed => tr(
@@ -1560,6 +1712,7 @@ class AppStrings {
     zhHans: '复制诊断信息失败。',
     zhHant: '複製診斷資訊失敗。',
     ko: '분석 정보를 복사할 수 없습니다.',
+    vi: 'Failed to copy diagnostics.',
   );
 
   String get accessTitle => tr(
@@ -1570,6 +1723,7 @@ class AppStrings {
     zhHans: '权限',
     zhHant: '權限',
     ko: '권한',
+    vi: 'Quyền',
   );
 
   String get listenerAccess => tr(
@@ -1580,6 +1734,7 @@ class AppStrings {
     zhHans: '通知监听访问',
     zhHant: '通知監聽存取',
     ko: '알림 읽기 접근 권힌',
+    vi: 'Notification Listener access',
   );
 
   String get postNotifications => tr(
@@ -1590,6 +1745,7 @@ class AppStrings {
     zhHans: '发送通知权限',
     zhHant: '發送通知權限',
     ko: '알림 권한',
+    vi: 'Post notifications permission',
   );
 
   String get liveUpdatesAccess => tr(
@@ -1600,6 +1756,7 @@ class AppStrings {
     zhHans: 'Live Updates 推送权限',
     zhHant: 'Live Updates 推送權限',
     ko: 'Live Updates 권한',
+    vi: 'Live Updates promotion',
   );
 
   String get settingsTitle => tr(
@@ -1610,6 +1767,7 @@ class AppStrings {
     zhHans: '设置',
     zhHant: '設定',
     ko: '설정',
+    vi: 'Cài đặt',
   );
 
   String get keepAliveForegroundTitle => tr(
@@ -1620,6 +1778,7 @@ class AppStrings {
     zhHans: '备用后台模式',
     zhHant: '備用背景模式',
     ko: '대체 백그라운드 모드',
+    vi: 'Alt background mode',
   );
 
   String get networkSpeedTitle => tr(
@@ -1630,6 +1789,7 @@ class AppStrings {
     zhHans: '网速',
     zhHant: '網速',
     ko: '네트워크 속도',
+    vi: 'Network speed',
   );
 
   String get networkSpeedThresholdAlways => tr(
@@ -1640,6 +1800,7 @@ class AppStrings {
     zhHans: '始终显示',
     zhHant: '永遠顯示',
     ko: '항상 표시',
+    vi: 'Always show',
   );
 
   String get syncDndTitle => tr(
@@ -1650,6 +1811,7 @@ class AppStrings {
     zhHans: '同步勿扰',
     zhHant: '同步勿擾',
     ko: '방해금지 모드 연동하기',
+    vi: 'Sync DnD',
   );
 
   String get preventDismissingTitle => tr(
@@ -1660,6 +1822,7 @@ class AppStrings {
     zhHans: '防止通知被关闭',
     zhHant: '防止通知被關閉',
     ko: '지우기 방지',
+    vi: 'Prevent dismissing',
   );
 
   String get hideLockscreenContentTitle => tr(
@@ -1670,6 +1833,7 @@ class AppStrings {
     zhHans: '隐藏锁屏内容',
     zhHant: '隱藏鎖定畫面內容',
     ko: '잠금화면 내용 숨기기',
+    vi: 'Hide lockscreen content',
   );
 
   String get disableHintsTitle => tr(
@@ -1680,6 +1844,7 @@ class AppStrings {
     zhHans: '关闭提示',
     zhHant: '關閉提示',
     ko: '힌트 숨기기',
+    vi: 'Disable hints',
   );
 
   String get updateChecksTitle => tr(
@@ -1690,6 +1855,7 @@ class AppStrings {
     zhHans: '检查更新',
     zhHant: '檢查更新',
     ko: '업데이트 확인 중',
+    vi: 'Update checking',
   );
 
   String get updateChecksDescription => tr(
@@ -1701,6 +1867,7 @@ class AppStrings {
     zhHans: '检查 GitHub 发布，并在有新版本时显示更新卡片',
     zhHant: '檢查 GitHub 發布版本，並在有新版本時顯示更新卡片',
     ko: 'GitHub 릴리즈를 확인해서 새 버전을 이용할 수 있다면 업데이트 카드를 표시합니다.',
+    vi: 'checks GitHub releases and shows an update card when a new version is available',
   );
 
   String get experimentalTitle => tr(
@@ -1711,6 +1878,7 @@ class AppStrings {
     zhHans: '实验功能',
     zhHant: '實驗功能',
     ko: '실험실',
+    vi: 'Experimental',
   );
 
   String get aospCuttingTitle => tr(
@@ -1721,6 +1889,7 @@ class AppStrings {
     zhHans: 'AOSP 裁剪',
     zhHant: 'AOSP 裁切',
     ko: 'AOSP 자르기',
+    vi: 'AOSP cutting',
   );
 
   String get appPresentationSettings => tr(
@@ -1731,6 +1900,7 @@ class AppStrings {
     zhHans: '按应用行为',
     zhHant: '各應用行為',
     ko: '앱별 동작',
+    vi: 'Per-app behavior',
   );
 
   String get appPresentationLoadFailed => tr(
@@ -1741,6 +1911,7 @@ class AppStrings {
     zhHans: '无法加载按应用设置。',
     zhHant: '無法載入各應用設定。',
     ko: '앱별 동작을 불러올 수 없습니다.',
+    vi: 'Unable to load per-app settings.',
   );
 
   String get appPresentationSaveFailed => tr(
@@ -1751,6 +1922,7 @@ class AppStrings {
     zhHans: '无法保存按应用设置。',
     zhHant: '無法儲存各應用設定。',
     ko: '앱별 동작을 저장할 수 없습니다.',
+    vi: 'Unable to save per-app settings.',
   );
 
   String get appPresentationDownloadFailed => tr(
@@ -1761,6 +1933,7 @@ class AppStrings {
     zhHans: '保存设置 JSON 失败。',
     zhHant: '儲存設定 JSON 失敗。',
     ko: '설정 JSON을 저장할 수 없습니다.',
+    vi: 'Failed to save settings JSON.',
   );
 
   String get appPresentationSaved => tr(
@@ -1771,6 +1944,7 @@ class AppStrings {
     zhHans: '设置已保存到下载目录。',
     zhHant: '設定已儲存到下載資料夾。',
     ko: '설정을 Downloads 폴더에 저장했습니다.',
+    vi: 'Settings saved to Downloads.',
   );
 
   String get appPresentationUploadDone => tr(
@@ -1781,6 +1955,7 @@ class AppStrings {
     zhHans: '已导入按应用设置。',
     zhHant: '已匯入各應用設定。',
     ko: '앱별 설정을 성공적으로 불러왔습니다.',
+    vi: 'Per-app settings imported.',
   );
 
   String get appPresentationUploadFailed => tr(
@@ -1791,6 +1966,7 @@ class AppStrings {
     zhHans: '导入设置 JSON 失败。',
     zhHant: '匯入設定 JSON 失敗。',
     ko: '앱별 설정 JSON을 불러올 수 없습니다.',
+    vi: 'Failed to import settings JSON.',
   );
 
   String get appPresentationInvalidJson => tr(
@@ -1801,6 +1977,7 @@ class AppStrings {
     zhHans: '按应用设置 JSON 无效。',
     zhHant: '各應用設定 JSON 無效。',
     ko: '앱별 설정 JSON에 문제가 있습니다.',
+    vi: 'Invalid per-app settings JSON.',
   );
 
   String get customNotificationColorTitle => tr(
@@ -1826,6 +2003,7 @@ class AppStrings {
     zhHans: '下载设置',
     zhHant: '下載設定',
     ko: '다운로드 설정',
+    vi: 'Download settings',
   );
 
   String get uploadSettings => tr(
@@ -1836,6 +2014,7 @@ class AppStrings {
     zhHans: '上传设置',
     zhHant: '上傳設定',
     ko: '업로드 설정',
+    vi: 'Upload settings',
   );
 
   String get save => tr(
@@ -1846,6 +2025,7 @@ class AppStrings {
     zhHans: '保存',
     zhHant: '儲存',
     ko: '저장',
+    vi: 'Lưu',
   );
 
   String get appsLoadFailed => tr(
@@ -1856,6 +2036,7 @@ class AppStrings {
     zhHans: '无法加载已安装应用列表。',
     zhHant: '無法載入已安裝應用清單。',
     ko: '설치된 앱 목록을 불러올 수 없습니다.',
+    vi: 'Unable to load installed apps list.',
   );
 
   String get appsAccessTitle => tr(
@@ -1866,6 +2047,7 @@ class AppStrings {
     zhHans: '应用列表访问',
     zhHant: '應用清單存取',
     ko: '앱 목록 접근',
+    vi: 'App list access',
   );
 
   String get appsAccessMessage => tr(
@@ -1877,6 +2059,7 @@ class AppStrings {
     zhHans: '允许 LiveBridge 读取已安装应用列表，以便为规则选择应用吗？',
     zhHant: '允許 LiveBridge 讀取已安裝應用清單，以便為規則選擇應用程式嗎？',
     ko: 'LiveBridge가 설치된 앱 목록을 읽어서 앱을 규칙에 지정하시겠어요?',
+    vi: 'Allow LiveBridge to read installed apps so you can pick apps for rules?',
   );
 
   String get appsAccessSaveFailed => tr(
@@ -1887,6 +2070,7 @@ class AppStrings {
     zhHans: '无法保存访问偏好。',
     zhHant: '無法儲存存取偏好。',
     ko: '접근 설정을 저장할 수 없습니다.',
+    vi: 'Unable to save access preference.',
   );
 
   String get cancel => tr(
@@ -1897,6 +2081,7 @@ class AppStrings {
     zhHans: '取消',
     zhHant: '取消',
     ko: '취소',
+    vi: 'Huỷ',
   );
 
   String get allow => tr(
@@ -1907,6 +2092,7 @@ class AppStrings {
     zhHans: '允许',
     zhHant: '允許',
     ko: '허용',
+    vi: 'Cho phép',
   );
 
   String get appPresentationDefaultSummary => tr(
@@ -2137,6 +2323,7 @@ class AppStrings {
     zhHans: '充电信息',
     zhHant: '充電資訊',
     ko: '충전 정보',
+    vi: 'Charging information',
   );
 
   String get smartChargingInfoSubtitle => tr(
@@ -2148,6 +2335,7 @@ class AppStrings {
     zhHans: '在锁屏 Now Bar 胶囊中显示电量、充满剩余时间、充电速度和低电量提醒。',
     zhHant: '在鎖定畫面的 Now Bar 膠囊中顯示電量、充滿剩餘時間、充電速度和低電量提醒。',
     ko: '잠금 화면 Now Bar 캡슐에 배터리 잔량, 완충까지 남은 시간, 충전 속도와 배터리 부족 알림을 표시합니다.',
+    vi: 'Shows battery level, time until full, charging speed, and low-battery warnings in a lock screen Now Bar capsule.',
   );
 
   String get smartNotificationCapsuleTitle => tr(
@@ -2158,6 +2346,7 @@ class AppStrings {
     zhHans: '通知胶囊',
     zhHant: '通知膠囊',
     ko: '알림 캡슐',
+    vi: 'Notification capsule',
   );
 
   String get smartNotificationCapsuleSubtitle => tr(
@@ -2169,6 +2358,7 @@ class AppStrings {
     zhHans: '仅在锁屏显示总数和应用名称。',
     zhHant: '僅在鎖定畫面顯示總數和 App 名稱。',
     ko: '잠금 화면에 전체 개수와 앱 이름만 표시합니다.',
+    vi: 'Shows only the total count and app names on the lock screen.',
   );
 
   String get notificationCapsuleSmartTitle => tr(
@@ -2179,6 +2369,7 @@ class AppStrings {
     zhHans: '智能胶囊',
     zhHant: '智慧膠囊',
     ko: '스마트 캡슐',
+    vi: 'Smart capsule',
   );
 
   String get notificationCapsuleSmartDescription => tr(
@@ -2190,6 +2381,7 @@ class AppStrings {
     zhHans: '如果通知只来自一个应用，则显示该应用图标、名称和数量，而不是通用胶囊。',
     zhHant: '如果通知只來自一個 App，則顯示該 App 圖示、名稱和數量，而不是一般膠囊。',
     ko: '알림이 한 앱에서만 온 경우 일반 캡슐 대신 앱 아이콘, 이름, 개수를 표시합니다.',
+    vi: 'If notifications are only from one app, show that app icon, name, and count instead of the general capsule.',
   );
 
   String get notificationCapsuleClearActionTitle => tr(
@@ -2200,6 +2392,7 @@ class AppStrings {
     zhHans: 'Clear 操作',
     zhHant: 'Clear 動作',
     ko: 'Clear 동작',
+    vi: 'Clear action',
   );
 
   String get notificationCapsuleClearActionDescription => tr(
@@ -2210,6 +2403,7 @@ class AppStrings {
     zhHans: '为通知胶囊添加叉号图标和 Clear 操作。',
     zhHant: '為通知膠囊加入叉號圖示和 Clear 動作。',
     ko: '알림 캡슐에 X 아이콘과 Clear 동작을 추가합니다.',
+    vi: 'Adds a cross icon and Clear action to notification capsules.',
   );
 
   String get notificationCapsuleDisplayModeTitle => tr(
@@ -2220,6 +2414,7 @@ class AppStrings {
     zhHans: '显示模式',
     zhHant: '顯示模式',
     ko: '표시 모드',
+    vi: 'Display mode',
   );
 
   String get notificationCapsuleModeGeneralTitle => tr(
@@ -2230,6 +2425,7 @@ class AppStrings {
     zhHans: '通用胶囊',
     zhHant: '一般膠囊',
     ko: '일반 캡슐',
+    vi: 'General capsule',
   );
 
   String get notificationCapsuleModeGeneralDescription => tr(
@@ -2240,6 +2436,7 @@ class AppStrings {
     zhHans: '像以前一样显示一个总通知胶囊。',
     zhHant: '像以前一樣顯示一個總通知膠囊。',
     ko: '이전처럼 전체 알림 캡슐 하나를 표시합니다.',
+    vi: 'Show one total notification capsule like before.',
   );
 
   String get notificationCapsuleModePerAppTitle => tr(
@@ -2250,6 +2447,7 @@ class AppStrings {
     zhHans: '每个应用一个胶囊',
     zhHant: '每個 App 一個膠囊',
     ko: '앱별 캡슐',
+    vi: 'Capsule per app',
   );
 
   String get notificationCapsuleModePerAppDescription => tr(
@@ -2260,6 +2458,7 @@ class AppStrings {
     zhHans: '为每个应用创建单独胶囊，显示图标、应用名称和数量。',
     zhHant: '為每個 App 建立單獨膠囊，顯示圖示、App 名稱和數量。',
     ko: '각 앱마다 아이콘, 앱 이름, 개수가 있는 별도 캡슐을 만듭니다.',
+    vi: 'Create a separate capsule with icon, app name, and count for each app.',
   );
 
   String get notificationCapsuleExcludedAppsTitle => tr(
@@ -2270,6 +2469,7 @@ class AppStrings {
     zhHans: '排除的应用',
     zhHant: '排除的 App',
     ko: '제외한 앱',
+    vi: 'Excluded apps',
   );
 
   String get notificationCapsuleExcludedAppsDescription => tr(
@@ -2280,6 +2480,7 @@ class AppStrings {
     zhHans: '所选应用不会显示在通知胶囊中。',
     zhHant: '所選 App 不會顯示在通知膠囊中。',
     ko: '선택한 앱은 알림 캡슐에 표시되지 않습니다.',
+    vi: 'Selected apps are not shown in notification capsules.',
   );
 
   String get smartFlashlightTitle => tr(
@@ -2339,6 +2540,7 @@ class AppStrings {
     zhHans: '设备解锁时隐藏 VPN 流量。',
     zhHant: '裝置解鎖時隱藏 VPN 流量。',
     ko: '기기가 잠금 해제되어 있을 때 VPN 트래픽을 숨깁니다.',
+    vi: 'Hide VPN traffic while the device is unlocked.',
   );
 
   String get smartExternalDevicesSubtitle => tr(
@@ -2480,6 +2682,7 @@ class AppStrings {
     zhHans: '显示为普通通知',
     zhHant: '顯示為一般通知',
     ko: '일반 알림으로 표시',
+    vi: 'Show as regular notification',
   );
 
   String get networkSpeedRegularNotificationSubtitle => tr(
@@ -2491,6 +2694,7 @@ class AppStrings {
     zhHans: '将网速监视器保留在通知栏中，不提升到 Now Bar。',
     zhHant: '將網速監視器保留在通知欄中，不提升到 Now Bar。',
     ko: '속도 표시를 알림 창에만 두고 Now Bar로 올리지 않습니다.',
+    vi: 'Keep the speed monitor in the notification shade and do not promote it to Now Bar.',
   );
 
   String get networkSpeedDailyUsageTitle => tr(
@@ -2511,6 +2715,7 @@ class AppStrings {
     zhHans: '文本进度',
     zhHant: '文字進度',
     ko: '텍스트 진행률',
+    vi: 'Text progress',
   );
 
   String get nativeProgressDescription => tr(
@@ -2521,6 +2726,7 @@ class AppStrings {
     zhHans: '可用时使用 Android 通知中的进度',
     zhHant: '可用時使用 Android 通知中的進度',
     ko: '알림의 Android 진행률이 있다면 사용합니다.',
+    vi: 'uses Android progress from notifications when available',
   );
 
   String get textProgressDescription => tr(
@@ -2531,6 +2737,7 @@ class AppStrings {
     zhHans: '从通知文本中识别进度，例如 42%',
     zhHant: '從通知文字中識別進度，例如 42%',
     ko: '42%와 같은 진행률을 알림에서 인식합니다.',
+    vi: 'detects progress from notification text like 42%',
   );
 
   String get otpCodesDescription => tr(
@@ -2541,6 +2748,7 @@ class AppStrings {
     zhHans: '识别验证码并在 Live Updates 中显示',
     zhHant: '識別驗證碼並在 Live Updates 中顯示',
     ko: '인증 코드를 감지해서 Live Updates에 표시합니다.',
+    vi: 'detects verification codes and shows them in Live Updates',
   );
 
   String get autoCopyCodeDescription => tr(
@@ -2551,6 +2759,7 @@ class AppStrings {
     zhHans: '自动将识别到的 OTP 验证码复制到剪贴板',
     zhHant: '自動將識別到的 OTP 驗證碼複製到剪貼簿',
     ko: 'OTP 코드를 감지해서 자동으로 클립보드에 복사합니다.',
+    vi: 'copies detected OTP codes to clipboard automatically',
   );
 
   String get removeOriginalMessageDescription => tr(
@@ -2561,6 +2770,7 @@ class AppStrings {
     zhHans: '转换后尝试隐藏原始通知',
     zhHant: '轉換後嘗試隱藏原始通知',
     ko: '변환 후 기존 알림을 제거합니다.',
+    vi: 'tries to hide the original notification after conversion',
   );
 
   String get taxiDescription => tr(
@@ -2571,6 +2781,7 @@ class AppStrings {
     zhHans: '将打车行程状态显示为 Live Update',
     zhHant: '將計程車行程狀態顯示為 Live Update',
     ko: '택시 탑승 상태를 Live Updates에 표시합니다.',
+    vi: 'shows taxi ride state as a Live Update',
   );
 
   String get deliveriesDescription => tr(
@@ -2581,6 +2792,7 @@ class AppStrings {
     zhHans: '显示外卖和购物应用的配送进度',
     zhHant: '顯示外送與購物應用程式的配送進度',
     ko: '배달 및 쇼핑 진행 상황을 표시합니다.',
+    vi: 'shows delivery progress from food and shopping apps',
   );
 
   String get allAppsDescription => tr(
@@ -2591,6 +2803,7 @@ class AppStrings {
     zhHans: '转换所有应用中匹配的通知',
     zhHant: '轉換所有應用程式中符合條件的通知',
     ko: '모든 앱의 일치하는 알림을 변환합니다.',
+    vi: 'converts matching notifications from every app',
   );
 
   String get onlySelectedDescription => tr(
@@ -2601,6 +2814,7 @@ class AppStrings {
     zhHans: '仅转换你选择的应用通知',
     zhHant: '僅轉換你選取的應用程式通知',
     ko: '선택한 앱의 알림만 변환합니다.',
+    vi: 'converts notifications only from apps you select',
   );
 
   String get excludeSelectedDescription => tr(
@@ -2611,6 +2825,7 @@ class AppStrings {
     zhHans: '转换除所选应用之外的所有应用',
     zhHant: '轉換除所選應用程式之外的所有應用程式',
     ko: '선택한 앱의 알림만 변환하지 않습니다.',
+    vi: 'converts every app except the apps you select',
   );
 
   String get vpnsDescription => tr(
@@ -2621,6 +2836,7 @@ class AppStrings {
     zhHans: '显示活动 VPN 流量和连接状态',
     zhHant: '顯示作用中 VPN 流量與連線狀態',
     ko: '활성화된 VPN의 트래픽 및 연결 상태를 표시합니다.',
+    vi: 'shows active VPN traffic and connection state',
   );
 
   String get externalDevicesDescription => tr(
@@ -2631,6 +2847,7 @@ class AppStrings {
     zhHans: '在 Live Updates 中显示已连接的外部设备',
     zhHant: '在 Live Updates 中顯示已連接的外部裝置',
     ko: '연결된 외부 장치를 Live Updates에 표시합니다.',
+    vi: 'shows connected external devices in Live Updates',
   );
 
   String get ignoreDebuggingDevicesDescription => tr(
@@ -2641,6 +2858,7 @@ class AppStrings {
     zhHans: '隐藏 ADB 和调试设备通知',
     zhHant: '隱藏 ADB 與偵錯裝置通知',
     ko: 'ADB 및 디버깅 기기를 알림에서 숨깁니다.',
+    vi: 'hides ADB and debugging device notifications',
   );
 
   String get mediaPlaybackDescription => tr(
@@ -2652,6 +2870,7 @@ class AppStrings {
     zhHans: '在 Live Updates 中显示曲目控制和播放状态',
     zhHant: '在 Live Updates 中顯示曲目控制與播放狀態',
     ko: '미디어 제어 및 재생 상태를 Live Updates에 표시합니다.',
+    vi: 'shows track controls and playback status in Live Updates',
   );
 
   String get showMediaOnLockDescription => tr(
@@ -2662,6 +2881,7 @@ class AppStrings {
     zhHans: '允许在锁屏显示媒体 Live Updates',
     zhHant: '允許在鎖定畫面顯示媒體 Live Updates',
     ko: '미디어의 Live Updates를 잠금화면에 표시합니다.',
+    vi: 'allows media Live Updates on the lockscreen',
   );
 
   String get useSymbolsInMediaPlayerDescription => tr(
@@ -2672,6 +2892,7 @@ class AppStrings {
     zhHans: '使用 ▶、⏸、⏮ 和 ⏭ 代替文字操作',
     zhHant: '使用 ▶、⏸、⏮ 和 ⏭ 取代文字操作',
     ko: '텍스트 동작 대신에 ▶, ⏸, ⏮, ⏭를 사용합니다.',
+    vi: 'uses ▶, ⏸, ⏮ and ⏭ instead of text actions',
   );
 
   String get callsDescription => tr(
@@ -2682,6 +2903,7 @@ class AppStrings {
     zhHans: '将正在进行的通话显示为 Live Updates',
     zhHant: '將進行中的通話顯示為 Live Updates',
     ko: '진행 중인 통화를 Live Updates에 표시합니다.',
+    vi: 'shows ongoing calls as Live Updates',
   );
 
   String get navigationMapsDescription => tr(
@@ -2692,6 +2914,7 @@ class AppStrings {
     zhHans: '在 Live Updates 中显示方向和距离',
     zhHant: '在 Live Updates 中顯示方向與距離',
     ko: '방향 및 거리를 Live Updates에 표시합니다.',
+    vi: 'shows the direction and distance in Live Updates',
   );
 
   String get weatherBroadcastsDescription => tr(
@@ -2702,6 +2925,7 @@ class AppStrings {
     zhHans: '显示天气警报和预报通知',
     zhHant: '顯示天氣警報與預報通知',
     ko: '일기예보 및 날씨를 알림에 표시합니다.',
+    vi: 'shows weather alerts and forecast notifications',
   );
 
   String get appLanguageDescription => tr(
@@ -2712,6 +2936,7 @@ class AppStrings {
     zhHans: '更改 LiveBridge 界面使用的语言',
     zhHant: '變更 LiveBridge 介面使用的語言',
     ko: 'LiveBridge UI의 언어를 변경합니다.',
+    vi: 'changes the language used by LiveBridge UI',
   );
 
   String get keepAliveForegroundDescription => tr(
@@ -2722,6 +2947,7 @@ class AppStrings {
     zhHans: '为限制更严格的系统使用备用前台模式',
     zhHant: '為限制更嚴格的系統使用備用前景模式',
     ko: '엄격한 펌웨어를 사용하는 기기에서 안정적으로 작동하기 위해 대체 백그라운드 모드를 사용합니다.',
+    vi: 'uses an alternate foreground mode for stricter firmwares',
   );
 
   String get syncDndDescription => tr(
@@ -2733,6 +2959,7 @@ class AppStrings {
     zhHans: '将 Live Updates 行为与勿扰模式同步',
     zhHant: '將 Live Updates 行為與勿擾模式同步',
     ko: '방해금지 모드를 Live Updates에도 적용합니다.',
+    vi: 'syncs Live Updates behavior with Do Not Disturb',
   );
 
   String get preventDismissingDescription => tr(
@@ -2743,6 +2970,7 @@ class AppStrings {
     zhHans: '在 LiveBridge 通知被滑掉后恢复它',
     zhHant: '在 LiveBridge 通知被滑掉後恢復它',
     ko: 'LiveBridge 알림을 지웠을 때 복구합니다.',
+    vi: 'restores the LiveBridge notification after it is swiped away',
   );
 
   String get hideLockscreenContentDescription => tr(
@@ -2754,6 +2982,7 @@ class AppStrings {
     zhHans: '在锁屏上显示 Content hidden 而不是通知文本',
     zhHant: '在鎖定畫面顯示 Content hidden 而不是通知文字',
     ko: '잠금화면에 알림을 표시할 때 내용을 숨깁니다.',
+    vi: 'shows Content hidden instead of notification text on the lockscreen',
   );
 
   String get disableHintsDescription => tr(
@@ -2764,6 +2993,7 @@ class AppStrings {
     zhHans: '隐藏新版界面中的信息图标和提示弹窗',
     zhHant: '隱藏新版介面中的資訊圖示與提示彈窗',
     ko: '새로 디자인된 UI에서 정보 아이콘 및 힌트 팝업을 숨깁니다.',
+    vi: 'hides info icons and hint popovers across the redesign UI',
   );
 
   String get conversionLogDescription => tr(
@@ -2774,6 +3004,7 @@ class AppStrings {
     zhHans: '保留最近转换的通知用于调试',
     zhHant: '保留最近轉換的通知用於偵錯',
     ko: '최근에 변환된 알림을 디버깅을 위해 남깁니다.',
+    vi: 'keeps recent converted notifications for debugging',
   );
 
   String get logLengthDescription => tr(
@@ -2784,6 +3015,7 @@ class AppStrings {
     zhHans: '限制设备上保留的转换日志数据量',
     zhHant: '限制裝置上保留的轉換記錄資料量',
     ko: '기기에 어느 정도의 로그를 저장할 지 제한합니다.',
+    vi: 'limits how much conversion log data is kept on device',
   );
 
   String get networkSpeedDescription => tr(
@@ -2794,6 +3026,7 @@ class AppStrings {
     zhHans: '将当前网络流量显示为 Live Update',
     zhHant: '將目前網路流量顯示為 Live Update',
     ko: '현재 네트워크 속도를 Live Updates에 표시합니다.',
+    vi: 'shows current network traffic as a Live Update',
   );
 
   String get networkSpeedThresholdDescription => tr(
@@ -2805,6 +3038,7 @@ class AppStrings {
     zhHans: '当网速低于此阈值时隐藏网络速度 Live Update',
     zhHant: '當網速低於此門檻時隱藏網路速度 Live Update',
     ko: '네트워크 속도 제한이 기준치 미만이면 숨깁니다.',
+    vi: 'hides the network speed Live Update below this traffic level',
   );
 
   String get xiaomiHyperIslandDescription => tr(
@@ -2816,6 +3050,7 @@ class AppStrings {
     zhHans: '启用 Xiaomi HyperIsland 专用的 Live Updates 行为',
     zhHant: '啟用 Xiaomi HyperIsland 專用的 Live Updates 行為',
     ko: '샤오미 HyperIsland 형식의 Live Updates를 활성화합니다.',
+    vi: 'enables Xiaomi HyperIsland-specific Live Updates behavior',
   );
 
   String get aospCuttingDescription => tr(
@@ -2827,6 +3062,7 @@ class AppStrings {
     zhHans: '在会截断长内容的类 AOSP 系统上缩短岛内文本',
     zhHant: '在會截斷長內容的類 AOSP 系統上縮短島內文字',
     ko: '긴 내용을 자르는 AOSP 기반 펌웨어를 위해 텍스트를 제한합니다.',
+    vi: 'shortens island text on AOSP-like firmwares that clip long content',
   );
 
   String get aospCuttingLengthDescription => tr(
@@ -2837,6 +3073,7 @@ class AppStrings {
     zhHans: '设置 AOSP 截断模式下岛内文本的最大长度',
     zhHant: '設定 AOSP 截斷模式下島內文字的最大長度',
     ko: 'AOSP 잘림을 막기 위해 최대 아일랜드 길이를 설정합니다.',
+    vi: 'sets the maximum island text length for AOSP cutting',
   );
 
   String get updateFrequencyDescription => tr(
@@ -2848,6 +3085,7 @@ class AppStrings {
     zhHans: '控制动画岛文本帧的刷新频率',
     zhHant: '控制動畫島文字影格的刷新頻率',
     ko: '아일랜드 애니메이션의 갱신 주기를 설정합니다.',
+    vi: 'controls how often animated island text frames are refreshed',
   );
 
   String get otpDedupDescription => tr(
@@ -2858,6 +3096,7 @@ class AppStrings {
     zhHans: '减少同一来源的重复 OTP 通知',
     zhHant: '減少同一來源的重複 OTP 通知',
     ko: '동일 출처에서의 중복 OTP를 줄입니다.',
+    vi: 'reduces repeated OTP notifications from the same source',
   );
 
   String get smartConversionDedupDescription => tr(
@@ -2868,6 +3107,7 @@ class AppStrings {
     zhHans: '减少重复的智能转换通知',
     zhHant: '減少重複的智慧轉換通知',
     ko: '반복되는 스마트 변환 알림을 줄입니다.',
+    vi: 'reduces repeated smart conversion notifications',
   );
 
   String get animatedIslandDescription => tr(
@@ -2879,5 +3119,6 @@ class AppStrings {
     zhHans: '为支持的转换添加流畅的岛内文本动画',
     zhHant: '為支援的轉換加入流暢的島內文字動畫',
     ko: '지원되는 변환에서 자연스러운 아일랜드 텍스트 애니메이션을 추가합니다.',
+    vi: 'adds smooth island text animations for supported conversions',
   );
 }

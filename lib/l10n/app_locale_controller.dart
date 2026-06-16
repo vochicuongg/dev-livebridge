@@ -41,6 +41,11 @@ const List<AppLanguageOption> appLanguageOptions = <AppLanguageOption>[
     label: '한국어',
     locale: Locale('ko'),
   ),
+  AppLanguageOption(
+    id: 'vi',
+    label: 'Tiếng Việt',
+    locale: Locale('vi'),
+  ),
 ];
 
 final ValueNotifier<Locale?> appLocaleOverrideNotifier = ValueNotifier<Locale?>(

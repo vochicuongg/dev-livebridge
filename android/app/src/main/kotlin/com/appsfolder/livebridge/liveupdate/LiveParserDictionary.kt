@@ -626,7 +626,8 @@ internal object LiveParserDictionaryLoader {
         DictionaryLanguagePack("en", "liveupdate_dictionary_en.json"),
         DictionaryLanguagePack("ru", "liveupdate_dictionary_ru.json"),
         DictionaryLanguagePack("zh", "liveupdate_dictionary_zh.json"),
-        DictionaryLanguagePack("ko", "liveupdate_dictionary_ko.json")
+        DictionaryLanguagePack("ko", "liveupdate_dictionary_ko.json"),
+        DictionaryLanguagePack("vi", "liveupdate_dictionary_vi.json")
     )
 
     @Volatile
