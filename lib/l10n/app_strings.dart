@@ -77,7 +77,7 @@ class AppStrings {
     zhHans: '通知权限已授予。',
     zhHant: '通知權限已授予。',
     ko: '알림 권한이 부여되었습니다.',
-    vi: 'Notification permission granted.',
+    vi: 'Đã cấp quyền thông báo.',
   );
 
   String get permissionDenied => tr(
@@ -88,7 +88,7 @@ class AppStrings {
     zhHans: '未授予通知权限。',
     zhHant: '未授予通知權限。',
     ko: '알림 권한이 부여되지 않았습니다.',
-    vi: 'Notification permission was not granted.',
+    vi: 'Quyền thông báo bị từ chối.',
   );
 
   String get listenerUnavailable => tr(
@@ -100,7 +100,7 @@ class AppStrings {
     zhHans: '此设备无法打开监听器设置。',
     zhHant: '此裝置無法開啟監聽器設定。',
     ko: '기기의 알림 읽기 설정을 열 수 없습니다.',
-    vi: 'Unable to open Listener settings on this device.',
+    vi: 'Không thể mở cài đặt Listener trên thiết bị này.',
   );
 
   String get notificationsUnavailable => tr(
@@ -111,7 +111,7 @@ class AppStrings {
     zhHans: '无法打开应用通知设置。',
     zhHant: '無法開啟應用通知設定。',
     ko: '앱 알림 설정을 열 수 없습니다.',
-    vi: 'Unable to open app notification settings.',
+    vi: 'Không thể mở cài đặt thông báo ứng dụng.',
   );
 
   String get liveUpdatesUnavailable => tr(
@@ -123,7 +123,7 @@ class AppStrings {
     zhHans: '此设备无法打开 Live Updates 设置。',
     zhHant: '此裝置無法開啟 Live Updates 設定。',
     ko: '기기의 Live Updates 설정을 열 수 없습니다.',
-    vi: 'Unable to open Live Updates settings on this device.',
+    vi: 'Không thể mở cài đặt Live Updates trên thiết bị này.',
   );
 
   String get githubOpenFailed => tr(
@@ -134,7 +134,7 @@ class AppStrings {
     zhHans: '无法打开 GitHub 链接。',
     zhHant: '無法開啟 GitHub 連結。',
     ko: 'GitHub 링크를 열 수 없습니다',
-    vi: 'Unable to open GitHub link.',
+    vi: 'Không thể mở liên kết GitHub.',
   );
 
   String get linkOpenFailed => tr(
@@ -145,7 +145,7 @@ class AppStrings {
     zhHans: '无法打开链接。',
     zhHant: '無法開啟連結。',
     ko: '링크를 열 수 없습니다.',
-    vi: 'Unable to open link.',
+    vi: 'Không thể mở liên kết.',
   );
 
   String get updateCheckFailed => tr(
@@ -156,7 +156,7 @@ class AppStrings {
     zhHans: '无法检查更新。请尝试关闭 VPN。',
     zhHant: '無法檢查更新。請嘗試關閉 VPN。',
     ko: '업데이트를 확인할 수 없습니다. VPN을 비활성화 해보세요.',
-    vi: 'Unable to check updates. Try disabling VPN.',
+    vi: 'Không thể kiểm tra cập nhật. Hãy thử tắt VPN.',
   );
 
   String get dictionaryEmpty => tr(
@@ -167,7 +167,7 @@ class AppStrings {
     zhHans: '词典为空或无效。',
     zhHant: '字典為空或無效。',
     ko: '사전이 비어있거나 문제가 있습니다.',
-    vi: 'Dictionary is empty or invalid.',
+    vi: 'Từ điển trống hoặc không hợp lệ.',
   );
 
   String get dictionaryUpdateDone => tr(
@@ -178,7 +178,7 @@ class AppStrings {
     zhHans: '词典已从 GitHub 更新。',
     zhHant: '字典已從 GitHub 更新。',
     ko: 'GitHub를 통해 사전을 업데이트했습니다.',
-    vi: 'Dictionary updated from GitHub.',
+    vi: 'Đã cập nhật từ điển từ GitHub.',
   );
 
   String get dictionaryInvalid => tr(
@@ -189,7 +189,7 @@ class AppStrings {
     zhHans: '词典 JSON 无效。',
     zhHant: '字典 JSON 無效。',
     ko: '사전 JSON에 문제가 있습니다.',
-    vi: 'Invalid dictionary JSON.',
+    vi: 'JSON từ điển không hợp lệ.',
   );
 
   String get dictionaryUpdateFailed => tr(
@@ -200,7 +200,7 @@ class AppStrings {
     zhHans: '从 GitHub 更新词典失败。',
     zhHant: '從 GitHub 更新字典失敗。',
     ko: 'GitHub에서 사전을 업데이트할 수 없습니다.',
-    vi: 'Failed to update dictionary from GitHub.',
+    vi: 'Không thể cập nhật từ điển từ GitHub.',
   );
 
   String get dictionaryTitle => tr(
@@ -211,7 +211,7 @@ class AppStrings {
     zhHans: '词典',
     zhHant: '字典',
     ko: '사전',
-    vi: 'Dictionary',
+    vi: 'Từ điển',
   );
 
   String get dictionaryManageSubtitle => tr(
@@ -222,7 +222,7 @@ class AppStrings {
     zhHans: '点按以管理',
     zhHant: '點按以管理',
     ko: '눌러서 관리하기',
-    vi: 'tap to manage',
+    vi: 'chạm để quản lý',
   );
 
   String get dictionaryLanguagesTitle => tr(
@@ -233,7 +233,7 @@ class AppStrings {
     zhHans: '词典语言',
     zhHant: '字典語言',
     ko: '사전 언어',
-    vi: 'Dictionary languages',
+    vi: 'Ngôn ngữ từ điển',
   );
 
   String get dictionaryLanguagesSubtitle => tr(
@@ -244,7 +244,7 @@ class AppStrings {
     zhHans: '点按以选择',
     zhHant: '點按以選擇',
     ko: '눌러서 선택하기',
-    vi: 'tap to choose',
+    vi: 'chạm để chọn',
   );
 
   String get dictionaryLanguagesPickerTitle => tr(
@@ -255,7 +255,7 @@ class AppStrings {
     zhHans: '选择用于转换的语言',
     zhHant: '選擇用於轉換的語言',
     ko: '변환용 언어 선택',
-    vi: 'Select languages for conversion',
+    vi: 'Chọn ngôn ngữ để chuyển đổi',
   );
 
   String get dictionaryUpdateAction => tr(
@@ -266,7 +266,7 @@ class AppStrings {
     zhHans: '更新词典',
     zhHant: '更新字典',
     ko: '사전 업데이트',
-    vi: 'Update dictionaries',
+    vi: 'Cập nhật từ điển',
   );
 
   String get dictionaryUpdateDescription => tr(
@@ -278,7 +278,7 @@ class AppStrings {
     zhHans: '下载已启用语言的最新解析词典',
     zhHant: '下載已啟用語言的最新解析字典',
     ko: '활성화된 언어들의 최신 파싱 사전을 다운로드합니다.',
-    vi: 'downloads the latest parser dictionaries for enabled languages',
+    vi: 'tải xuống từ điển phân tích mới nhất cho các ngôn ngữ đã bật',
   );
 
   String get dictionaryEditorTitle => tr(
@@ -289,7 +289,7 @@ class AppStrings {
     zhHans: '词典编辑器',
     zhHant: '字典編輯器',
     ko: '사전 편집기',
-    vi: 'Dictionary editor',
+    vi: 'Trình chỉnh sửa từ điển',
   );
 
   String get dictionaryEditorDescription => tr(
@@ -300,7 +300,7 @@ class AppStrings {
     zhHans: '应用内词典编辑会稍后添加',
     zhHant: '應用程式內字典編輯稍後會加入',
     ko: '앱 내 사전 편집기는 지원 예정입니다.',
-    vi: 'in-app dictionary editing will be added later',
+    vi: 'tính năng chỉnh sửa từ điển trong ứng dụng sẽ được thêm sau',
   );
 
   String get dictionaryComingSoon => tr(
@@ -311,7 +311,7 @@ class AppStrings {
     zhHans: '（即将推出）',
     zhHant: '（即將推出）',
     ko: '(지원 예정)',
-    vi: '(coming soon)',
+    vi: '(sắp ra mắt)',
   );
 
   String get navHome => tr(
@@ -1224,7 +1224,7 @@ class AppStrings {
     zhHans: '更新日志',
     zhHant: '更新紀錄',
     ko: '변경된 사항',
-    vi: 'What\',
+    vi: 'Có gì mới',
   );
 
   String get appUpdateLogLoading => tr(
@@ -2003,7 +2003,7 @@ class AppStrings {
     zhHans: '下载设置',
     zhHant: '下載設定',
     ko: '다운로드 설정',
-    vi: 'Download settings',
+    vi: 'Tải xuống cài đặt',
   );
 
   String get uploadSettings => tr(
@@ -2014,7 +2014,7 @@ class AppStrings {
     zhHans: '上传设置',
     zhHant: '上傳設定',
     ko: '업로드 설정',
-    vi: 'Upload settings',
+    vi: 'Tải lên cài đặt',
   );
 
   String get save => tr(
@@ -2036,7 +2036,7 @@ class AppStrings {
     zhHans: '无法加载已安装应用列表。',
     zhHant: '無法載入已安裝應用清單。',
     ko: '설치된 앱 목록을 불러올 수 없습니다.',
-    vi: 'Unable to load installed apps list.',
+    vi: 'Không thể tải danh sách ứng dụng đã cài đặt.',
   );
 
   String get appsAccessTitle => tr(
@@ -2047,7 +2047,7 @@ class AppStrings {
     zhHans: '应用列表访问',
     zhHant: '應用清單存取',
     ko: '앱 목록 접근',
-    vi: 'App list access',
+    vi: 'Quyền truy cập danh sách ứng dụng',
   );
 
   String get appsAccessMessage => tr(
@@ -2059,7 +2059,7 @@ class AppStrings {
     zhHans: '允许 LiveBridge 读取已安装应用列表，以便为规则选择应用吗？',
     zhHant: '允許 LiveBridge 讀取已安裝應用清單，以便為規則選擇應用程式嗎？',
     ko: 'LiveBridge가 설치된 앱 목록을 읽어서 앱을 규칙에 지정하시겠어요?',
-    vi: 'Allow LiveBridge to read installed apps so you can pick apps for rules?',
+    vi: 'Cho phép LiveBridge đọc danh sách ứng dụng để bạn có thể chọn ứng dụng cho quy tắc?',
   );
 
   String get appsAccessSaveFailed => tr(
@@ -2070,7 +2070,7 @@ class AppStrings {
     zhHans: '无法保存访问偏好。',
     zhHant: '無法儲存存取偏好。',
     ko: '접근 설정을 저장할 수 없습니다.',
-    vi: 'Unable to save access preference.',
+    vi: 'Không thể lưu tùy chọn truy cập.',
   );
 
   String get cancel => tr(
