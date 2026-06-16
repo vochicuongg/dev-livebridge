@@ -1,0 +1,30 @@
+name: livebridge
+description: "Bridge regular Android notifications into Live Updates."
+publish_to: "none"
+version: 2.1.4+12129
+
+environment:
+  sdk: ^3.9.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  file_picker: ^10.2.0
+  url_launcher: ^6.3.2
+  ming_cute_icons: ^0.0.7
+
+dev_dependencies:
+  flutter_launcher_icons: ^0.14.4
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/icons/icon-master.png
+  fonts:
+    - family: SfProRounded
+      fonts:
+        - asset: assets/fonts/SF-Compact-Rounded-Medium.otf
+          weight: 500

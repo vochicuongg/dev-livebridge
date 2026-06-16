@@ -1,0 +1,125 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission
+        android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"
+    />
+    <uses-permission
+        android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"
+    />
+    <uses-permission
+        android:name="android.permission.POST_PROMOTED_NOTIFICATIONS"
+    />
+
+    <application
+        android:label="LiveBridge"
+        android:name="${applicationName}"
+        android:icon="@mipmap/launcher_icon"
+        android:roundIcon="@mipmap/launcher_icon"
+        android:enableOnBackInvokedCallback="true"
+    >
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:theme="@style/LaunchTheme"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize"
+        >
+            <meta-data
+                android:name="io.flutter.embedding.android.NormalTheme"
+                android:resource="@style/NormalTheme"
+            />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <service
+            android:name=".liveupdate.LiveUpdateNotificationListenerService"
+            android:exported="false"
+            android:label="LiveBridge Notification Listener"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+        >
+            <intent-filter>
+                <action
+                    android:name="android.service.notification.NotificationListenerService"
+                />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".liveupdate.KeepAliveForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse"
+        >
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps LiveBridge alive for notification listener stability"
+            />
+        </service>
+
+        <service
+            android:name=".liveupdate.NetworkSpeedForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"
+        />
+
+        <service
+            android:name=".liveupdate.FlashlightForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse"
+        >
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps flashlight active and mirrors a segmented control in a Now Bar test notification"
+            />
+        </service>
+
+        <service
+            android:name=".liveupdate.LiveBridgeTileService"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:exported="true"
+            android:icon="@drawable/ic_stat_liveupdate"
+            android:label="LiveBridge"
+        >
+            <intent-filter>
+                <action
+                    android:name="android.service.quicksettings.action.QS_TILE"
+                />
+            </intent-filter>
+        </service>
+
+        <receiver
+            android:name=".liveupdate.OtpCopyReceiver"
+            android:exported="false"
+        />
+        <receiver
+            android:name=".liveupdate.NotificationCapsuleActionReceiver"
+            android:exported="false"
+        />
+
+        <meta-data
+            android:name="com.samsung.android.support.ongoing_activity"
+            android:value="true"
+        />
+        <meta-data android:name="flutterEmbedding" android:value="2" />
+    </application>
+
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT" />
+            <data android:mimeType="text/plain" />
+        </intent>
+    </queries>
+</manifest>
