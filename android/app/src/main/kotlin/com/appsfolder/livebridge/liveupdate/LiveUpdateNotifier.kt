@@ -262,6 +262,9 @@ object LiveUpdateNotifier {
     private val sourceSnapshotsByMirrorKey = mutableMapOf<String, StatusBarNotification>()
     private val userDismissedMirrorKeys = mutableSetOf<String>()
     private val programmaticMirrorCancelDeadlines = mutableMapOf<Int, Long>()
+    
+    // Chat History Cache: Stores conversation history to preserve messages across notification updates
+    private val conversationHistoryCache = java.util.concurrent.ConcurrentHashMap<String, MutableList<NotificationCompat.MessagingStyle.Message>>()
     private val notificationCapsuleIds = mutableSetOf<Int>()
     private var chargingInfoDelayScheduled = false
     private var chargingInfoDelayGeneration = 0L
@@ -339,6 +342,147 @@ object LiveUpdateNotifier {
             iconRes = R.drawable.ic_charging_double_bolt,
             color = CHARGING_INFO_SUPER_FAST_2_COLOR
         )
+    }
+
+    /**
+     * Maximum number of messages to keep in chat history cache
+     */
+    private const val MAX_CHAT_HISTORY_MESSAGES = 7
+
+    /**
+     * Builds chat history with cached messages to preserve conversation across updates.
+     * 
+     * @param messagingStyle The MessagingStyle extracted from notification
+     * @param sourcePackageName Package name of the source app (e.g., "com.zing.zalo")
+     * @param conversationTitle Title of the conversation thread
+     * @return Formatted chat history as CharSequence with bold sender names
+     */
+    private fun buildChatHistory(
+        messagingStyle: NotificationCompat.MessagingStyle,
+        sourcePackageName: String,
+        conversationTitle: CharSequence?
+    ): CharSequence {
+        // Create unique thread key based on package name and conversation title
+        val threadKey = "${sourcePackageName}_${conversationTitle?.toString().orEmpty()}"
+        
+        // Get or create history list for this conversation
+        val historyList = conversationHistoryCache.getOrPut(threadKey) { mutableListOf() }
+        
+        // Merge new messages from MessagingStyle into cache
+        val newMessages = messagingStyle.messages ?: emptyList()
+        for (message in newMessages) {
+            // Check for duplicates based on timestamp and text content
+            val isDuplicate = historyList.any { cached ->
+                cached.timestamp == message.timestamp && 
+                cached.text?.toString() == message.text?.toString()
+            }
+            
+            if (!isDuplicate) {
+                historyList.add(message)
+            }
+        }
+        
+        // Keep only the 7 most recent messages
+        val recentMessages = if (historyList.size > MAX_CHAT_HISTORY_MESSAGES) {
+            historyList.takeLast(MAX_CHAT_HISTORY_MESSAGES)
+        } else {
+            historyList
+        }
+        
+        // Update cache with trimmed list
+        conversationHistoryCache[threadKey] = recentMessages.toMutableList()
+        
+        // Build formatted chat history using SpannableStringBuilder
+        val chatHistory = android.text.SpannableStringBuilder()
+        recentMessages.forEachIndexed { index, message ->
+            appendMessageToHistory(
+                chatHistory = chatHistory,
+                message = message,
+                messagingStyle = messagingStyle,
+                isFirstMessage = index == 0
+            )
+        }
+        
+        return chatHistory.trim()
+    }
+
+    /**
+     * Appends a single message to the chat history with formatting.
+     * Sender names are displayed in bold.
+     * 
+     * @param chatHistory The SpannableStringBuilder to append to
+     * @param message The message to append
+     * @param messagingStyle MessagingStyle for extracting sender info
+     * @param isFirstMessage Whether this is the first message (affects newlines)
+     */
+    private fun appendMessageToHistory(
+        chatHistory: android.text.SpannableStringBuilder,
+        message: NotificationCompat.MessagingStyle.Message,
+        messagingStyle: NotificationCompat.MessagingStyle,
+        isFirstMessage: Boolean
+    ) {
+        // Add double newline between messages (except for the first one)
+        if (!isFirstMessage) {
+            chatHistory.append("\n\n")
+        }
+        
+        // Extract sender name
+        val senderName = extractSenderName(message, messagingStyle)
+        
+        // Record start position for bold styling
+        val senderStartPos = chatHistory.length
+        
+        // Append sender name
+        chatHistory.append(senderName)
+        
+        // Record end position for bold styling
+        val senderEndPos = chatHistory.length
+        
+        // Apply BOLD style to sender name
+        chatHistory.setSpan(
+            android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
+            senderStartPos,
+            senderEndPos,
+            android.text.SpannableStringBuilder.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
+        
+        // Append message text
+        chatHistory.append(": ")
+        chatHistory.append(message.text ?: "")
+    }
+
+    /**
+     * Extracts the sender name from a message.
+     * Falls back to "Unknown" if no sender information is available.
+     * 
+     * @param message The message to extract sender from
+     * @param messagingStyle MessagingStyle for fallback user name
+     * @return Sender name as String
+     */
+    private fun extractSenderName(
+        message: NotificationCompat.MessagingStyle.Message,
+        messagingStyle: NotificationCompat.MessagingStyle
+    ): String {
+        // Try to get person name from message
+        message.person?.name?.toString()?.let { return it }
+        
+        // Fallback to user name from MessagingStyle (for own messages)
+        messagingStyle.user?.name?.toString()?.let { return it }
+        
+        // Final fallback
+        return "Unknown"
+    }
+
+    /**
+     * Clears chat history cache for a specific conversation.
+     * Should be called when notification is dismissed or cleared.
+     * 
+     * @param sourcePackageName Package name of the source app
+     * @param conversationTitle Title of the conversation thread
+     */
+    private fun clearChatHistoryCache(sourcePackageName: String, conversationTitle: CharSequence?) {
+        val threadKey = "${sourcePackageName}_${conversationTitle?.toString().orEmpty()}"
+        conversationHistoryCache.remove(threadKey)
     }
 
     fun ensureChannel(context: Context) {
@@ -449,6 +593,8 @@ object LiveUpdateNotifier {
             appIconCache.clear()
             missingAppIconPackages.clear()
         }
+        // Clear all chat history cache entries
+        conversationHistoryCache.clear()
     }
 
     fun cancelAllMirrored(context: Context) {
@@ -2503,6 +2649,12 @@ object LiveUpdateNotifier {
             }
             staleAggregateIds.forEach { cancelMirroredNotification(manager, it) }
             cancelMirroredNotification(manager, mirrorIdForKey(sbn.key))
+
+            // Clear chat history cache for this source package to free memory
+            val packagePrefix = "${sbn.packageName}_"
+            conversationHistoryCache.keys
+                .filter { it.startsWith(packagePrefix) }
+                .forEach { conversationHistoryCache.remove(it) }
         } catch (error: Throwable) {
             Log.e(TAG, "Failed to cancel mirrored notification: ${sbn.key}", error)
         }
@@ -4092,7 +4244,31 @@ object LiveUpdateNotifier {
                 )
             )
         } else {
-            builder.setStyle(NotificationCompat.BigTextStyle().bigText(callMirrorBodyText ?: text))
+            // Try to extract MessagingStyle for chat history caching
+            val chatHistoryText: CharSequence? = if (callMirrorBodyText == null) {
+                try {
+                    NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(source)
+                        ?.let { messagingStyle ->
+                            buildChatHistory(
+                                messagingStyle = messagingStyle,
+                                sourcePackageName = sbn.packageName,
+                                conversationTitle = messagingStyle.conversationTitle
+                                    ?: source.extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
+                                    ?: source.extras.getCharSequence(Notification.EXTRA_TITLE)
+                            )
+                        }
+                        ?.takeIf { it.isNotBlank() }
+                } catch (_: Throwable) {
+                    null
+                }
+            } else {
+                null
+            }
+            builder.setStyle(
+                NotificationCompat.BigTextStyle().bigText(
+                    callMirrorBodyText ?: chatHistoryText ?: text
+                )
+            )
         }
         if (smartShortTextOverride != null && !hasProgress && smartRuleId != "vpn") {
             if (!preferSmartShortTextAsPrimary) {
