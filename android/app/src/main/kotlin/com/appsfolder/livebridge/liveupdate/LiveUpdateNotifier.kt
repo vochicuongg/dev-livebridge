@@ -4244,44 +4244,39 @@ object LiveUpdateNotifier {
                 )
             )
         } else {
-            // Try to extract MessagingStyle for chat history caching
-            val chatHistoryText: CharSequence? = if (callMirrorBodyText == null) {
-                try {
-                    NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(source)
-                        ?.let { messagingStyle ->
-                            buildChatHistory(
-                                messagingStyle = messagingStyle,
-                                sourcePackageName = sbn.packageName,
-                                conversationTitle = messagingStyle.conversationTitle
-                                    ?: source.extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
-                                    ?: source.extras.getCharSequence(Notification.EXTRA_TITLE)
-                            )
-                        }
-                        ?.takeIf { it.isNotBlank() }
-                } catch (_: Throwable) {
-                    null
-                }
-            } else {
-                null
-            }
-            if (chatHistoryText != null || callMirrorBodyText != null) {
-                // MessagingStyle or call mirror: use chat history / call body as BigTextStyle
+            val messagingStyle = runCatching {
+                NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(source)
+            }.getOrNull()
+
+            if (messagingStyle != null) {
+                val conversationTitle = messagingStyle.conversationTitle
+                    ?: source.extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
+                    ?: displayTitle.takeIf { it.isNotBlank() }
+                val messagingTitle = conversationTitle
+                    ?.toString()
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+                    ?.let { "[$appName] $it" }
+                    ?: "[$appName]"
+                val chatHistoryText = buildChatHistory(
+                    messagingStyle = messagingStyle,
+                    sourcePackageName = sbn.packageName,
+                    conversationTitle = conversationTitle
+                ).takeIf { it.isNotBlank() }
+
+                builder.setContentTitle(messagingTitle)
                 builder.setStyle(
                     NotificationCompat.BigTextStyle().bigText(
-                        callMirrorBodyText ?: chatHistoryText ?: text
+                        chatHistoryText ?: text
                     )
                 )
+                addReplyActionIfNotAlreadyCopied(
+                    source = source,
+                    builder = builder,
+                    copiedActionLimit = MAX_MIRRORED_ACTIONS
+                )
             } else {
-                // Fallback for non-messaging apps:
-                // Extract original Title/Text safely from notification extras
-                val originalTitle = sbn.notification.extras.getCharSequence(Notification.EXTRA_TITLE) ?: ""
-                val originalText = sbn.notification.extras.getCharSequence(Notification.EXTRA_TEXT) ?: ""
-                val originalBigText = sbn.notification.extras.getCharSequence(Notification.EXTRA_BIG_TEXT) ?: originalText
-
-                // Set all three to ensure Wear OS shows text in both collapsed and expanded views
-                builder.setContentTitle("[$appName] $originalTitle")
-                builder.setContentText(originalText)  // Required for Wear OS glance/collapsed view
-                builder.setStyle(NotificationCompat.BigTextStyle().bigText(originalBigText))  // For expanded view
+                builder.setStyle(NotificationCompat.BigTextStyle().bigText(text))
             }
         }
         if (smartShortTextOverride != null && !hasProgress && smartRuleId != "vpn") {
@@ -7211,6 +7206,23 @@ object LiveUpdateNotifier {
         }
     }
 
+    private fun addReplyActionIfNotAlreadyCopied(
+        source: Notification,
+        builder: NotificationCompat.Builder,
+        copiedActionLimit: Int
+    ) {
+        val actions = source.actions ?: return
+        val safeCopiedLimit = copiedActionLimit.coerceAtLeast(0)
+        val replyAction = actions
+            .drop(safeCopiedLimit)
+            .firstOrNull { action ->
+                !action.remoteInputs.isNullOrEmpty() && action.actionIntent != null
+            }
+            ?: return
+        val compatAction = toCompatAction(replyAction) ?: return
+        builder.addAction(compatAction)
+    }
+
     private fun selectPreferredMediaActions(
         actions: List<Notification.Action>,
         isPlaying: Boolean?,
@@ -8232,4 +8244,5 @@ object LiveUpdateNotifier {
         val code: String,
         val aggregateKey: String
     )
+
 }
