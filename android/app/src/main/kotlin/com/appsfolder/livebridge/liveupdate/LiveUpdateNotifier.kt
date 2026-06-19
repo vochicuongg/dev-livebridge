@@ -4264,11 +4264,25 @@ object LiveUpdateNotifier {
             } else {
                 null
             }
-            builder.setStyle(
-                NotificationCompat.BigTextStyle().bigText(
-                    callMirrorBodyText ?: chatHistoryText ?: text
+            if (chatHistoryText != null || callMirrorBodyText != null) {
+                // MessagingStyle or call mirror: use chat history / call body as BigTextStyle
+                builder.setStyle(
+                    NotificationCompat.BigTextStyle().bigText(
+                        callMirrorBodyText ?: chatHistoryText ?: text
+                    )
                 )
-            )
+            } else {
+                // Fallback for non-messaging apps:
+                // Extract original Title/Text safely from notification extras
+                val originalTitle = sbn.notification.extras.getCharSequence(Notification.EXTRA_TITLE) ?: ""
+                val originalText = sbn.notification.extras.getCharSequence(Notification.EXTRA_TEXT) ?: ""
+                val originalBigText = sbn.notification.extras.getCharSequence(Notification.EXTRA_BIG_TEXT) ?: originalText
+
+                // Set all three to ensure Wear OS shows text in both collapsed and expanded views
+                builder.setContentTitle("[$appName] $originalTitle")
+                builder.setContentText(originalText)  // Required for Wear OS glance/collapsed view
+                builder.setStyle(NotificationCompat.BigTextStyle().bigText(originalBigText))  // For expanded view
+            }
         }
         if (smartShortTextOverride != null && !hasProgress && smartRuleId != "vpn") {
             if (!preferSmartShortTextAsPrimary) {
