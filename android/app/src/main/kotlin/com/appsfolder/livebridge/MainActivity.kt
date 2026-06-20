@@ -791,6 +791,37 @@ class MainActivity : FlutterActivity() {
                 res.success(true)
             }
 
+            "isBatteryOptimizationExempt" -> res.success(
+                KeepAliveForegroundService.isBatteryOptimizationExempt(applicationContext)
+            )
+            "requestBatteryOptimizationExemption" -> {
+                val intent = KeepAliveForegroundService
+                    .buildBatteryOptimizationExemptionIntent(applicationContext)
+                if (intent != null) {
+                    try {
+                        startActivity(intent)
+                        res.success(true)
+                    } catch (e: ActivityNotFoundException) {
+                        Log.e(TAG, "Cannot open battery optimization settings", e)
+                        res.success(false)
+                    }
+                } else {
+                    // Already exempt or intent not available
+                    res.success(false)
+                }
+            }
+
+            "getListenerWatchdogStatus" -> {
+                val alive = LiveUpdateNotificationListenerService.isListenerAlive(30_000L)
+                val lastHeartbeat = LiveUpdateNotificationListenerService.lastHeartbeatMs
+                val map = HashMap<String, Any>()
+                map["alive"] = alive
+                map["lastHeartbeatMs"] = lastHeartbeat
+                map["batteryOptimizationExempt"] =
+                    KeepAliveForegroundService.isBatteryOptimizationExempt(applicationContext)
+                res.success(map)
+            }
+
             else -> res.notImplemented()
         }
     }

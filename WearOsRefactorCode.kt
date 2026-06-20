@@ -173,8 +173,6 @@ private fun applyWearOsSourcePresentation(
 
     sourceLargeIcon?.let(builder::setLargeIcon)
 
-    builder.addExtras(Bundle(source.extras))
-
     // ============================================================
     // WEAR OS SMALL ICON FIX: Rasterize to Bitmap to bypass
     // cross-package resource loading restrictions

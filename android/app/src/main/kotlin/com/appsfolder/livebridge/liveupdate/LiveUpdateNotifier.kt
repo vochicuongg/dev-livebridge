@@ -4244,10 +4244,39 @@ object LiveUpdateNotifier {
                     aospCuttingLength
                 )
             )
+        } else if (sourcePackageNameLower.contains("zalo")) {
+            val resolvedText = text.trim().takeIf { it.isNotEmpty() }
+                ?: displayText.trim().takeIf { it.isNotEmpty() }
+                ?: source.tickerText?.toString()?.trim()?.takeIf { it.isNotEmpty() }
+                ?: "New message"
+            
+            builder.setContentTitle(displayTitle)
+            builder.setContentText(resolvedText)
+            builder.setTicker(resolvedText)
+            builder.setStyle(
+                NotificationCompat.BigTextStyle().bigText(resolvedText)
+            )
+            
+            builder.setCustomContentView(null)
+            builder.setCustomBigContentView(null)
+            builder.setCustomHeadsUpContentView(null)
+            
+            builder.extras.remove(Notification.EXTRA_TEXT_LINES)
+            builder.extras.remove("android.template")
+            builder.extras.remove(Notification.EXTRA_MESSAGES)
+            
+            builder.setCategory(null)
+            
+            addReplyActionIfNotAlreadyCopied(
+                source = source,
+                builder = builder,
+                copiedActionLimit = MAX_MIRRORED_ACTIONS
+            )
         } else {
             val messagingStyle = runCatching {
                 NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(source)
             }.getOrNull()
+
             val isVerifiedMessagingNotification =
                 source.category == Notification.CATEGORY_MESSAGE ||
                         source.actions?.any { action ->
@@ -4270,11 +4299,25 @@ object LiveUpdateNotifier {
                     conversationTitle = conversationTitle
                 ).takeIf { it.isNotBlank() }
 
+                // Cascading fallback to guarantee we NEVER pass a blank
+                // string to BigTextStyle (which causes invisible Wear OS boxes).
+                val finalMessagingText: CharSequence = chatHistoryText
+                    ?: text.trim().takeIf { it.isNotBlank() }
+                    ?: displayText.trim().takeIf { it.isNotBlank() }
+                    ?: source.tickerText?.toString()?.trim()?.takeIf { it.isNotBlank() }
+                    ?: collectNotificationText(
+                        notification = source,
+                        fallbackTitle = "",
+                        includeRemoteViewTexts = true
+                    ).trim().takeIf { it.isNotBlank() }
+                    ?: "New message"
+
                 builder.setContentTitle(messagingTitle)
+                val plainMessagingText = finalMessagingText.toString()
+                builder.setContentText(plainMessagingText)
+                builder.setTicker(plainMessagingText)
                 builder.setStyle(
-                    NotificationCompat.BigTextStyle().bigText(
-                        chatHistoryText ?: text
-                    )
+                    NotificationCompat.BigTextStyle().bigText(finalMessagingText)
                 )
                 addReplyActionIfNotAlreadyCopied(
                     source = source,
@@ -4282,6 +4325,11 @@ object LiveUpdateNotifier {
                     copiedActionLimit = MAX_MIRRORED_ACTIONS
                 )
             } else {
+                // Merge source extras FIRST so that any broken templates
+                // (e.g. empty InboxStyle from Zalo community notifications)
+                // are subsequently overwritten by our explicit BigTextStyle below.
+                builder.addExtras(source.extras)
+
                 val hiddenMsgText = messagingStyle?.messages
                     ?.mapNotNull { message -> message.text?.toString()?.trim() }
                     ?.filter { it.isNotEmpty() }
@@ -4304,8 +4352,6 @@ object LiveUpdateNotifier {
                     builder.setContentText(fallbackBigText)
                     builder.setStyle(NotificationCompat.BigTextStyle().bigText(fallbackBigText))
                 }
-
-                builder.addExtras(source.extras)
             }
         }
         if (smartShortTextOverride != null && !hasProgress && smartRuleId != "vpn") {
@@ -4487,45 +4533,70 @@ object LiveUpdateNotifier {
         // on the watch.
         val shouldRemoveOriginal = appPresentationOverride.removeOriginalMessage
         if (shouldRemoveOriginal) {
-            // Route bridged notifications through the ALERTS channel which
-            // has vibration and sound enabled, bypassing the silent default
-            // channels that Android may have cached.
-            builder.setChannelId(MirrorNotificationChannel.ALERTS.id)
-
-            builder.setLocalOnly(false)
-            builder.setOngoing(false)
-
-            // Smart Alerting: classify the source notification to decide
-            // whether each new update should vibrate the watch or stay silent.
-            val isChatApp = source.category == Notification.CATEGORY_MESSAGE ||
-                sourcePackageNameLower in CHAT_APP_PACKAGES
-            if (isChatApp) {
-                // Messaging apps: every new message should alert (vibrate)
+            // Split Wear OS bridging logic: Zalo vs Messenger/everything else
+            if (sourcePackageNameLower.contains("zalo")) {
+                // Zalo bridging path: protect our BigTextStyle by NOT overriding title/text
+                builder.setChannelId(MirrorNotificationChannel.ALERTS.id)
+                builder.setLocalOnly(false)
+                builder.setOngoing(false)
+                
+                // Always alert for Zalo messages
                 builder.setOnlyAlertOnce(false)
                 builder.setSilent(false)
                 builder.setPriority(NotificationCompat.PRIORITY_HIGH)
                 builder.setDefaults(NotificationCompat.DEFAULT_ALL)
-            } else {
-                // Tracking / ride-hailing apps: alert once on first appearance,
-                // then stay silent for subsequent updates
-                builder.setOnlyAlertOnce(true)
-            }
-
-            val originalExtras = source.extras
-            val originalTitle = originalExtras?.getString(Notification.EXTRA_TITLE) ?: ""
-            val originalText = originalExtras?.getString(Notification.EXTRA_TEXT) ?: ""
-
-            builder.setContentTitle(originalTitle)
-            builder.setContentText(originalText)
-
-            val wearableExtender = NotificationCompat.WearableExtender()
-            source.actions?.forEach { action ->
-                val compatAction = toCompatAction(action)
-                if (compatAction != null) {
-                    wearableExtender.addAction(compatAction)
+                
+                // Add actions to WearableExtender
+                val wearableExtender = NotificationCompat.WearableExtender()
+                source.actions?.forEach { action ->
+                    val compatAction = toCompatAction(action)
+                    if (compatAction != null) {
+                        wearableExtender.addAction(compatAction)
+                    }
                 }
+                builder.extend(wearableExtender)
+            } else {
+                // Messenger and everything else bridging path
+                builder.setChannelId(MirrorNotificationChannel.ALERTS.id)
+                builder.setLocalOnly(false)
+                builder.setOngoing(false)
+                
+                // Extract and apply original title and text from source extras
+                val originalTitle = source.extras?.getCharSequence(Notification.EXTRA_TITLE)
+                val originalText = source.extras?.getCharSequence(Notification.EXTRA_TEXT)
+                if (originalTitle != null) {
+                    builder.setContentTitle(originalTitle)
+                }
+                if (originalText != null) {
+                    builder.setContentText(originalText)
+                }
+                
+                // Smart Alerting: classify the source notification to decide
+                // whether each new update should vibrate the watch or stay silent.
+                val isChatApp = source.category == Notification.CATEGORY_MESSAGE ||
+                    sourcePackageNameLower in CHAT_APP_PACKAGES
+                if (isChatApp) {
+                    // Messaging apps: every new message should alert (vibrate)
+                    builder.setOnlyAlertOnce(false)
+                    builder.setSilent(false)
+                    builder.setPriority(NotificationCompat.PRIORITY_HIGH)
+                    builder.setDefaults(NotificationCompat.DEFAULT_ALL)
+                } else {
+                    // Tracking / ride-hailing apps: alert once on first appearance,
+                    // then stay silent for subsequent updates
+                    builder.setOnlyAlertOnce(true)
+                }
+                
+                // Add actions to WearableExtender
+                val wearableExtender = NotificationCompat.WearableExtender()
+                source.actions?.forEach { action ->
+                    val compatAction = toCompatAction(action)
+                    if (compatAction != null) {
+                        wearableExtender.addAction(compatAction)
+                    }
+                }
+                builder.extend(wearableExtender)
             }
-            builder.extend(wearableExtender)
         } else {
             builder.setOngoing(true)
             builder.setLocalOnly(true)
