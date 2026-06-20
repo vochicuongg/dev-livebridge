@@ -3784,8 +3784,9 @@ object LiveUpdateNotifier {
             largeIconOverride != null -> largeIconOverride
             shouldTryNavigationArrowIcon && !isYandexMapsLikePackage ->
                 navigationDrawable?.bitmap ?: samsungLargeIcon ?: sourceLargeIcon
+                    ?: appIconAssets?.largeIconBitmap
             else ->
-                samsungLargeIcon ?: sourceLargeIcon
+                samsungLargeIcon ?: sourceLargeIcon ?: appIconAssets?.largeIconBitmap
         }
         val preferredPrimaryIcon = when (effectiveIconSource) {
             NotificationIconSource.NOTIFICATION -> when {
@@ -4247,8 +4248,13 @@ object LiveUpdateNotifier {
             val messagingStyle = runCatching {
                 NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(source)
             }.getOrNull()
+            val isVerifiedMessagingNotification =
+                source.category == Notification.CATEGORY_MESSAGE ||
+                        source.actions?.any { action ->
+                            action.actionIntent != null && !action.remoteInputs.isNullOrEmpty()
+                        } == true
 
-            if (messagingStyle != null) {
+            if (messagingStyle != null && isVerifiedMessagingNotification) {
                 val conversationTitle = messagingStyle.conversationTitle
                     ?: source.extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
                     ?: displayTitle.takeIf { it.isNotBlank() }
@@ -4276,7 +4282,30 @@ object LiveUpdateNotifier {
                     copiedActionLimit = MAX_MIRRORED_ACTIONS
                 )
             } else {
-                builder.setStyle(NotificationCompat.BigTextStyle().bigText(text))
+                val hiddenMsgText = messagingStyle?.messages
+                    ?.mapNotNull { message -> message.text?.toString()?.trim() }
+                    ?.filter { it.isNotEmpty() }
+                    ?.joinToString("\n")
+                    ?.takeIf { it.isNotEmpty() }
+                val tickerString = source.tickerText?.toString()?.trim()
+                    ?.takeIf { it.length > 1 }
+                val cleanText = text.trim().takeIf { it.length > 1 }
+                    ?: displayText.trim().takeIf { it.length > 1 }
+                val fallbackBigText = hiddenMsgText
+                    ?: tickerString
+                    ?: cleanText
+                    ?: collectNotificationText(
+                        notification = source,
+                        fallbackTitle = "",
+                        includeRemoteViewTexts = true
+                    ).trim().takeIf { it.length > 1 }
+
+                if (fallbackBigText != null) {
+                    builder.setContentText(fallbackBigText)
+                    builder.setStyle(NotificationCompat.BigTextStyle().bigText(fallbackBigText))
+                }
+
+                builder.addExtras(source.extras)
             }
         }
         if (smartShortTextOverride != null && !hasProgress && smartRuleId != "vpn") {
