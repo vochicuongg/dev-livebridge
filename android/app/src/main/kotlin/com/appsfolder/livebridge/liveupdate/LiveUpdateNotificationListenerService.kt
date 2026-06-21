@@ -228,11 +228,28 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
 
     override fun onListenerDisconnected() {
         super.onListenerDisconnected()
+        Log.w(TAG, "Listener disconnected - initiating immediate rebind to prevent idle death")
+        
         if (isUnsupportedDevice()) {
             return
         }
+        
         LiveUpdateNotifier.cancelNotificationCapsule(applicationContext)
         syncNetworkSpeedService()
+        
+        // CRITICAL: Immediately request rebind to fight aggressive battery optimizations
+        // This prevents Samsung Doze Mode and other OEM battery managers from permanently
+        // killing the notification interception pipeline after idle periods (~5 minutes)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            try {
+                requestRebind(ComponentName(this, this::class.java))
+                Log.i(TAG, "Immediate rebind requested in onListenerDisconnected()")
+            } catch (error: Throwable) {
+                Log.e(TAG, "Immediate rebind failed in onListenerDisconnected()", error)
+            }
+        }
+        
+        // Fallback: also schedule delayed rebind with exponential backoff
         scheduleRebind("listener_disconnected")
     }
 
