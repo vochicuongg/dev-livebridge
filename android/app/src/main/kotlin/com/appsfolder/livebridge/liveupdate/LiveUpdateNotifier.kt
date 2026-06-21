@@ -4546,10 +4546,13 @@ object LiveUpdateNotifier {
                 builder.setLocalOnly(false)
                 builder.setOngoing(false)
                 
-                // Grouping Synchronization: copy the source group and sort key
-                // so the OS properly stacks rapid messages instead of choking.
-                source.group?.let { builder.setGroup(it) }
-                source.sortKey?.let { builder.setSortKey(it) }
+                // Grouping Synchronization: decouple the mirrored group key from the
+                // source notification so it survives the original's destruction when
+                // "Remove Original" is enabled (prevents group ghosting on Wear OS).
+                val safeGroup = (source.group ?: "zalo_standalone") + "_livebridge_safe"
+                builder.setGroup(safeGroup)
+                val safeSortKey = (source.sortKey ?: "zalo_standalone") + "_livebridge_safe"
+                builder.setSortKey(safeSortKey)
                 
                 // Dynamic Alert Inheritance: extract the alert-once flag from
                 // the source notification so LiveBridge only suppresses Heads-Up
