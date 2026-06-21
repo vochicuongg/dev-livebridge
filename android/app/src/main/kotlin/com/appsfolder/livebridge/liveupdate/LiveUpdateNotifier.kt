@@ -1547,7 +1547,12 @@ object LiveUpdateNotifier {
         }
 
         return try {
-            if (!passesCoreFilters(context.packageName, sbn)) {
+            // Zalo VIP Bypass: Allow Zalo notifications to bypass core filters entirely.
+            // Zalo uses silent background syncs, low-priority channels, and rapid group
+            // summary updates that would otherwise be filtered out before reaching mirror logic.
+            val isZaloPackage = sbn.packageName.lowercase(Locale.ROOT).contains("zalo")
+            
+            if (!isZaloPackage && !passesCoreFilters(context.packageName, sbn)) {
                 val staleAggregateIds = synchronized(stateLock) {
                     clearAggregateTrackingForSbnKeyLocked(sbn.key)
                 }
@@ -1614,7 +1619,10 @@ object LiveUpdateNotifier {
                 } else {
                     samsungBridge
                 }
+                // Zalo VIP Bypass: Skip base filters for Zalo to prevent early-return on
+                // silent notifications or low-importance channels
                 if (!bypassesRules &&
+                    !isZaloPackage &&
                     !passesBaseFilters(prefs, sbn, parserDictionary, mediaPlaybackSmartEnabled)
                 ) {
                     val staleAggregateIds = synchronized(stateLock) {
@@ -1716,7 +1724,9 @@ object LiveUpdateNotifier {
                     mirrorKey = sbn.key
                 )
             }
-            if (!passesBaseFilters(prefs, sbn, parserDictionary, mediaPlaybackSmartEnabled)) {
+            // Zalo VIP Bypass: Skip base filters for Zalo to prevent filtering on
+            // silent/low-priority characteristics
+            if (!isZaloPackage && !passesBaseFilters(prefs, sbn, parserDictionary, mediaPlaybackSmartEnabled)) {
                 val staleAggregateIds = synchronized(stateLock) {
                     clearAggregateTrackingForSbnKeyLocked(sbn.key)
                 }
