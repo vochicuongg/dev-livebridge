@@ -4546,13 +4546,11 @@ object LiveUpdateNotifier {
                 builder.setLocalOnly(false)
                 builder.setOngoing(false)
                 
-                // Grouping Synchronization: decouple the mirrored group key from the
-                // source notification so it survives the original's destruction when
-                // "Remove Original" is enabled (prevents group ghosting on Wear OS).
-                val safeGroup = (source.group ?: "zalo_standalone") + "_livebridge_safe"
-                builder.setGroup(safeGroup)
-                val safeSortKey = (source.sortKey ?: "zalo_standalone") + "_livebridge_safe"
-                builder.setSortKey(safeSortKey)
+                // Grouping Decoupling: completely remove group and sort keys to make
+                // the mirrored notification a true standalone alert that survives
+                // the original notification's deletion without being dropped by the OS.
+                builder.setGroup(null)
+                builder.setSortKey(null)
                 
                 // Dynamic Alert Inheritance: extract the alert-once flag from
                 // the source notification so LiveBridge only suppresses Heads-Up
