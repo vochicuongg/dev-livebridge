@@ -1570,7 +1570,13 @@ object LiveUpdateNotifier {
             val appPresentationOverride = AppPresentationOverridesLoader
                 .get(prefs)
                 .resolve(sbn.packageName.lowercase(Locale.ROOT))
-            if (isUserDismissedMirror(sbn.key)) {
+            // Deduplication Bypass: Zalo sends rapid micro-updates that can be
+            // falsely flagged by the internal dismissed-mirror tracking.  Skip
+            // the deduplication phase entirely for Zalo so every message is
+            // guaranteed to proceed.
+            if (isUserDismissedMirror(sbn.key) &&
+                !sbn.packageName.lowercase(Locale.ROOT).contains("zalo")
+            ) {
                 val staleAggregateIds = synchronized(stateLock) {
                     clearAggregateTrackingForSbnKeyLocked(sbn.key)
                 }
@@ -4540,11 +4546,22 @@ object LiveUpdateNotifier {
                 builder.setLocalOnly(false)
                 builder.setOngoing(false)
                 
-                // Always alert for Zalo messages
-                builder.setOnlyAlertOnce(false)
+                // Grouping Synchronization: copy the source group and sort key
+                // so the OS properly stacks rapid messages instead of choking.
+                source.group?.let { builder.setGroup(it) }
+                source.sortKey?.let { builder.setSortKey(it) }
+                
+                // Rate-Limit Prevention: alert once to stop the OS from
+                // penalizing LiveBridge for playing too many sounds in a row,
+                // allowing silent background updates to flow freely to the watch.
+                builder.setOnlyAlertOnce(true)
                 builder.setSilent(false)
                 builder.setPriority(NotificationCompat.PRIORITY_HIGH)
                 builder.setDefaults(NotificationCompat.DEFAULT_ALL)
+                
+                // Timestamp Refresh: use current time so the OS does not
+                // bury the notification at the bottom of the queue.
+                builder.setWhen(System.currentTimeMillis())
                 
                 // Add actions to WearableExtender
                 val wearableExtender = NotificationCompat.WearableExtender()
