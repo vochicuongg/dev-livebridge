@@ -1,10 +1,9 @@
 Step-by-Step Instructions:
-First, use your file editing tool to open the Live Update Notification Listener Service Kotlin file.
-Second, you must implement a system to detect when the OS drops the binding. Override the onListenerDisconnected() lifecycle method if it is not already overridden.
-Third, inside onListenerDisconnected(), implement the official Android rebinding mechanism. You must call requestRebind(ComponentName(this, this::class.java)). This forces the Android OS to immediately wake the service back up and re-establish the notification interception pipeline if it was killed by idle battery managers.
-Fourth, look for the onListenerConnected() method. Ensure that any initialization logic or keep-alive service binding is properly fired here so the service is fully operational upon waking up.
-Fifth, verify that this service is running in the same process as the KeepAliveForegroundService (which is present in the project structure) to maximize process priority.
-Finally, save the file and run the gradle compile debug kotlin command.
+First, use your file editing tool to open the Live Update Notification Listener Service Kotlin file and the Live Update Notifier Kotlin file.
+Second, locate the VIP bypass logic you injected earlier at the entry points (where the package contains zalo).
+Third, you MUST preserve the bypasses for Silent priority, Low priority, Group Summary, Local Only, Ongoing, and Non-Clearable flags. These are critical for intercepting Chat Bubbles.
+Fourth, REMOVE the bypass for the Deduplication/Anti-Spam tracker specifically. Zalo MUST be subjected to the standard text/title deduplication hash checks. If Zalo posts a background update with the exact same content as the previous one, LiveBridge must drop it and not fire a mirrored alert.
+Finally, save both files and run the gradle compile debug kotlin command.
 
 Output Format:
-Do not output any code blocks or code snippets. Output ONLY your confirmation that you used the file editing tool to override the disconnect lifecycle method, injected the explicit requestRebind logic to prevent idle death, and that the build compiled successfully.
+Do not output any code blocks or code snippets. Output only your confirmation that you used the file editing tool to remove the deduplication bypass while preserving the other VIP flag bypasses, and that the build compiled successfully.

@@ -1575,13 +1575,11 @@ object LiveUpdateNotifier {
             val appPresentationOverride = AppPresentationOverridesLoader
                 .get(prefs)
                 .resolve(sbn.packageName.lowercase(Locale.ROOT))
-            // Deduplication Bypass: Zalo sends rapid micro-updates that can be
-            // falsely flagged by the internal dismissed-mirror tracking.  Skip
-            // the deduplication phase entirely for Zalo so every message is
-            // guaranteed to proceed.
-            if (isUserDismissedMirror(sbn.key) &&
-                !sbn.packageName.lowercase(Locale.ROOT).contains("zalo")
-            ) {
+            // Standard deduplication check: prevents ghost loops by filtering
+            // notifications that have already been dismissed by the user.
+            // This now applies to ALL apps including Zalo to prevent repeated
+            // mirroring of background sync pings.
+            if (isUserDismissedMirror(sbn.key)) {
                 val staleAggregateIds = synchronized(stateLock) {
                     clearAggregateTrackingForSbnKeyLocked(sbn.key)
                 }
