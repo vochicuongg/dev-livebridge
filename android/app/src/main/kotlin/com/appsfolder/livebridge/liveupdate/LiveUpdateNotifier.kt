@@ -3942,12 +3942,20 @@ object LiveUpdateNotifier {
         } else {
             text
         }
-        val displayTitle = if (preferMediaControls) {
+        var displayTitle = if (preferMediaControls) {
             title.takeIfMeaningfulMediaPlaybackText()
                 ?: configuredDisplayTitle.takeIfMeaningfulMediaPlaybackText()
                 ?: appName
         } else {
             configuredDisplayTitle
+        }
+        // Strip WhatsApp brand prefix from notification titles to reduce clutter on wearables.
+        // Matches patterns like "WhatsApp: Name", "[WhatsApp] Name", "WhatsApp Name", etc.
+        if (sourcePackageNameLower.contains("whatsapp")) {
+            displayTitle = displayTitle
+                .replace(Regex("^\\[?\\s*whatsapp\\s*]?\\s*[:\\-–—]?\\s*", RegexOption.IGNORE_CASE), "")
+                .trim()
+                .ifEmpty { displayTitle }
         }
         val displayText = if (preferMediaControls) {
             text.takeIfMeaningfulMediaPlaybackText()
