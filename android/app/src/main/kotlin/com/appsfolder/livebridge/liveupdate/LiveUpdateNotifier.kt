@@ -4627,8 +4627,18 @@ object LiveUpdateNotifier {
                 builder.setOngoing(false)
                 
                 // Extract and apply original title and text from source extras
-                val originalTitle = source.extras?.getCharSequence(Notification.EXTRA_TITLE)
+                var originalTitle: CharSequence? = source.extras?.getCharSequence(Notification.EXTRA_TITLE)
                 val originalText = source.extras?.getCharSequence(Notification.EXTRA_TEXT)
+                // Strip WhatsApp brand prefix from the original title to avoid
+                // redundant clutter on wearable displays (same regex as above).
+                if (originalTitle != null && sourcePackageNameLower.contains("whatsapp")) {
+                    val cleaned = originalTitle.toString()
+                        .replace(Regex("^\\[?\\s*whatsapp\\s*]?\\s*[:\\-–—]?\\s*", RegexOption.IGNORE_CASE), "")
+                        .trim()
+                    if (cleaned.isNotEmpty()) {
+                        originalTitle = cleaned
+                    }
+                }
                 if (originalTitle != null) {
                     builder.setContentTitle(originalTitle)
                 }
