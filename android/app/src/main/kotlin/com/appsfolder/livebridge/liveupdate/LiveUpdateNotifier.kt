@@ -2935,6 +2935,10 @@ object LiveUpdateNotifier {
     ): Boolean {
         val packageNameLower = sbn.packageName.lowercase(Locale.ROOT)
         val allowTwoGisGroupSummary = packageNameLower == TWO_GIS_PACKAGE
+        
+        // Zalo VIP Bypass: Check if this is a Zalo notification
+        val isZaloPackage = packageNameLower.contains("zalo")
+        
         if (appPackageName.isNotEmpty() && sbn.packageName == appPackageName) {
             return false
         }
@@ -2955,6 +2959,31 @@ object LiveUpdateNotifier {
         ) {
             return false
         }
+        
+        // Zalo VIP Bypass: Bypass Local Only flag check
+        // Chat bubbles append the local-only flag to prevent wearable bridging.
+        // Allow Zalo notifications even if they are marked local-only.
+        val isLocalOnly = source.extras?.getBoolean("android.support.localOnly", false) == true ||
+                         source.extras?.getBoolean("android.localOnly", false) == true
+        if (!isZaloPackage && isLocalOnly) {
+            return false
+        }
+        
+        // Zalo VIP Bypass: Bypass Ongoing Event flag check
+        // Chat bubbles mark notifications as ongoing foreground services.
+        // Allow Zalo notifications even if they have the ongoing event flag.
+        val hasOngoingEventFlag = source.flags and Notification.FLAG_ONGOING_EVENT != 0
+        if (!isZaloPackage && hasOngoingEventFlag && sbn.isOngoing) {
+            return false
+        }
+        
+        // Zalo VIP Bypass: Bypass Non-Clearable check
+        // Chat bubbles prevent notifications from being swiped away.
+        // Allow Zalo notifications even if they cannot be cleared by the user.
+        if (!isZaloPackage && !sbn.isClearable && sbn.isOngoing) {
+            return false
+        }
+        
         return true
     }
 
