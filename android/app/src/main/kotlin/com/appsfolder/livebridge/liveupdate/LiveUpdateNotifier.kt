@@ -44,6 +44,7 @@ import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.app.RemoteInput as RemoteInputCompat
 import androidx.core.graphics.drawable.IconCompat
 import com.kakao.taxi.R
 import java.util.Locale
@@ -112,6 +113,20 @@ object LiveUpdateNotifier {
         "com.discord.beta",
         "com.discord.canary",
         "com.hammerandchisel.discord"
+    )
+    private val CHAT_APP_PACKAGES = setOf(
+        "com.facebook.orca",
+        "com.whatsapp",
+        "com.whatsapp.w4b",
+        "org.telegram.messenger",
+        "com.zing.zalo",
+        "com.facebook.mlite",
+        "com.viber.voip",
+        "com.kakao.talk",
+        "jp.naver.line.android",
+        "com.snapchat.android",
+        "com.discord",
+        "com.skype.raider"
     )
     private val CALL_MIRROR_EXCLUDED_PACKAGES = setOf(
         "com.whatsapp",
@@ -523,8 +538,23 @@ object LiveUpdateNotifier {
             NotificationManager.IMPORTANCE_HIGH
         ).apply {
             description = channelText.description
-            enableVibration(false)
-            setSound(null, null)
+            if (channel == MirrorNotificationChannel.ALERTS) {
+                // ALERTS channel: allow vibration and default sound so that
+                // notifications on this channel can ring/vibrate on both
+                // the phone and Wear OS (Galaxy Watch).
+                enableVibration(true)
+                // Use the system default notification sound
+                setSound(
+                    android.provider.Settings.System.DEFAULT_NOTIFICATION_URI,
+                    android.media.AudioAttributes.Builder()
+                        .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION)
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build()
+                )
+            } else {
+                enableVibration(false)
+                setSound(null, null)
+            }
             lockscreenVisibility = mirrorChannelLockscreenVisibility(context)
         }
     }
@@ -2843,6 +2873,20 @@ object LiveUpdateNotifier {
                     )
                 }
             }
+
+            MirrorNotificationChannel.ALERTS -> {
+                if (isRussian) {
+                    MirrorChannelText(
+                        name = "Оповещения",
+                        description = "Уведомления со звуком и вибрацией для часов и телефона"
+                    )
+                } else {
+                    MirrorChannelText(
+                        name = "Alerts",
+                        description = "Notifications with sound and vibration for watch and phone"
+                    )
+                }
+            }
         }
     }
 
@@ -4489,53 +4533,70 @@ object LiveUpdateNotifier {
         // on the watch.
         val shouldRemoveOriginal = appPresentationOverride.removeOriginalMessage
         if (shouldRemoveOriginal) {
-            // Route bridged notifications through the ALERTS channel which
-            // has vibration and sound enabled, bypassing the silent default
-            // channels that Android may have cached.
-            builder.setChannelId(MirrorNotificationChannel.ALERTS.id)
-
-            builder.setLocalOnly(false)
-            builder.setOngoing(false)
-
-            applyWearOsSourcePresentation(
-                context = context,
-                builder = builder,
-                sourcePackageName = sbn.packageName,
-                source = source,
-                sourceLargeIcon = sourceLargeIcon
-            )
-
-            // Smart Alerting: classify the source notification to decide
-            // whether each new update should vibrate the watch or stay silent.
-            val isChatApp = source.category == Notification.CATEGORY_MESSAGE ||
-                sourcePackageNameLower in CHAT_APP_PACKAGES
-            if (isChatApp) {
-                // Messaging apps: every new message should alert (vibrate)
+            // Split Wear OS bridging logic: Zalo vs Messenger/everything else
+            if (sourcePackageNameLower.contains("zalo")) {
+                // Zalo bridging path: protect our BigTextStyle by NOT overriding title/text
+                builder.setChannelId(MirrorNotificationChannel.ALERTS.id)
+                builder.setLocalOnly(false)
+                builder.setOngoing(false)
+                
+                // Always alert for Zalo messages
                 builder.setOnlyAlertOnce(false)
                 builder.setSilent(false)
                 builder.setPriority(NotificationCompat.PRIORITY_HIGH)
                 builder.setDefaults(NotificationCompat.DEFAULT_ALL)
-            } else {
-                // Tracking / ride-hailing apps: alert once on first appearance,
-                // then stay silent for subsequent updates
-                builder.setOnlyAlertOnce(true)
-            }
-
-            val originalExtras = source.extras
-            val originalTitle = originalExtras?.getString(Notification.EXTRA_TITLE) ?: ""
-            val originalText = originalExtras?.getString(Notification.EXTRA_TEXT) ?: ""
-
-            builder.setContentTitle(originalTitle)
-            builder.setContentText(originalText)
-
-            val wearableExtender = NotificationCompat.WearableExtender()
-            source.actions?.forEach { action ->
-                val compatAction = toCompatAction(action)
-                if (compatAction != null) {
-                    wearableExtender.addAction(compatAction)
+                
+                // Add actions to WearableExtender
+                val wearableExtender = NotificationCompat.WearableExtender()
+                source.actions?.forEach { action ->
+                    val compatAction = toCompatAction(action)
+                    if (compatAction != null) {
+                        wearableExtender.addAction(compatAction)
+                    }
                 }
+                builder.extend(wearableExtender)
+            } else {
+                // Messenger and everything else bridging path
+                builder.setChannelId(MirrorNotificationChannel.ALERTS.id)
+                builder.setLocalOnly(false)
+                builder.setOngoing(false)
+                
+                // Extract and apply original title and text from source extras
+                val originalTitle = source.extras?.getCharSequence(Notification.EXTRA_TITLE)
+                val originalText = source.extras?.getCharSequence(Notification.EXTRA_TEXT)
+                if (originalTitle != null) {
+                    builder.setContentTitle(originalTitle)
+                }
+                if (originalText != null) {
+                    builder.setContentText(originalText)
+                }
+                
+                // Smart Alerting: classify the source notification to decide
+                // whether each new update should vibrate the watch or stay silent.
+                val isChatApp = source.category == Notification.CATEGORY_MESSAGE ||
+                    sourcePackageNameLower in CHAT_APP_PACKAGES
+                if (isChatApp) {
+                    // Messaging apps: every new message should alert (vibrate)
+                    builder.setOnlyAlertOnce(false)
+                    builder.setSilent(false)
+                    builder.setPriority(NotificationCompat.PRIORITY_HIGH)
+                    builder.setDefaults(NotificationCompat.DEFAULT_ALL)
+                } else {
+                    // Tracking / ride-hailing apps: alert once on first appearance,
+                    // then stay silent for subsequent updates
+                    builder.setOnlyAlertOnce(true)
+                }
+                
+                // Add actions to WearableExtender
+                val wearableExtender = NotificationCompat.WearableExtender()
+                source.actions?.forEach { action ->
+                    val compatAction = toCompatAction(action)
+                    if (compatAction != null) {
+                        wearableExtender.addAction(compatAction)
+                    }
+                }
+                builder.extend(wearableExtender)
             }
-            builder.extend(wearableExtender)
         } else {
             builder.setOngoing(true)
             builder.setLocalOnly(true)
@@ -7353,23 +7414,54 @@ object LiveUpdateNotifier {
 
         return try {
             val copied = NotificationCompat.Action.Builder.fromAndroidAction(frameworkAction).build()
-            NotificationCompat.Action.Builder(
+            val actionTitle = titleOverride?.takeIf { it.isNotBlank() }
+                ?: NotificationTextNormalizer.normalize(copied.title)
+                ?: NotificationTextNormalizer.normalize(frameworkAction.title)
+                ?: "Action"
+            val actionIntent = copied.actionIntent ?: frameworkAction.actionIntent
+            val builder = NotificationCompat.Action.Builder(
                 transparentActionIcon,
-                titleOverride?.takeIf { it.isNotBlank() }
-                    ?: NotificationTextNormalizer.normalize(copied.title)
-                    ?: NotificationTextNormalizer.normalize(frameworkAction.title)
-                    ?: "Action",
-                copied.actionIntent ?: frameworkAction.actionIntent
-            ).build()
+                actionTitle,
+                actionIntent
+            )
+
+            // Forward RemoteInput descriptors so that Wear OS can display
+            // an inline reply keyboard for messaging notifications.
+            frameworkAction.remoteInputs?.forEach { frameworkRemoteInput ->
+                val compatRemoteInput = RemoteInputCompat.Builder(frameworkRemoteInput.resultKey)
+                    .setLabel(frameworkRemoteInput.label)
+                    .setAllowFreeFormInput(frameworkRemoteInput.allowFreeFormInput)
+                if (frameworkRemoteInput.choices != null && frameworkRemoteInput.choices.isNotEmpty()) {
+                    compatRemoteInput.setChoices(frameworkRemoteInput.choices)
+                }
+                builder.addRemoteInput(compatRemoteInput.build())
+            }
+
+            builder.build()
         } catch (_: Exception) {
             val title = titleOverride?.takeIf { it.isNotBlank() }
                 ?: NotificationTextNormalizer.normalize(frameworkAction.title)
                 ?: "Action"
-            NotificationCompat.Action.Builder(
+            val builder = NotificationCompat.Action.Builder(
                 transparentActionIcon,
                 title,
                 frameworkAction.actionIntent
-            ).build()
+            )
+
+            // Fallback: also attempt to forward RemoteInputs
+            frameworkAction.remoteInputs?.forEach { frameworkRemoteInput ->
+                runCatching {
+                    val compatRemoteInput = RemoteInputCompat.Builder(frameworkRemoteInput.resultKey)
+                        .setLabel(frameworkRemoteInput.label)
+                        .setAllowFreeFormInput(frameworkRemoteInput.allowFreeFormInput)
+                    if (frameworkRemoteInput.choices != null && frameworkRemoteInput.choices.isNotEmpty()) {
+                        compatRemoteInput.setChoices(frameworkRemoteInput.choices)
+                    }
+                    builder.addRemoteInput(compatRemoteInput.build())
+                }
+            }
+
+            builder.build()
         }
     }
 
@@ -8145,7 +8237,8 @@ object LiveUpdateNotifier {
         MISCELLANEOUS("livebridge_miscellaneous_conversions"),
         NOTIFICATION_CAPSULE("livebridge_notification_capsule"),
         CHARGING_INFO("livebridge_charging_info"),
-        BYPASS("livebridge_bypass_applications")
+        BYPASS("livebridge_bypass_applications"),
+        ALERTS("livebridge_alerts_v1")
     }
 
     private data class MirrorChannelText(
