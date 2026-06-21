@@ -108,6 +108,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
     private val snapshotSyncRunnable = object : Runnable {
         override fun run() {
             snapshotSyncScheduled = false
+            recordHeartbeat()
             if (isUnsupportedDevice()) {
                 FlashlightSourceState.clear()
                 FlashlightForegroundService.stop(applicationContext)
@@ -175,6 +176,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
 
     override fun onListenerConnected() {
         super.onListenerConnected()
+        recordHeartbeat()
         rebindAttempts = 0
         rebindScheduled = false
 
@@ -235,6 +237,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
+        recordHeartbeat()
         sbn ?: return
         if (isUnsupportedDevice()) {
             return
@@ -264,6 +267,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification?) {
+        recordHeartbeat()
         handleNotificationRemoved(sbn, reason = null)
     }
 
@@ -1270,6 +1274,30 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
 
         @Volatile
         private var activeInstance: LiveUpdateNotificationListenerService? = null
+
+        /**
+         * Heartbeat timestamp updated every time the listener successfully
+         * processes a notification event or completes a snapshot sync.
+         * The watchdog in [KeepAliveForegroundService] reads this to detect
+         * silent unbinds caused by Samsung One UI background limits.
+         */
+        @Volatile
+        var lastHeartbeatMs: Long = 0L
+            private set
+
+        /**
+         * Returns true if the listener is considered alive — i.e. there is
+         * an active instance AND a heartbeat was recorded recently.
+         */
+        fun isListenerAlive(maxStaleMs: Long = 30_000L): Boolean {
+            if (activeInstance == null) return false
+            if (lastHeartbeatMs == 0L) return false
+            return (android.os.SystemClock.elapsedRealtime() - lastHeartbeatMs) < maxStaleMs
+        }
+
+        private fun recordHeartbeat() {
+            lastHeartbeatMs = android.os.SystemClock.elapsedRealtime()
+        }
 
         fun requestFlashlightSnapshotSync() {
             activeInstance?.requestImmediateFlashlightSnapshotSync()

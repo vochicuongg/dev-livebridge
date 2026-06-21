@@ -247,6 +247,9 @@ object LiveUpdateNotifier {
     private val sourceSnapshotsByMirrorKey = mutableMapOf<String, StatusBarNotification>()
     private val userDismissedMirrorKeys = mutableSetOf<String>()
     private val programmaticMirrorCancelDeadlines = mutableMapOf<Int, Long>()
+    
+    // Chat History Cache: Stores conversation history to preserve messages across notification updates
+    private val conversationHistoryCache = java.util.concurrent.ConcurrentHashMap<String, MutableList<NotificationCompat.MessagingStyle.Message>>()
     private val notificationCapsuleIds = mutableSetOf<Int>()
     private var chargingInfoDelayScheduled = false
     private var chargingInfoDelayGeneration = 0L
@@ -324,6 +327,147 @@ object LiveUpdateNotifier {
             iconRes = R.drawable.ic_charging_double_bolt,
             color = CHARGING_INFO_SUPER_FAST_2_COLOR
         )
+    }
+
+    /**
+     * Maximum number of messages to keep in chat history cache
+     */
+    private const val MAX_CHAT_HISTORY_MESSAGES = 7
+
+    /**
+     * Builds chat history with cached messages to preserve conversation across updates.
+     * 
+     * @param messagingStyle The MessagingStyle extracted from notification
+     * @param sourcePackageName Package name of the source app (e.g., "com.zing.zalo")
+     * @param conversationTitle Title of the conversation thread
+     * @return Formatted chat history as CharSequence with bold sender names
+     */
+    private fun buildChatHistory(
+        messagingStyle: NotificationCompat.MessagingStyle,
+        sourcePackageName: String,
+        conversationTitle: CharSequence?
+    ): CharSequence {
+        // Create unique thread key based on package name and conversation title
+        val threadKey = "${sourcePackageName}_${conversationTitle?.toString().orEmpty()}"
+        
+        // Get or create history list for this conversation
+        val historyList = conversationHistoryCache.getOrPut(threadKey) { mutableListOf() }
+        
+        // Merge new messages from MessagingStyle into cache
+        val newMessages = messagingStyle.messages ?: emptyList()
+        for (message in newMessages) {
+            // Check for duplicates based on timestamp and text content
+            val isDuplicate = historyList.any { cached ->
+                cached.timestamp == message.timestamp && 
+                cached.text?.toString() == message.text?.toString()
+            }
+            
+            if (!isDuplicate) {
+                historyList.add(message)
+            }
+        }
+        
+        // Keep only the 7 most recent messages
+        val recentMessages = if (historyList.size > MAX_CHAT_HISTORY_MESSAGES) {
+            historyList.takeLast(MAX_CHAT_HISTORY_MESSAGES)
+        } else {
+            historyList
+        }
+        
+        // Update cache with trimmed list
+        conversationHistoryCache[threadKey] = recentMessages.toMutableList()
+        
+        // Build formatted chat history using SpannableStringBuilder
+        val chatHistory = android.text.SpannableStringBuilder()
+        recentMessages.forEachIndexed { index, message ->
+            appendMessageToHistory(
+                chatHistory = chatHistory,
+                message = message,
+                messagingStyle = messagingStyle,
+                isFirstMessage = index == 0
+            )
+        }
+        
+        return chatHistory.trim()
+    }
+
+    /**
+     * Appends a single message to the chat history with formatting.
+     * Sender names are displayed in bold.
+     * 
+     * @param chatHistory The SpannableStringBuilder to append to
+     * @param message The message to append
+     * @param messagingStyle MessagingStyle for extracting sender info
+     * @param isFirstMessage Whether this is the first message (affects newlines)
+     */
+    private fun appendMessageToHistory(
+        chatHistory: android.text.SpannableStringBuilder,
+        message: NotificationCompat.MessagingStyle.Message,
+        messagingStyle: NotificationCompat.MessagingStyle,
+        isFirstMessage: Boolean
+    ) {
+        // Add double newline between messages (except for the first one)
+        if (!isFirstMessage) {
+            chatHistory.append("\n\n")
+        }
+        
+        // Extract sender name
+        val senderName = extractSenderName(message, messagingStyle)
+        
+        // Record start position for bold styling
+        val senderStartPos = chatHistory.length
+        
+        // Append sender name
+        chatHistory.append(senderName)
+        
+        // Record end position for bold styling
+        val senderEndPos = chatHistory.length
+        
+        // Apply BOLD style to sender name
+        chatHistory.setSpan(
+            android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
+            senderStartPos,
+            senderEndPos,
+            android.text.SpannableStringBuilder.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
+        
+        // Append message text
+        chatHistory.append(": ")
+        chatHistory.append(message.text ?: "")
+    }
+
+    /**
+     * Extracts the sender name from a message.
+     * Falls back to "Unknown" if no sender information is available.
+     * 
+     * @param message The message to extract sender from
+     * @param messagingStyle MessagingStyle for fallback user name
+     * @return Sender name as String
+     */
+    private fun extractSenderName(
+        message: NotificationCompat.MessagingStyle.Message,
+        messagingStyle: NotificationCompat.MessagingStyle
+    ): String {
+        // Try to get person name from message
+        message.person?.name?.toString()?.let { return it }
+        
+        // Fallback to user name from MessagingStyle (for own messages)
+        messagingStyle.user?.name?.toString()?.let { return it }
+        
+        // Final fallback
+        return "Unknown"
+    }
+
+    /**
+     * Clears chat history cache for a specific conversation.
+     * Should be called when notification is dismissed or cleared.
+     * 
+     * @param sourcePackageName Package name of the source app
+     * @param conversationTitle Title of the conversation thread
+     */
+    private fun clearChatHistoryCache(sourcePackageName: String, conversationTitle: CharSequence?) {
+        val threadKey = "${sourcePackageName}_${conversationTitle?.toString().orEmpty()}"
+        conversationHistoryCache.remove(threadKey)
     }
 
     fun ensureChannel(context: Context) {
@@ -419,6 +563,8 @@ object LiveUpdateNotifier {
             appIconCache.clear()
             missingAppIconPackages.clear()
         }
+        // Clear all chat history cache entries
+        conversationHistoryCache.clear()
     }
 
     fun cancelAllMirrored(context: Context) {
@@ -2473,6 +2619,12 @@ object LiveUpdateNotifier {
             }
             staleAggregateIds.forEach { cancelMirroredNotification(manager, it) }
             cancelMirroredNotification(manager, mirrorIdForKey(sbn.key))
+
+            // Clear chat history cache for this source package to free memory
+            val packagePrefix = "${sbn.packageName}_"
+            conversationHistoryCache.keys
+                .filter { it.startsWith(packagePrefix) }
+                .forEach { conversationHistoryCache.remove(it) }
         } catch (error: Throwable) {
             Log.e(TAG, "Failed to cancel mirrored notification: ${sbn.key}", error)
         }
@@ -3588,8 +3740,9 @@ object LiveUpdateNotifier {
             largeIconOverride != null -> largeIconOverride
             shouldTryNavigationArrowIcon && !isYandexMapsLikePackage ->
                 navigationDrawable?.bitmap ?: samsungLargeIcon ?: sourceLargeIcon
+                    ?: appIconAssets?.largeIconBitmap
             else ->
-                samsungLargeIcon ?: sourceLargeIcon
+                samsungLargeIcon ?: sourceLargeIcon ?: appIconAssets?.largeIconBitmap
         }
         val preferredPrimaryIcon = when (effectiveIconSource) {
             NotificationIconSource.NOTIFICATION -> when {
@@ -4047,8 +4200,115 @@ object LiveUpdateNotifier {
                     aospCuttingLength
                 )
             )
+        } else if (sourcePackageNameLower.contains("zalo")) {
+            val resolvedText = text.trim().takeIf { it.isNotEmpty() }
+                ?: displayText.trim().takeIf { it.isNotEmpty() }
+                ?: source.tickerText?.toString()?.trim()?.takeIf { it.isNotEmpty() }
+                ?: "New message"
+            
+            builder.setContentTitle(displayTitle)
+            builder.setContentText(resolvedText)
+            builder.setTicker(resolvedText)
+            builder.setStyle(
+                NotificationCompat.BigTextStyle().bigText(resolvedText)
+            )
+            
+            builder.setCustomContentView(null)
+            builder.setCustomBigContentView(null)
+            builder.setCustomHeadsUpContentView(null)
+            
+            builder.extras.remove(Notification.EXTRA_TEXT_LINES)
+            builder.extras.remove("android.template")
+            builder.extras.remove(Notification.EXTRA_MESSAGES)
+            
+            builder.setCategory(null)
+            
+            addReplyActionIfNotAlreadyCopied(
+                source = source,
+                builder = builder,
+                copiedActionLimit = MAX_MIRRORED_ACTIONS
+            )
         } else {
-            builder.setStyle(NotificationCompat.BigTextStyle().bigText(callMirrorBodyText ?: text))
+            val messagingStyle = runCatching {
+                NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(source)
+            }.getOrNull()
+
+            val isVerifiedMessagingNotification =
+                source.category == Notification.CATEGORY_MESSAGE ||
+                        source.actions?.any { action ->
+                            action.actionIntent != null && !action.remoteInputs.isNullOrEmpty()
+                        } == true
+
+            if (messagingStyle != null && isVerifiedMessagingNotification) {
+                val conversationTitle = messagingStyle.conversationTitle
+                    ?: source.extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
+                    ?: displayTitle.takeIf { it.isNotBlank() }
+                val messagingTitle = conversationTitle
+                    ?.toString()
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+                    ?.let { "[$appName] $it" }
+                    ?: "[$appName]"
+                val chatHistoryText = buildChatHistory(
+                    messagingStyle = messagingStyle,
+                    sourcePackageName = sbn.packageName,
+                    conversationTitle = conversationTitle
+                ).takeIf { it.isNotBlank() }
+
+                // Cascading fallback to guarantee we NEVER pass a blank
+                // string to BigTextStyle (which causes invisible Wear OS boxes).
+                val finalMessagingText: CharSequence = chatHistoryText
+                    ?: text.trim().takeIf { it.isNotBlank() }
+                    ?: displayText.trim().takeIf { it.isNotBlank() }
+                    ?: source.tickerText?.toString()?.trim()?.takeIf { it.isNotBlank() }
+                    ?: collectNotificationText(
+                        notification = source,
+                        fallbackTitle = "",
+                        includeRemoteViewTexts = true
+                    ).trim().takeIf { it.isNotBlank() }
+                    ?: "New message"
+
+                builder.setContentTitle(messagingTitle)
+                val plainMessagingText = finalMessagingText.toString()
+                builder.setContentText(plainMessagingText)
+                builder.setTicker(plainMessagingText)
+                builder.setStyle(
+                    NotificationCompat.BigTextStyle().bigText(finalMessagingText)
+                )
+                addReplyActionIfNotAlreadyCopied(
+                    source = source,
+                    builder = builder,
+                    copiedActionLimit = MAX_MIRRORED_ACTIONS
+                )
+            } else {
+                // Merge source extras FIRST so that any broken templates
+                // (e.g. empty InboxStyle from Zalo community notifications)
+                // are subsequently overwritten by our explicit BigTextStyle below.
+                builder.addExtras(source.extras)
+
+                val hiddenMsgText = messagingStyle?.messages
+                    ?.mapNotNull { message -> message.text?.toString()?.trim() }
+                    ?.filter { it.isNotEmpty() }
+                    ?.joinToString("\n")
+                    ?.takeIf { it.isNotEmpty() }
+                val tickerString = source.tickerText?.toString()?.trim()
+                    ?.takeIf { it.length > 1 }
+                val cleanText = text.trim().takeIf { it.length > 1 }
+                    ?: displayText.trim().takeIf { it.length > 1 }
+                val fallbackBigText = hiddenMsgText
+                    ?: tickerString
+                    ?: cleanText
+                    ?: collectNotificationText(
+                        notification = source,
+                        fallbackTitle = "",
+                        includeRemoteViewTexts = true
+                    ).trim().takeIf { it.length > 1 }
+
+                if (fallbackBigText != null) {
+                    builder.setContentText(fallbackBigText)
+                    builder.setStyle(NotificationCompat.BigTextStyle().bigText(fallbackBigText))
+                }
+            }
         }
         if (smartShortTextOverride != null && !hasProgress && smartRuleId != "vpn") {
             if (!preferSmartShortTextAsPrimary) {
@@ -4219,6 +4479,66 @@ object LiveUpdateNotifier {
 
         customNotificationColor?.let { color ->
             builder.addExtras(buildCustomNotificationColorExtras(color))
+        }
+
+        // Wear OS bridging: when the original notification is being removed,
+        // allow this mirrored notification to bridge to the watch and provide
+        // the original notification content via WearableExtender so it displays
+        // correctly on Wear OS (Galaxy Watch).  When the original notification
+        // is kept, mark the mirror as local-only to avoid duplicate notifications
+        // on the watch.
+        val shouldRemoveOriginal = appPresentationOverride.removeOriginalMessage
+        if (shouldRemoveOriginal) {
+            // Route bridged notifications through the ALERTS channel which
+            // has vibration and sound enabled, bypassing the silent default
+            // channels that Android may have cached.
+            builder.setChannelId(MirrorNotificationChannel.ALERTS.id)
+
+            builder.setLocalOnly(false)
+            builder.setOngoing(false)
+
+            applyWearOsSourcePresentation(
+                context = context,
+                builder = builder,
+                sourcePackageName = sbn.packageName,
+                source = source,
+                sourceLargeIcon = sourceLargeIcon
+            )
+
+            // Smart Alerting: classify the source notification to decide
+            // whether each new update should vibrate the watch or stay silent.
+            val isChatApp = source.category == Notification.CATEGORY_MESSAGE ||
+                sourcePackageNameLower in CHAT_APP_PACKAGES
+            if (isChatApp) {
+                // Messaging apps: every new message should alert (vibrate)
+                builder.setOnlyAlertOnce(false)
+                builder.setSilent(false)
+                builder.setPriority(NotificationCompat.PRIORITY_HIGH)
+                builder.setDefaults(NotificationCompat.DEFAULT_ALL)
+            } else {
+                // Tracking / ride-hailing apps: alert once on first appearance,
+                // then stay silent for subsequent updates
+                builder.setOnlyAlertOnce(true)
+            }
+
+            val originalExtras = source.extras
+            val originalTitle = originalExtras?.getString(Notification.EXTRA_TITLE) ?: ""
+            val originalText = originalExtras?.getString(Notification.EXTRA_TEXT) ?: ""
+
+            builder.setContentTitle(originalTitle)
+            builder.setContentText(originalText)
+
+            val wearableExtender = NotificationCompat.WearableExtender()
+            source.actions?.forEach { action ->
+                val compatAction = toCompatAction(action)
+                if (compatAction != null) {
+                    wearableExtender.addAction(compatAction)
+                }
+            }
+            builder.extend(wearableExtender)
+        } else {
+            builder.setOngoing(true)
+            builder.setLocalOnly(true)
         }
 
         val notification = builder.build()
@@ -6925,6 +7245,23 @@ object LiveUpdateNotifier {
         }
     }
 
+    private fun addReplyActionIfNotAlreadyCopied(
+        source: Notification,
+        builder: NotificationCompat.Builder,
+        copiedActionLimit: Int
+    ) {
+        val actions = source.actions ?: return
+        val safeCopiedLimit = copiedActionLimit.coerceAtLeast(0)
+        val replyAction = actions
+            .drop(safeCopiedLimit)
+            .firstOrNull { action ->
+                !action.remoteInputs.isNullOrEmpty() && action.actionIntent != null
+            }
+            ?: return
+        val compatAction = toCompatAction(replyAction) ?: return
+        builder.addAction(compatAction)
+    }
+
     private fun selectPreferredMediaActions(
         actions: List<Notification.Action>,
         isPlaying: Boolean?,
@@ -7914,4 +8251,5 @@ object LiveUpdateNotifier {
         val code: String,
         val aggregateKey: String
     )
+
 }
