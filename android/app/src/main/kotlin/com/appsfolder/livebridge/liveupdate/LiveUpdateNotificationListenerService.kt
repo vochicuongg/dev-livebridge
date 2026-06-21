@@ -276,6 +276,15 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         rankingMap: RankingMap?,
         reason: Int
     ) {
+        // Self-Cancellation Ignore: when LiveBridge itself cancelled the original
+        // notification via the experimental "Remove Original" feature, the OS fires
+        // this callback with REASON_LISTENER_CANCEL.  We must ignore it to prevent
+        // the race condition where LiveBridge mistakenly auto-deletes its own
+        // mirrored Wear OS notification milliseconds after creating it.
+        if (reason == NotificationListenerService.REASON_LISTENER_CANCEL) {
+            Log.v(TAG, "Ignoring self-cancelled notification removal (REASON_LISTENER_CANCEL): ${sbn?.key}")
+            return
+        }
         handleNotificationRemoved(sbn, reason)
     }
 
@@ -905,6 +914,16 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         mirrorKey: String?,
         attempt: Int
     ) {
+        // Golden Grace Period: on the first attempt (attempt 0), use a 750ms delay
+        // to guarantee the Wear OS Bluetooth bridge has enough time to fully
+        // transmit the new mirrored notification to the smartwatch before the
+        // original source notification is destroyed.  Subsequent retry attempts
+        // use the shorter retry delay.
+        val delayMs = if (attempt == 0) {
+            ORIGINAL_DISMISS_INITIAL_GRACE_MS
+        } else {
+            ORIGINAL_DISMISS_RETRY_DELAY_MS
+        }
         mainHandler.postDelayed(
             {
                 dismissOriginalSourceWhenMirrorActive(
@@ -914,7 +933,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
                     attempt = attempt
                 )
             },
-            ORIGINAL_DISMISS_RETRY_DELAY_MS
+            delayMs
         )
     }
 
@@ -1258,6 +1277,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         private const val MAX_REBIND_DELAY_MS = 30_000L
         private const val MAX_REBIND_ATTEMPTS = 6
         private const val SNAPSHOT_SYNC_INTERVAL_MS = 4_000L
+        private const val ORIGINAL_DISMISS_INITIAL_GRACE_MS = 750L
         private const val ORIGINAL_DISMISS_RETRY_DELAY_MS = 250L
         private const val ORIGINAL_DISMISS_MAX_ATTEMPTS = 6
         private const val ORIGINAL_SOURCE_SNOOZE_MS = 60_000L

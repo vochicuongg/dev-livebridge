@@ -1,11 +1,11 @@
 Step-by-Step Instructions:
-First, use your tool to open the Live Update Notifier Kotlin file.
-Second, locate the Zalo bridging path at the bottom of the build mirrored notification function (inside the should remove original block).
-Third, REMOVE the hardcoded method calls for "set only alert once", "set defaults", and "set silent". We must stop forcefully overriding the OS sound and vibration channels.
-Fourth, extract the dynamic alert-once boolean from the source notification. Check if the source notification flags integer contains the bitwise constant for FLAG ONLY ALERT ONCE.
-Fifth, apply this extracted dynamic boolean to the builder using the set only alert once method. This guarantees LiveBridge only suppresses popups when Zalo natively wants to suppress them.
-Sixth, ensure the set priority method is still explicitly set to high (or max) to allow Heads-Up popups to render when the alert-once flag evaluates to false.
-Finally, save the file and run the gradle compile debug kotlin command to verify the build.
+First, use your tool to open the Live Update Notification Listener Service Kotlin file.
+Second, locate the overridden method that handles notification removals (specifically the one that includes the reason integer parameter).
+Third, add a strict guard condition at the very beginning of this method: if the reason equals the Notification Listener Service constant for REASON LISTENER CANCEL (meaning LiveBridge itself cancelled the original notification via the experimental feature), you must immediately return and do nothing. Do not cascade the deletion to the mirrored notification.
+Fourth, open the Live Update Notifier Kotlin file and locate the block where the experimental feature physically cancels the original notification.
+Fifth, instead of cancelling it synchronously, wrap the cancellation logic in an asynchronous block (using either Kotlin Coroutines or a Main Looper Handler post delayed).
+Sixth, inject a delay of 750 milliseconds before executing the cancel command. This "Golden Grace Period" guarantees that the Wear OS Bluetooth bridge has enough time to fully transmit the new mirrored notification to the smartwatch before the original source is destroyed.
+Finally, save both files and run the gradle compile debug kotlin command.
 
 Output Format:
-Do not output any code blocks. Output only your confirmation that you used the file editing tool to remove the hardcoded overrides, implemented the dynamic flag inheritance, and achieved a successful build.
+Do not output any code blocks. Output only your confirmation that you used the file editing tool to implement the listener cancel guard and the 750ms async delay, followed by the build success message.
