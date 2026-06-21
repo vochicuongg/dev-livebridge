@@ -4551,13 +4551,13 @@ object LiveUpdateNotifier {
                 source.group?.let { builder.setGroup(it) }
                 source.sortKey?.let { builder.setSortKey(it) }
                 
-                // Rate-Limit Prevention: alert once to stop the OS from
-                // penalizing LiveBridge for playing too many sounds in a row,
-                // allowing silent background updates to flow freely to the watch.
-                builder.setOnlyAlertOnce(true)
-                builder.setSilent(false)
+                // Dynamic Alert Inheritance: extract the alert-once flag from
+                // the source notification so LiveBridge only suppresses Heads-Up
+                // popups when Zalo natively wants to suppress them (e.g. background
+                // syncs), while allowing actual new messages to pop up.
+                val sourceAlertOnce = source.flags and Notification.FLAG_ONLY_ALERT_ONCE != 0
+                builder.setOnlyAlertOnce(sourceAlertOnce)
                 builder.setPriority(NotificationCompat.PRIORITY_HIGH)
-                builder.setDefaults(NotificationCompat.DEFAULT_ALL)
                 
                 // Timestamp Refresh: use current time so the OS does not
                 // bury the notification at the bottom of the queue.
