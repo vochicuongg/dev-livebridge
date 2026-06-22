@@ -8047,13 +8047,21 @@ object LiveUpdateNotifier {
         mirrorKey: String,
         sourceSbn: StatusBarNotification
     ) {
+        // Dynamic ID: Zalo aggressively recycles the same notificationId for hours,
+        // causing the OS / Wear OS bridge to throttle updates to the same ID.
+        // Generate a unique ID for Zalo notifications to bypass this throttle.
+        val effectiveId = if (sourceSbn.packageName.lowercase(java.util.Locale.ROOT).contains("zalo")) {
+            (notificationId + (System.currentTimeMillis() and 0xFFFF).toInt())
+        } else {
+            notificationId
+        }
         manager.notify(
-            notificationId,
+            effectiveId,
             SamsungOneUi7NowBarCompat.markEligible(notification)
         )
         synchronized(stateLock) {
             pruneProgrammaticMirrorCancelsLocked(SystemClock.elapsedRealtime())
-            mirrorKeysByNotificationId[notificationId] = mirrorKey
+            mirrorKeysByNotificationId[effectiveId] = mirrorKey
             sourceSnapshotsByMirrorKey[mirrorKey] = sourceSbn
         }
     }

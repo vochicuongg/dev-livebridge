@@ -255,37 +255,41 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         recordHeartbeat()
-        sbn ?: return
-        if (isUnsupportedDevice()) {
-            return
-        }
-        if (sbn.packageName == packageName) {
-            return
-        }
-        if (isFlashlightSourceNotification(sbn)) {
-            syncFlashlightMirror(listOf(sbn))
-            refreshChargingInfoFromActiveNotifications()
-            refreshNotificationCapsuleFromActiveNotifications()
-            return
-        }
-        refreshChargingInfoFromActiveNotifications(sbn)
-        if (!prefs.getConverterEnabled()) {
-            LiveUpdateNotifier.cancelMirrored(applicationContext, sbn)
-            refreshNotificationCapsuleFromActiveNotifications()
-            return
-        }
-
         try {
+            sbn ?: return
+            if (isUnsupportedDevice()) {
+                return
+            }
+            if (sbn.packageName == packageName) {
+                return
+            }
+            if (isFlashlightSourceNotification(sbn)) {
+                syncFlashlightMirror(listOf(sbn))
+                refreshChargingInfoFromActiveNotifications()
+                refreshNotificationCapsuleFromActiveNotifications()
+                return
+            }
+            refreshChargingInfoFromActiveNotifications(sbn)
+            if (!prefs.getConverterEnabled()) {
+                LiveUpdateNotifier.cancelMirrored(applicationContext, sbn)
+                refreshNotificationCapsuleFromActiveNotifications()
+                return
+            }
+
             processIncomingNotification(sbn)
-        } catch (error: Throwable) {
-            Log.e(TAG, "Failed to process posted notification: ${sbn.key}", error)
+            refreshNotificationCapsuleFromActiveNotifications()
+        } catch (e: Exception) {
+            Log.e(TAG, "onNotificationPosted: unhandled exception for ${sbn?.key}", e)
         }
-        refreshNotificationCapsuleFromActiveNotifications()
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification?) {
         recordHeartbeat()
-        handleNotificationRemoved(sbn, reason = null)
+        try {
+            handleNotificationRemoved(sbn, reason = null)
+        } catch (e: Exception) {
+            Log.e(TAG, "onNotificationRemoved: unhandled exception for ${sbn?.key}", e)
+        }
     }
 
     override fun onNotificationRemoved(
@@ -293,52 +297,56 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         rankingMap: RankingMap?,
         reason: Int
     ) {
-        // Self-Cancellation Ignore: when LiveBridge itself cancelled the original
-        // notification via the experimental "Remove Original" feature, the OS fires
-        // this callback with REASON_LISTENER_CANCEL.  We must ignore it to prevent
-        // the race condition where LiveBridge mistakenly auto-deletes its own
-        // mirrored Wear OS notification milliseconds after creating it.
-        if (reason == NotificationListenerService.REASON_LISTENER_CANCEL) {
-            Log.v(TAG, "Ignoring self-cancelled notification removal (REASON_LISTENER_CANCEL): ${sbn?.key}")
-            return
+        try {
+            // Self-Cancellation Ignore: when LiveBridge itself cancelled the original
+            // notification via the experimental "Remove Original" feature, the OS fires
+            // this callback with REASON_LISTENER_CANCEL.  We must ignore it to prevent
+            // the race condition where LiveBridge mistakenly auto-deletes its own
+            // mirrored Wear OS notification milliseconds after creating it.
+            if (reason == NotificationListenerService.REASON_LISTENER_CANCEL) {
+                Log.v(TAG, "Ignoring self-cancelled notification removal (REASON_LISTENER_CANCEL): ${sbn?.key}")
+                return
+            }
+            handleNotificationRemoved(sbn, reason)
+        } catch (e: Exception) {
+            Log.e(TAG, "onNotificationRemoved(3-param): unhandled exception for ${sbn?.key}", e)
         }
-        handleNotificationRemoved(sbn, reason)
     }
 
     private fun handleNotificationRemoved(sbn: StatusBarNotification?, reason: Int?) {
         sbn ?: return
-        if (isUnsupportedDevice()) {
-            return
-        }
-        if (sbn.packageName == packageName) {
-            if (handleProtectedMirrorRemoval(sbn, reason)) {
+        try {
+            if (isUnsupportedDevice()) {
                 return
             }
-            LiveUpdateNotifier.handleMirroredRemoved(applicationContext, sbn)
-            return
-        }
-        refreshChargingInfoFromActiveNotifications()
-        if (consumeSelfDismissedSource(sbn)) {
-            refreshNotificationCapsuleFromActiveNotifications()
-            return
-        }
-        if (isFlashlightSourceNotification(sbn)) {
-            forgetTrackedFlashlightSourceKey(sbn.key)
-            if (consumeSelfDismissedFlashlightSourceKey(sbn.key)) {
+            if (sbn.packageName == packageName) {
+                if (handleProtectedMirrorRemoval(sbn, reason)) {
+                    return
+                }
+                LiveUpdateNotifier.handleMirroredRemoved(applicationContext, sbn)
+                return
+            }
+            refreshChargingInfoFromActiveNotifications()
+            if (consumeSelfDismissedSource(sbn)) {
                 refreshNotificationCapsuleFromActiveNotifications()
                 return
             }
-            FlashlightSourceState.clear()
-            FlashlightForegroundService.stop(applicationContext)
-            refreshNotificationCapsuleFromActiveNotifications()
-            return
-        }
-        try {
+            if (isFlashlightSourceNotification(sbn)) {
+                forgetTrackedFlashlightSourceKey(sbn.key)
+                if (consumeSelfDismissedFlashlightSourceKey(sbn.key)) {
+                    refreshNotificationCapsuleFromActiveNotifications()
+                    return
+                }
+                FlashlightSourceState.clear()
+                FlashlightForegroundService.stop(applicationContext)
+                refreshNotificationCapsuleFromActiveNotifications()
+                return
+            }
             LiveUpdateNotifier.cancelMirrored(applicationContext, sbn)
-        } catch (error: Throwable) {
-            Log.e(TAG, "Failed to process removed notification: ${sbn.key}", error)
+            refreshNotificationCapsuleFromActiveNotifications()
+        } catch (e: Exception) {
+            Log.e(TAG, "handleNotificationRemoved: unhandled exception for ${sbn.key}", e)
         }
-        refreshNotificationCapsuleFromActiveNotifications()
     }
 
     private fun isUnsupportedDevice(): Boolean {

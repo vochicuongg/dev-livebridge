@@ -1,13 +1,17 @@
-## Step-by-Step Instructions:
-1. Use your file editing tool to open `LiveUpdateNotifier.kt`.
-2. At the top of the `LiveUpdateNotifier` object (near the other state maps), declare a new map to remember bypassed contents: `private val bypassContentHashes = java.util.concurrent.ConcurrentHashMap<String, Int>()`.
-3. Inside the `clearRuntimeState` function, add `bypassContentHashes.clear()`.
-4. Inside the `cancelMirrored` function, remove the key: `bypassContentHashes.remove(sbn.key)`.
-5. Navigate down to the `maybeMirror` function and locate the `if (prefs.shouldBypassAllRulesForPackage(sbn.packageName))` block.
-6. At the VERY BEGINNING of this bypass block (before the `clearAggregateTrackingForSbnKeyLocked` call), extract the notification's text to compute a hash. You can concatenate `source.tickerText`, `source.extras.getCharSequence(Notification.EXTRA_TITLE)`, and `source.extras.getCharSequence(Notification.EXTRA_TEXT)`. Compute the `hashCode()` of this combined string.
-7. Check if `bypassContentHashes[sbn.key]` equals this new hash code. If it matches, this is a background ghost ping: immediately return `notMirroredResult()`.
-8. If it does not match, update `bypassContentHashes[sbn.key]` with the new hash code, and proceed with the existing bypass mirroring logic.
-9. Save the file and run the `gradle compileDebugKotlin` command.
+## Step-by-Step Instructions
+1. **Implement the Try-Catch Armor:**
+   - Open `LiveUpdateNotificationListenerService.kt`.
+   - Wrap the ENTIRE logic body inside `onNotificationPosted` in a `try { ... } catch (e: Exception) { e.printStackTrace() }` block.
+   - Wrap the ENTIRE logic body inside `onNotificationRemoved` in a similar `try-catch` block. 
+   - This guarantees that a malformed payload will never crash the listener thread and cause the OS to cut off the notification feed.
+2. **Implement Dynamic Notification IDs:**
+   - Open `LiveUpdateNotifier.kt`.
+   - Locate the `NotificationManagerCompat.notify(...)` call where the mirrored notification is dispatched to the OS.
+   - Instead of reusing the source notification's exact integer ID, generate a unique ID for Zalo (or all bypass apps) to evade the OS-level ID throttle. 
+   - Example: Create a new ID by hashing the current timestamp or adding it to the source ID: `val dynamicId = if (source.packageName.contains("zalo")) (source.notificationId + System.currentTimeMillis().toInt()) else source.notificationId`.
+   - Pass this `dynamicId` into the `notify(dynamicId, builder.build())` function.
+3. **Save and Build:**
+   - Save both files and run the `gradle compileDebugKotlin` command.
 
-## Output Format:
-Do not output any code blocks. Output only your confirmation that you implemented the bypass content deduplicator memory to prevent ghost loops, and that the build compiled successfully.
+## Output Format
+Do not output any code blocks. Output ONLY your confirmation that you wrapped the listener callbacks in try-catch blocks to prevent silent thread crashes, implemented dynamic notification IDs to bypass OS throttling, and that the build compiled successfully.
