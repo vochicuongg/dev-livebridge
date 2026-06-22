@@ -262,6 +262,7 @@ object LiveUpdateNotifier {
     private val sourceSnapshotsByMirrorKey = mutableMapOf<String, StatusBarNotification>()
     private val userDismissedMirrorKeys = mutableSetOf<String>()
     private val programmaticMirrorCancelDeadlines = mutableMapOf<Int, Long>()
+    private val bypassContentHashes = java.util.concurrent.ConcurrentHashMap<String, Int>()
     
     // Chat History Cache: Stores conversation history to preserve messages across notification updates
     private val conversationHistoryCache = java.util.concurrent.ConcurrentHashMap<String, MutableList<NotificationCompat.MessagingStyle.Message>>()
@@ -583,6 +584,7 @@ object LiveUpdateNotifier {
             sourceSnapshotsByMirrorKey.clear()
             userDismissedMirrorKeys.clear()
             programmaticMirrorCancelDeadlines.clear()
+            bypassContentHashes.clear()
             notificationCapsuleIds.clear()
             chargingInfoDelayScheduled = false
             chargingInfoDelayGeneration += 1
@@ -1685,6 +1687,24 @@ object LiveUpdateNotifier {
                 return notMirroredResult()
             }
             if (prefs.shouldBypassAllRulesForPackage(sbn.packageName)) {
+                // Compute content hash to detect duplicate background sync pings
+                val contentText = buildString {
+                    append(source.tickerText?.toString().orEmpty())
+                    append(source.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty())
+                    append(source.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty())
+                }
+                val contentHash = contentText.hashCode()
+                
+                // Check if this is a duplicate ghost ping
+                val existingHash = bypassContentHashes[sbn.key]
+                if (existingHash != null && existingHash == contentHash) {
+                    // This is a background ghost ping with identical content - suppress it
+                    return notMirroredResult()
+                }
+                
+                // Update the content hash for this notification
+                bypassContentHashes[sbn.key] = contentHash
+                
                 val staleAggregateIds = synchronized(stateLock) {
                     clearAggregateTrackingForSbnKeyLocked(sbn.key)
                 }
@@ -2658,6 +2678,7 @@ object LiveUpdateNotifier {
                 userDismissedMirrorKeys.remove(sbn.key)
                 sourceSnapshotsByMirrorKey.remove(sbn.key)
                 callMirrorStates.remove(sbn.key)
+                bypassContentHashes.remove(sbn.key)
                 mirrorKeysByNotificationId.remove(directMirrorId)
                 clearAggregateTrackingForSbnKeyLocked(sbn.key)
             }
