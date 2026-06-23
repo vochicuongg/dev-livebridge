@@ -44,6 +44,7 @@ import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.app.Person
 import androidx.core.app.RemoteInput as RemoteInputCompat
 import androidx.core.graphics.drawable.IconCompat
 import com.kakao.taxi.R
@@ -349,6 +350,46 @@ object LiveUpdateNotifier {
      * Maximum number of messages to keep in chat history cache
      */
     private const val MAX_CHAT_HISTORY_MESSAGES = 7
+
+    /**
+     * Merges new messages from the source MessagingStyle into the rolling
+     * per-conversation cache (so history survives notification updates) and
+     * returns the most recent messages to render as native chat bubbles.
+     *
+     * @param messagingStyle The MessagingStyle extracted from the source notification
+     * @param sourcePackageName Package name of the source app (e.g., "com.zing.zalo")
+     * @param conversationTitle Title of the conversation thread
+     * @return The cached, de-duplicated, trimmed list of messages (oldest first)
+     */
+    private fun mergeAndGetCachedMessages(
+        messagingStyle: NotificationCompat.MessagingStyle,
+        sourcePackageName: String,
+        conversationTitle: CharSequence?
+    ): List<NotificationCompat.MessagingStyle.Message> {
+        val threadKey = "${sourcePackageName}_${conversationTitle?.toString().orEmpty()}"
+        val historyList = conversationHistoryCache.getOrPut(threadKey) { mutableListOf() }
+
+        val newMessages = messagingStyle.messages ?: emptyList()
+        for (message in newMessages) {
+            val isDuplicate = historyList.any { cached ->
+                cached.timestamp == message.timestamp &&
+                    cached.text?.toString() == message.text?.toString()
+            }
+            if (!isDuplicate) {
+                historyList.add(message)
+            }
+        }
+
+        val recentMessages = if (historyList.size > MAX_CHAT_HISTORY_MESSAGES) {
+            historyList.takeLast(MAX_CHAT_HISTORY_MESSAGES)
+        } else {
+            historyList
+        }
+
+        val trimmed = recentMessages.toMutableList()
+        conversationHistoryCache[threadKey] = trimmed
+        return trimmed
+    }
 
     /**
      * Builds chat history with cached messages to preserve conversation across updates.
@@ -4359,38 +4400,57 @@ object LiveUpdateNotifier {
                 val conversationTitle = messagingStyle.conversationTitle
                     ?: source.extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
                     ?: displayTitle.takeIf { it.isNotBlank() }
-                val messagingTitle = conversationTitle
-                    ?.toString()
-                    ?.trim()
-                    ?.takeIf { it.isNotEmpty() }
-                    ?.let { "[$appName] $it" }
-                    ?: "[$appName]"
-                val chatHistoryText = buildChatHistory(
+
+                // Merge new messages from the source into our rolling cache so that
+                // history survives notification updates, then render them natively.
+                val cachedMessages = mergeAndGetCachedMessages(
                     messagingStyle = messagingStyle,
                     sourcePackageName = sbn.packageName,
                     conversationTitle = conversationTitle
-                ).takeIf { it.isNotBlank() }
-
-                // Cascading fallback to guarantee we NEVER pass a blank
-                // string to BigTextStyle (which causes invisible Wear OS boxes).
-                val finalMessagingText: CharSequence = chatHistoryText
-                    ?: text.trim().takeIf { it.isNotBlank() }
-                    ?: displayText.trim().takeIf { it.isNotBlank() }
-                    ?: source.tickerText?.toString()?.trim()?.takeIf { it.isNotBlank() }
-                    ?: collectNotificationText(
-                        notification = source,
-                        fallbackTitle = "",
-                        includeRemoteViewTexts = true
-                    ).trim().takeIf { it.isNotBlank() }
-                    ?: "New message"
-
-                builder.setContentTitle(messagingTitle)
-                val plainMessagingText = finalMessagingText.toString()
-                builder.setContentText(plainMessagingText)
-                builder.setTicker(plainMessagingText)
-                builder.setStyle(
-                    NotificationCompat.BigTextStyle().bigText(finalMessagingText)
                 )
+
+                // Native Wear OS chat bubbles: build a MessagingStyle whose local
+                // user is "Me". Messages attached to the "Me" person render on the
+                // RIGHT; messages with another Person render on the LEFT.
+                val me = Person.Builder().setName("Me").build()
+                val nativeMessagingStyle = NotificationCompat.MessagingStyle(me)
+                conversationTitle
+                    ?.toString()
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+                    ?.let { nativeMessagingStyle.conversationTitle = it }
+
+                val localUserName = messagingStyle.user?.name?.toString()?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+                val renderedMessages = cachedMessages.ifEmpty { messagingStyle.messages.orEmpty() }
+                renderedMessages.forEach { message ->
+                    val text = message.text ?: ""
+                    val timestamp = message.timestamp
+                    val senderName = message.person?.name?.toString()?.trim()
+                        ?.takeIf { it.isNotEmpty() }
+                    val isFromLocalUser = senderName == null ||
+                        (localUserName != null && senderName == localUserName)
+                    if (isFromLocalUser) {
+                        // Sent by me -> attach the "Me" person (renders on the RIGHT).
+                        nativeMessagingStyle.addMessage(text, timestamp, me)
+                    } else {
+                        // Received -> attach the sender's person (renders on the LEFT).
+                        val senderPerson = Person.Builder().setName(senderName).build()
+                        nativeMessagingStyle.addMessage(text, timestamp, senderPerson)
+                    }
+                }
+
+                // Fallback: if we somehow have no messages to render, keep a single
+                // line so Wear OS never shows an empty/invisible bubble box.
+                if (renderedMessages.isEmpty()) {
+                    val fallback: CharSequence = text.trim().takeIf { it.isNotBlank() }
+                        ?: displayText.trim().takeIf { it.isNotBlank() }
+                        ?: source.tickerText?.toString()?.trim()?.takeIf { it.isNotBlank() }
+                        ?: "New message"
+                    nativeMessagingStyle.addMessage(fallback, System.currentTimeMillis(), me)
+                }
+
+                builder.setStyle(nativeMessagingStyle)
                 addReplyActionIfNotAlreadyCopied(
                     source = source,
                     builder = builder,
@@ -8047,21 +8107,16 @@ object LiveUpdateNotifier {
         mirrorKey: String,
         sourceSbn: StatusBarNotification
     ) {
-        // Dynamic ID: Zalo aggressively recycles the same notificationId for hours,
-        // causing the OS / Wear OS bridge to throttle updates to the same ID.
-        // Generate a unique ID for Zalo notifications to bypass this throttle.
-        val effectiveId = if (sourceSbn.packageName.lowercase(java.util.Locale.ROOT).contains("zalo")) {
-            (notificationId + (System.currentTimeMillis() and 0xFFFF).toInt())
-        } else {
-            notificationId
-        }
+        // Use the deterministic source-derived notification ID so the OS can
+        // correctly stack and group repeated updates for the same conversation
+        // (this also fixes Wear OS, which keys grouping off a stable ID).
         manager.notify(
-            effectiveId,
+            notificationId,
             SamsungOneUi7NowBarCompat.markEligible(notification)
         )
         synchronized(stateLock) {
             pruneProgrammaticMirrorCancelsLocked(SystemClock.elapsedRealtime())
-            mirrorKeysByNotificationId[effectiveId] = mirrorKey
+            mirrorKeysByNotificationId[notificationId] = mirrorKey
             sourceSnapshotsByMirrorKey[mirrorKey] = sourceSbn
         }
     }
