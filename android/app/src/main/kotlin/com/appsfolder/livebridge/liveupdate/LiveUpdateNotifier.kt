@@ -129,6 +129,20 @@ object LiveUpdateNotifier {
         "com.discord",
         "com.skype.raider"
     )
+    /**
+     * Patterns matching Zalo's generic sent-confirmation echo strings.
+     * Messages matching any of these are filtered out in [mergeAndGetCachedMessages]
+     * so they never appear as chat bubbles on Wear OS.
+     */
+    private val SENT_CONFIRMATION_PATTERNS = listOf(
+        Regex("""^Đã\s+gửi$""", RegexOption.IGNORE_CASE),
+        Regex("""^Tin\s+nhắn\s+đã\s+gửi$""", RegexOption.IGNORE_CASE),
+        Regex("""^Message\s+sent\.?$""", RegexOption.IGNORE_CASE),
+        Regex("""^Sent\.?$""", RegexOption.IGNORE_CASE),
+        Regex("""^Bạn:\s*$"""),
+        Regex("""^You:\s*$""", RegexOption.IGNORE_CASE)
+    )
+
     private val CALL_MIRROR_EXCLUDED_PACKAGES = setOf(
         "com.whatsapp",
         "com.whatsapp.w4b"
@@ -371,6 +385,13 @@ object LiveUpdateNotifier {
 
         val newMessages = messagingStyle.messages ?: emptyList()
         for (message in newMessages) {
+            val messageText = message.text?.toString()?.trim().orEmpty()
+            // Filter out Zalo's generic sent-confirmation echo strings
+            val isGarbageEcho = SENT_CONFIRMATION_PATTERNS.any { pattern ->
+                pattern.matches(messageText)
+            }
+            if (isGarbageEcho) continue
+
             val isDuplicate = historyList.any { cached ->
                 cached.timestamp == message.timestamp &&
                     cached.text?.toString() == message.text?.toString()
@@ -4357,34 +4378,6 @@ object LiveUpdateNotifier {
                     aospCuttingLength
                 )
             )
-        } else if (sourcePackageNameLower.contains("zalo")) {
-            val resolvedText = text.trim().takeIf { it.isNotEmpty() }
-                ?: displayText.trim().takeIf { it.isNotEmpty() }
-                ?: source.tickerText?.toString()?.trim()?.takeIf { it.isNotEmpty() }
-                ?: "New message"
-            
-            builder.setContentTitle(displayTitle)
-            builder.setContentText(resolvedText)
-            builder.setTicker(resolvedText)
-            builder.setStyle(
-                NotificationCompat.BigTextStyle().bigText(resolvedText)
-            )
-            
-            builder.setCustomContentView(null)
-            builder.setCustomBigContentView(null)
-            builder.setCustomHeadsUpContentView(null)
-            
-            builder.extras.remove(Notification.EXTRA_TEXT_LINES)
-            builder.extras.remove("android.template")
-            builder.extras.remove(Notification.EXTRA_MESSAGES)
-            
-            builder.setCategory(null)
-            
-            addReplyActionIfNotAlreadyCopied(
-                source = source,
-                builder = builder,
-                copiedActionLimit = MAX_MIRRORED_ACTIONS
-            )
         } else {
             val messagingStyle = runCatching {
                 NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(source)
@@ -7463,7 +7456,8 @@ object LiveUpdateNotifier {
     private fun addReplyActionIfNotAlreadyCopied(
         source: Notification,
         builder: NotificationCompat.Builder,
-        copiedActionLimit: Int
+        copiedActionLimit: Int,
+        mirrorKey: String? = null
     ) {
         val actions = source.actions ?: return
         val safeCopiedLimit = copiedActionLimit.coerceAtLeast(0)
@@ -7473,7 +7467,7 @@ object LiveUpdateNotifier {
                 !action.remoteInputs.isNullOrEmpty() && action.actionIntent != null
             }
             ?: return
-        val compatAction = toCompatAction(replyAction) ?: return
+        val compatAction = toCompatAction(replyAction, mirrorKey = mirrorKey) ?: return
         builder.addAction(compatAction)
     }
 
