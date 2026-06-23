@@ -1,22 +1,25 @@
-Step-by-Step Instructions:
+## Step-by-Step Instructions:
 
-Use your file editing tool to open the Live Update Notifier Kotlin file.
+1. **Analyze the Project Structure:**
+   Identify where LiveBridge handles the reply action coming from the Wear OS `RemoteInput`. Search for code referencing `RemoteInput.getResultsFromIntent(intent)` or where input text from the wearable is captured right before triggering the source app's reply `PendingIntent`.
 
-Revert Dynamic IDs: Locate the notify mirrored notification function (or wherever the notification manager notify method is called). Completely remove the dynamic ID generation logic that adds the current time millis to the ID. Revert it to strictly use the deterministic source notification ID so that the OS can properly stack and group updates again.
+2. **Implement Universal Local Echo Logic:**
+   Once you locate the exact intercept point of the user's typed response text:
+   - Extract the typed text string dynamically.
+   - Extract the target package name and the specific conversation/thread identity from the handling Intent or context.
+   - Map these variables to find the exact matching active cache key inside `LiveUpdateNotifier.conversationHistoryCache`.
 
-Refactor Chat UI: Locate the chat bridging paths (like Zalo, Messenger, etc.) where you previously applied the custom chat history using the Big Text Style.
+3. **Inject the "Me" Bubble Globally:**
+   - Instantiate a generic `NotificationCompat.MessagingStyle.Message` containing the typed reply text, the current system timestamp (`System.currentTimeMillis()`), and a local user `Person` object designated as "Me" (or null).
+   - Append this generated Message directly into `LiveUpdateNotifier.conversationHistoryCache` for that specific thread.
 
-Delete all Big Text Style application logic for these chat apps entirely.
+4. **Trigger Instant Wearable Refresh:**
+   Immediately following the cache injection, execute the existing rebundling/notification firing sequence in `LiveUpdateNotifier`. This forces the Wear OS sync engine to instantly render the user's text on the right side.
 
-Construct a robust native Notification Compat Messaging Style. Define the local user by creating a Person Builder with the name set to "Me". Instantiate the Messaging Style using this local user person object.
+5. **Apply the Modifications:**
+   Write the precise changes into the target Kotlin files using your filesystem writing tools.
 
-If a conversation title exists, set it on the messaging style.
-
-Iterate through the cached conversation history messages. For messages received from the other person, add them to the messaging style and attach their name via a new Person object. For messages sent by the local user, add them to the messaging style but attach the "Me" Person object. This natively forces Wear OS to render the user's messages on the RIGHT side in a distinct chat bubble.
-
-Apply this Messaging Style directly to the notification builder.
-
-Save the file and run the gradle compile debug kotlin command.
-
-Output Format:
-Do not output any code blocks. Output ONLY your confirmation that you reverted the dynamic ID to restore native stacking, replaced the flat text style with a native Messaging Style to trigger left/right chat bubbles, and that the build compiled successfully.
+## Output Format:
+- I acknowledge that your environment cannot execute Gradle builds. 
+- You ARE ALLOWED to output code snippets and diffs to clearly illustrate the exact architecture you modified to handle the `RemoteInput` and manipulate the global cache. 
+- Provide a summary of the edits once completed, and I will execute `gradle compileDebugKotlin` locally.
