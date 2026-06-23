@@ -281,6 +281,16 @@ object LiveUpdateNotifier {
     
     // Chat History Cache: Stores conversation history to preserve messages across notification updates
     private val conversationHistoryCache = java.util.concurrent.ConcurrentHashMap<String, MutableList<NotificationCompat.MessagingStyle.Message>>()
+    
+    /**
+     * Singleton Person object representing the local user ("Me").
+     * CRITICAL: This must be a single instance reused across all operations.
+     * Android's MessagingStyle aligns messages based on Person object IDENTITY
+     * (reference equality), not value. Using the same instance ensures "Me"
+     * messages always render on the RIGHT side of chat bubbles on Wear OS.
+     */
+    val LOCAL_USER_ME: Person = Person.Builder().setName("Me").build()
+    
     private val notificationCapsuleIds = mutableSetOf<Int>()
     private var chargingInfoDelayScheduled = false
     private var chargingInfoDelayGeneration = 0L
@@ -390,7 +400,10 @@ object LiveUpdateNotifier {
             val isGarbageEcho = SENT_CONFIRMATION_PATTERNS.any { pattern ->
                 pattern.matches(messageText)
             }
-            if (isGarbageEcho) continue
+            if (isGarbageEcho) {
+                Log.d(TAG, "mergeAndGetCachedMessages: Filtered garbage echo: '$messageText' from thread=$threadKey")
+                continue
+            }
 
             val isDuplicate = historyList.any { cached ->
                 cached.timestamp == message.timestamp &&
@@ -401,6 +414,9 @@ object LiveUpdateNotifier {
             }
         }
 
+        // Sort by timestamp to ensure proper chronological order
+        historyList.sortBy { it.timestamp }
+
         val recentMessages = if (historyList.size > MAX_CHAT_HISTORY_MESSAGES) {
             historyList.takeLast(MAX_CHAT_HISTORY_MESSAGES)
         } else {
@@ -409,6 +425,8 @@ object LiveUpdateNotifier {
 
         val trimmed = recentMessages.toMutableList()
         conversationHistoryCache[threadKey] = trimmed
+        
+        Log.d(TAG, "mergeAndGetCachedMessages: Thread=$threadKey, cached=${trimmed.size} messages")
         return trimmed
     }
 
@@ -4405,8 +4423,9 @@ object LiveUpdateNotifier {
                 // Native Wear OS chat bubbles: build a MessagingStyle whose local
                 // user is "Me". Messages attached to the "Me" person render on the
                 // RIGHT; messages with another Person render on the LEFT.
-                val me = Person.Builder().setName("Me").build()
-                val nativeMessagingStyle = NotificationCompat.MessagingStyle(me)
+                // CRITICAL: Use the singleton LOCAL_USER_ME instance to ensure
+                // consistent Person identity across all operations.
+                val nativeMessagingStyle = NotificationCompat.MessagingStyle(LOCAL_USER_ME)
                 conversationTitle
                     ?.toString()
                     ?.trim()
@@ -4424,12 +4443,15 @@ object LiveUpdateNotifier {
                     val isFromLocalUser = senderName == null ||
                         (localUserName != null && senderName == localUserName)
                     if (isFromLocalUser) {
-                        // Sent by me -> attach the "Me" person (renders on the RIGHT).
-                        nativeMessagingStyle.addMessage(text, timestamp, me)
+                        // Sent by me -> attach the singleton "Me" person (renders on the RIGHT).
+                        // CRITICAL: Use LOCAL_USER_ME singleton for consistent identity.
+                        nativeMessagingStyle.addMessage(text, timestamp, LOCAL_USER_ME)
+                        Log.d(TAG, "buildMirroredNotification: Added 'Me' message using LOCAL_USER_ME@${System.identityHashCode(LOCAL_USER_ME)} to thread=${sbn.packageName}_${conversationTitle?.toString().orEmpty()}")
                     } else {
                         // Received -> attach the sender's person (renders on the LEFT).
                         val senderPerson = Person.Builder().setName(senderName).build()
                         nativeMessagingStyle.addMessage(text, timestamp, senderPerson)
+                        Log.d(TAG, "buildMirroredNotification: Added received message from sender='$senderName' to thread=${sbn.packageName}_${conversationTitle?.toString().orEmpty()}")
                     }
                 }
 
@@ -4440,7 +4462,7 @@ object LiveUpdateNotifier {
                         ?: displayText.trim().takeIf { it.isNotBlank() }
                         ?: source.tickerText?.toString()?.trim()?.takeIf { it.isNotBlank() }
                         ?: "New message"
-                    nativeMessagingStyle.addMessage(fallback, System.currentTimeMillis(), me)
+                    nativeMessagingStyle.addMessage(fallback, System.currentTimeMillis(), LOCAL_USER_ME)
                 }
 
                 builder.setStyle(nativeMessagingStyle)
