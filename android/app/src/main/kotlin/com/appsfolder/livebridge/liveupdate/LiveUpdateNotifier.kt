@@ -7560,7 +7560,8 @@ object LiveUpdateNotifier {
 
     private fun toCompatAction(
         frameworkAction: Notification.Action,
-        titleOverride: String? = null
+        titleOverride: String? = null,
+        mirrorKey: String? = null
     ): NotificationCompat.Action? {
         if (frameworkAction.actionIntent == null) {
             return null
@@ -7573,10 +7574,22 @@ object LiveUpdateNotifier {
                 ?: NotificationTextNormalizer.normalize(frameworkAction.title)
                 ?: "Action"
             val actionIntent = copied.actionIntent ?: frameworkAction.actionIntent
+
+            // Proxy Interceptor: if this action has RemoteInputs and a mirrorKey
+            // is provided, reroute through ReplyInterceptReceiver so we can inject
+            // a local-echo "Me" message before forwarding to the original app.
+            val hasRemoteInputs = !frameworkAction.remoteInputs.isNullOrEmpty()
+            val effectiveIntent = if (hasRemoteInputs && mirrorKey != null && actionIntent != null) {
+                createProxyReplyPendingIntent(actionIntent, mirrorKey, frameworkAction.remoteInputs!!.first().resultKey)
+                    ?: actionIntent
+            } else {
+                actionIntent
+            }
+
             val builder = NotificationCompat.Action.Builder(
                 transparentActionIcon,
                 actionTitle,
-                actionIntent
+                effectiveIntent
             )
 
             // Forward RemoteInput descriptors so that Wear OS can display
@@ -8093,6 +8106,123 @@ object LiveUpdateNotifier {
             return false
         }
         return parserDictionary.vpnSpeedPattern.containsMatchIn(text)
+    }
+
+    /**
+     * Creates a proxy PendingIntent that routes through [ReplyInterceptReceiver]
+     * so we can inject a local-echo "Me" message before forwarding the reply
+     * to the original app's PendingIntent.
+     *
+     * @param originalIntent The original app's PendingIntent for the reply action
+     * @param mirrorKey      The mirrorKey identifying the mirrored conversation
+     * @param resultKey      The RemoteInput result key used by the original app
+     * @return A proxy PendingIntent, or null if creation fails
+     */
+    private fun createProxyReplyPendingIntent(
+        originalIntent: PendingIntent,
+        mirrorKey: String,
+        resultKey: String
+    ): PendingIntent? {
+        return try {
+            val proxyIntent = Intent(ReplyInterceptReceiver.ACTION_PROXY_REPLY).apply {
+                setClassName(
+                    originalIntent.creatorPackage ?: "com.kakao.taxi",
+                    "com.kakao.taxi.liveupdate.ReplyInterceptReceiver"
+                )
+                putExtra(ReplyInterceptReceiver.EXTRA_ORIGINAL_PENDING_INTENT, originalIntent)
+                putExtra(ReplyInterceptReceiver.EXTRA_MIRROR_KEY, mirrorKey)
+                putExtra(ReplyInterceptReceiver.EXTRA_RESULT_KEY, resultKey)
+            }
+            PendingIntent.getBroadcast(
+                null,
+                (mirrorKey + resultKey).hashCode(),
+                proxyIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to create proxy reply PendingIntent for mirrorKey=$mirrorKey", e)
+            null
+        }
+    }
+
+    /**
+     * Injects a local-echo "Me" message into the conversation cache and
+     * refreshes the mirrored notification on the watch WITHOUT vibrating.
+     *
+     * Called from [ReplyInterceptReceiver] after the user replies via
+     * RemoteInput on Wear OS.
+     *
+     * @param context      Application context
+     * @param mirrorKey    The mirrorKey identifying the mirrored conversation
+     * @param echoMessage  The local-echo message to append (sender = "Me")
+     */
+    fun addLocalEchoAndRefresh(
+        context: Context,
+        mirrorKey: String,
+        echoMessage: NotificationCompat.MessagingStyle.Message
+    ) {
+        // 1. Retrieve the source StatusBarNotification for this mirrorKey.
+        val sourceSbn = synchronized(stateLock) {
+            sourceSnapshotsByMirrorKey[mirrorKey]
+        } ?: run {
+            Log.w(TAG, "addLocalEchoAndRefresh: no source snapshot for mirrorKey=$mirrorKey")
+            return
+        }
+
+        // 2. Reconstruct the thread key exactly as mergeAndGetCachedMessages does.
+        val conversationTitle = sourceSbn.notification.extras
+            .getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
+            ?.toString()
+            .orEmpty()
+        val threadKey = "${sourceSbn.packageName}_$conversationTitle"
+
+        // 3. Append the echo message to the conversation history cache.
+        val historyList = conversationHistoryCache.getOrPut(threadKey) { mutableListOf() }
+        historyList.add(echoMessage)
+        // Trim to keep only the last MAX_CHAT_HISTORY_MESSAGES messages.
+        if (historyList.size > MAX_CHAT_HISTORY_MESSAGES) {
+            val trimmed = historyList.takeLast(MAX_CHAT_HISTORY_MESSAGES).toMutableList()
+            conversationHistoryCache[threadKey] = trimmed
+        }
+
+        // 4. Rebuild the mirrored notification with the updated cache.
+        val appPresentationOverride = AppPresentationOverridesLoader
+            .get(ConverterPrefs(context))
+            .resolve(sourceSbn.packageName.lowercase(Locale.ROOT))
+        val samsungBridge = SamsungBridgePreprocessor.build(
+            context = context,
+            prefs = ConverterPrefs(context),
+            sbn = sourceSbn,
+            sourceHasNativeProgress = hasEffectiveProgress(
+                sourceSbn.packageName,
+                sourceSbn.notification
+            )
+        )
+        val notification = buildMirroredNotification(
+            context = context,
+            sbn = sourceSbn,
+            appPresentationOverride = appPresentationOverride,
+            mirrorChannel = MirrorNotificationChannel.ALERTS,
+            progressOverride = null,
+            otpOverride = null,
+            smartShortTextOverride = null,
+            requestPromoted = false,
+            samsungBridge = samsungBridge
+        )
+
+        // 5. CRITICAL: Prevent the watch from vibrating on this update.
+        notification.flags = notification.flags or Notification.FLAG_ONLY_ALERT_ONCE
+
+        // 6. Post the updated notification.
+        val manager = NotificationManagerCompat.from(context)
+        val notificationId = mirrorIdForKey(mirrorKey)
+        notifyMirroredNotification(
+            manager = manager,
+            notificationId = notificationId,
+            notification = notification,
+            mirrorKey = mirrorKey,
+            sourceSbn = sourceSbn
+        )
     }
 
     private fun mirrorIdForKey(key: String): Int {

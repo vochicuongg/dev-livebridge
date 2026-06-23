@@ -105,6 +105,10 @@
             android:name=".liveupdate.NotificationCapsuleActionReceiver"
             android:exported="false"
         />
+        <receiver
+            android:name=".liveupdate.ReplyInterceptReceiver"
+            android:exported="false"
+        />
 
         <meta-data
             android:name="com.samsung.android.support.ongoing_activity"
