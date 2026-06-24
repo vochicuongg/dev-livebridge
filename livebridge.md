@@ -1,19 +1,16 @@
-**Yêu cầu sửa đổi:**
-Trong file `ReplyInterceptReceiver.kt`, hãy tìm đoạn code sao chép `RemoteInput` từ `originalNotification.actions` và sửa theo logic sau:
-
-1. **Import đúng:** Đảm bảo file import `androidx.core.app.RemoteInput` chứ không phải `android.app.RemoteInput`.
-2. **Chuyển đổi kiểu dữ liệu:** Sử dụng `androidx.core.app.RemoteInput.Builder` để tạo mới một `RemoteInput` tương thích với `NotificationCompat`. 
-   - Lấy `resultKey` từ `platformRemoteInput.resultKey`.
-   - Lấy `label` từ `platformRemoteInput.label`.
-   - Lấy `choices` từ `platformRemoteInput.choices`.
-   - Để thiết lập `allowGeneratedReplies`, hãy gọi phương thức `.setAllowGeneratedReplies(platformRemoteInput.allowFreeFormInput)` (hoặc property tương ứng nếu có).
-   - Gọi `.build()` để tạo ra đối tượng `androidx.core.app.RemoteInput`.
-3. **Build Action:** Truyền đối tượng `RemoteInput` đã chuyển đổi này vào `actionBuilder.addRemoteInput(...)`.
+**Nhiệm vụ của bạn:**
+1. Hãy mở lại `ReplyInterceptReceiver.kt`.
+2. Định vị đoạn code sử dụng `RemoteInput.Builder` trong vòng lặp `originalNotification.actions`.
+3. **Cách khắc phục:**
+   - Nếu `setAllowGeneratedReplies` không tồn tại, hãy **xóa bỏ hoàn toàn dòng `.setAllowGeneratedReplies(...)`** đó. Đối với các tác vụ Reply thông thường, việc này là tùy chọn (optional) và không làm ảnh hưởng đến khả năng gửi tin nhắn.
+   - Đảm bảo rằng việc tạo `RemoteInput` chỉ sử dụng các thuộc tính cơ bản nhất: `resultKey`, `label`, `choices`, và `setAllowFreeFormInput(true)` (nếu cần thiết để cho phép nhập văn bản).
+4. Kiểm tra lại imports: Đảm bảo chỉ dùng `androidx.core.app.RemoteInput` và không import nhầm `android.app.RemoteInput`.
+5. Sau khi sửa, hãy chắc chắn đoạn code vẫn giữ được logic build lại `NotificationCompat.MessagingStyle` như đã thống nhất.
 
 **Các bước thực hiện:**
-1. Đọc lại nội dung file `ReplyInterceptReceiver.kt`.
-2. Định vị đoạn code vòng lặp `originalNotification.actions?.forEach`.
-3. Sửa logic bên trong để map từng `platformRemoteInput` sang `androidx.core.app.RemoteInput` theo hướng dẫn trên.
-4. Chạy lại lệnh build hoặc kiểm tra kỹ code trước khi lưu.
+1. Đọc nội dung `ReplyInterceptReceiver.kt`.
+2. Sửa lỗi "Unresolved reference" bằng cách xóa hoặc điều chỉnh hàm builder.
+3. Kiểm tra lại toàn bộ logic re-notify để đảm bảo tính an toàn (null safety).
+4. Lưu file và báo cáo lại khi đã sẵn sàng để build.
 
-Hãy thực hiện sửa file này và đảm bảo nó build thành công.
+Mục tiêu là phải build thành công `flutter run --release`. Hãy thực hiện ngay!

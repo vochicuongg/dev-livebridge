@@ -133,16 +133,10 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
                             if (choices != null) {
                                 compatRi.setChoices(choices)
                             }
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                                compatRi.setAllowGeneratedReplies(platformRi.allowFreeFormInput)
-                            }
                             actionBuilder.addRemoteInput(compatRi.build())
                         }
                     }
 
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                        actionBuilder.setAllowGeneratedReplies(a.getAllowGeneratedReplies())
-                    }
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                         actionBuilder.setSemanticAction(a.semanticAction)
                     }
