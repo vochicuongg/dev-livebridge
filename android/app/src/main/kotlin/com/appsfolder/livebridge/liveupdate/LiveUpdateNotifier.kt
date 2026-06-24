@@ -4459,18 +4459,27 @@ object LiveUpdateNotifier {
                 val localUserName = messagingStyle.user?.name?.toString()?.trim()
                     ?.takeIf { it.isNotEmpty() }
                 val renderedMessages = cachedMessages.ifEmpty { messagingStyle.messages.orEmpty() }
+                var lastEchoText: String? = null
                 renderedMessages.forEach { message ->
                     val text = message.text ?: ""
                     val timestamp = message.timestamp
-                    val senderName = message.person?.name?.toString()?.trim()
+                    val messagePerson = message.person
+                    val senderName = messagePerson?.name?.toString()?.trim()
                         ?.takeIf { it.isNotEmpty() }
-                    val isFromLocalUser = senderName == null ||
+                    // A message is from the local user if:
+                    //   1. Its Person is the exact LOCAL_USER_ME singleton (echo messages), OR
+                    //   2. Its Person is null (convention: null = style's own user), OR
+                    //   3. Its Person.name matches the original app's local user name.
+                    val isFromLocalUser = messagePerson === LOCAL_USER_ME ||
+                        senderName == null ||
                         (localUserName != null && senderName == localUserName)
                     if (isFromLocalUser) {
-                        // Sent by me -> attach the singleton "Me" person (renders on the RIGHT).
-                        // CRITICAL: Use LOCAL_USER_ME singleton for consistent identity.
-                        nativeMessagingStyle.addMessage(text, timestamp, LOCAL_USER_ME)
-                        Log.d(TAG, "buildMirroredNotification: Added 'Me' message using LOCAL_USER_ME@${System.identityHashCode(LOCAL_USER_ME)} to thread=${sbn.packageName}_${conversationTitle?.toString().orEmpty()}")
+                        // Sent by me -> pass null as Person so Android uses the
+                        // MessagingStyle's own user and renders on the RIGHT side.
+                        // This is the most reliable way to get right-aligned bubbles.
+                        nativeMessagingStyle.addMessage(text, timestamp, null as Person?)
+                        lastEchoText = text.toString()
+                        Log.d(TAG, "buildMirroredNotification: Added 'Me' message (person=null for right-align) to thread=${sbn.packageName}_${conversationTitle?.toString().orEmpty()}")
                     } else {
                         // Received -> attach the sender's person (renders on the LEFT).
                         val senderPerson = Person.Builder().setName(senderName).build()
@@ -8252,6 +8261,18 @@ object LiveUpdateNotifier {
 
         // 5. CRITICAL: Prevent the watch from vibrating on this update.
         notification.flags = notification.flags or Notification.FLAG_ONLY_ALERT_ONCE
+
+        // 5b. Fallback: setRemoteInputHistory so Android always shows the
+        //     just-sent text even if MessagingStyle rendering fails for any reason.
+        //     This is a built-in Android mechanism that displays reply text
+        //     directly below the notification content as a "sent" indicator.
+        val echoText = echoMessage.text?.toString().orEmpty()
+        if (echoText.isNotBlank()) {
+            notification.extras.putCharSequenceArray(
+                Notification.EXTRA_REMOTE_INPUT_HISTORY,
+                arrayOf(echoText)
+            )
+        }
 
         // 6. Post the updated notification.
         val manager = NotificationManagerCompat.from(context)
