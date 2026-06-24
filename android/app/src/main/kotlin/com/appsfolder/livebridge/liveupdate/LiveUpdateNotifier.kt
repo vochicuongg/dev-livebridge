@@ -8207,24 +8207,23 @@ object LiveUpdateNotifier {
     }
 
     /**
-     * Displays the user's just-typed reply text beneath the existing notification
-     * using [NotificationCompat.Builder.setRemoteInputHistory].
+     * Caches the user's reply text and then CANCELS the mirrored notification.
      *
-     * This is the ONLY mechanism the Android framework on Samsung devices allows
-     * a third-party app (like LiveBridge) to visually append text to a notification
-     * it does NOT own.  Rebuilding MessagingStyle is silently rejected by the OS
-     * because the package name doesn't match the original notification owner.
-     *
-     * The reply history is accumulated per mirrorKey so that consecutive replies
-     * all remain visible (newest first) until the source app refreshes the
-     * notification itself.
+     * **Philosophy: "Echo & Cancel"**
+     * Native Wear OS messaging apps (Messenger, Zalo, KakaoTalk, etc.) do NOT
+     * attempt to re-render the notification in-place after a reply.  Instead
+     * the notification simply disappears.  The reply text is persisted in our
+     * local cache ([replyHistoryByMirrorKey] / [conversationHistoryCache]) so
+     * that when the *next* notification arrives from the conversation partner,
+     * the user's earlier message is merged back into the chat history and
+     * displayed alongside the new incoming message.
      *
      * Called from [ReplyInterceptReceiver] after the user replies via
      * RemoteInput on Wear OS.
      *
      * @param context      Application context
      * @param mirrorKey    The mirrorKey identifying the mirrored conversation
-     * @param echoMessage  The local-echo message (only [echoMessage.text] is used)
+     * @param echoMessage  The local-echo message (text + timestamp + person)
      */
     fun addLocalEchoAndRefresh(
         context: Context,
@@ -8233,100 +8232,65 @@ object LiveUpdateNotifier {
     ) {
         val replyText = echoMessage.text?.toString()?.trim().orEmpty()
         if (replyText.isBlank()) {
-            Log.w(TAG, "addLocalEchoAndRefresh: empty reply text – ignoring")
+            Log.w(TAG, "addLocalEchoAndRefresh: empty reply text - ignoring")
             return
         }
 
-        // 1. Resolve the notification ID that the visible mirror was posted under.
+        // -- 1. Cache the reply into replyHistoryByMirrorKey ----------------
+        //    This list is consumed by the mirroring pipeline when the next
+        //    notification for this conversation arrives, so the user's
+        //    sent message is merged into the rebuilt MessagingStyle.
+        val history = replyHistoryByMirrorKey.getOrPut(mirrorKey) { mutableListOf() }
+        history.add(0, replyText)                       // newest first
+        if (history.size > MAX_REPLY_HISTORY) {
+            history.subList(MAX_REPLY_HISTORY, history.size).clear()
+        }
+        Log.d(TAG, "addLocalEchoAndRefresh: Cached reply into replyHistoryByMirrorKey for mirrorKey=$mirrorKey (history size=${history.size})")
+
+        // -- 2. Cache the echo message into conversationHistoryCache --------
+        //    Derive the thread key from the source snapshot so the message
+        //    can be merged when the next notification update is processed
+        //    via mergeAndGetCachedMessages().
+        val sourceSbn = synchronized(stateLock) { sourceSnapshotsByMirrorKey[mirrorKey] }
+        if (sourceSbn != null) {
+            val sourcePackage = sourceSbn.packageName.orEmpty()
+            val conversationTitle = runCatching {
+                NotificationCompat.MessagingStyle
+                    .extractMessagingStyleFromNotification(sourceSbn.notification)
+                    ?.conversationTitle
+            }.getOrNull()
+            val threadKey = "${sourcePackage}_${conversationTitle?.toString().orEmpty()}"
+            val historyList = conversationHistoryCache.getOrPut(threadKey) { mutableListOf() }
+            // Add the echo message using null Person so it renders on the
+            // "Me" (right) side when the next notification is built.
+            val cachedMessage = NotificationCompat.MessagingStyle.Message(
+                replyText,
+                echoMessage.timestamp,
+                null as Person?
+            )
+            historyList.add(cachedMessage)
+            // Trim to keep only the most recent messages
+            if (historyList.size > MAX_CHAT_HISTORY_MESSAGES) {
+                val trimmed = historyList.takeLast(MAX_CHAT_HISTORY_MESSAGES).toMutableList()
+                conversationHistoryCache[threadKey] = trimmed
+            }
+            Log.d(TAG, "addLocalEchoAndRefresh: Cached echo into conversationHistoryCache threadKey=$threadKey")
+        } else {
+            Log.w(TAG, "addLocalEchoAndRefresh: No source snapshot for mirrorKey=$mirrorKey - echo cached only in replyHistory")
+        }
+
+        // -- 3. Cancel the mirrored notification ---------------------------
+        //    Follow native Wear OS UX: after sending a reply the notification
+        //    disappears. The cached reply will resurface when the conversation
+        //    partner responds and a new notification is posted.
         val notificationId: Int = synchronized(stateLock) {
             mirrorKeysByNotificationId.entries.firstOrNull { it.value == mirrorKey }?.key
         } ?: mirrorIdForKey(mirrorKey)
 
-        // 2. Find the currently active StatusBarNotification posted by us with that ID.
-        //    We need the full SBN to extract the TAG – without the correct TAG the OS
-        //    treats notify(id, …) as a DIFFERENT notification and silently ignores it.
-        val notificationManager =
-            context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-        val activeSbn: StatusBarNotification? = notificationManager
-            ?.activeNotifications
-            ?.firstOrNull { sbn ->
-                sbn.id == notificationId && sbn.packageName == context.packageName
-            }
+        val manager = NotificationManagerCompat.from(context)
+        cancelMirroredNotification(manager, notificationId)
 
-        if (activeSbn == null) {
-            Log.w(TAG, "addLocalEchoAndRefresh: no active notification found for id=$notificationId, mirrorKey=$mirrorKey")
-            return
-        }
-
-        // 3. Recover Builder from the original notification and extract TAG.
-        val activeNotification: Notification = activeSbn.notification
-        val notificationTag: String? = activeSbn.tag
-
-        Log.d(TAG, "addLocalEchoAndRefresh: Found active notification tag=$notificationTag, id=$notificationId for mirrorKey=$mirrorKey")
-
-        val builder = NotificationCompat.Builder(context, activeNotification)
-
-        // 4. Extract the existing MessagingStyle from the notification.
-        val existingStyle = NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(activeNotification)
-
-        if (existingStyle != null) {
-            // ── Step 1: Clear EXTRA_MESSAGES & EXTRA_HISTORIC_MESSAGES from the
-            //    Builder's extras bundle. If stale Parcelable data remains the OS
-            //    will refuse to render the updated UI due to Parcelable conflicts.
-            builder.extras.remove(NotificationCompat.EXTRA_MESSAGES)
-            builder.extras.remove(NotificationCompat.EXTRA_HISTORIC_MESSAGES)
-
-            // ── Step 2: Append the user's reply into the Style.
-            //    Person MUST be null so Wear OS renders the bubble right-aligned
-            //    (the "me" side). Safe-cast to Person? to satisfy the overload.
-            existingStyle.addMessage(
-                replyText,
-                System.currentTimeMillis(),
-                null as Person?
-            )
-
-            // ── Step 3: Re-apply the mutated Style back onto the Builder.
-            builder.setStyle(existingStyle)
-
-            Log.d(TAG, "addLocalEchoAndRefresh: Appended reply via MessagingStyle (null Person) for mirrorKey=$mirrorKey")
-        } else {
-            Log.w(TAG, "addLocalEchoAndRefresh: MessagingStyle not found – reply may not render as chat bubble for mirrorKey=$mirrorKey")
-        }
-
-        // 5. Force a fresh timestamp so Samsung Galaxy Wearable's Bluetooth
-        //    bridge recognises the payload as changed and pushes it to the watch.
-        builder.setWhen(System.currentTimeMillis())
-        builder.setShowWhen(true)
-
-        // 6. Suppress sound / vibration on this update – prevent spam alerts.
-        builder.setOnlyAlertOnce(true)
-        builder.setSilent(true)
-
-        val updatedNotification = builder.build()
-        // Belt-and-suspenders: force FLAG_ONLY_ALERT_ONCE at the framework level.
-        updatedNotification.flags = updatedNotification.flags or Notification.FLAG_ONLY_ALERT_ONCE
-
-        // 7. In-place update: re-notify with the EXACT SAME TAG + ID.
-        //    Do NOT cancel() before notify() – on Samsung Wearable, cancel()
-        //    destroys the Bluetooth bridging session on the watch.
-        val rawManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val sourceSbn = synchronized(stateLock) { sourceSnapshotsByMirrorKey[mirrorKey] }
-
-        Log.d(TAG, "addLocalEchoAndRefresh: In-place notify tag=$notificationTag, id=$notificationId for mirrorKey=$mirrorKey")
-
-        val finalNotification = SamsungOneUi7NowBarCompat.markEligible(updatedNotification)
-        rawManager.notify(notificationTag, notificationId, finalNotification)
-
-        // 8. Update internal bookkeeping.
-        if (sourceSbn != null) {
-            synchronized(stateLock) {
-                pruneProgrammaticMirrorCancelsLocked(SystemClock.elapsedRealtime())
-                mirrorKeysByNotificationId[notificationId] = mirrorKey
-                sourceSnapshotsByMirrorKey[mirrorKey] = sourceSbn
-            }
-        }
-
-        Log.d(TAG, "addLocalEchoAndRefresh: Successfully posted MessagingStyle echo tag=$notificationTag, id=$notificationId for mirrorKey=$mirrorKey")
+        Log.d(TAG, "addLocalEchoAndRefresh: Cancelled mirrored notification id=$notificationId for mirrorKey=$mirrorKey (Echo & Cancel)")
     }
 
     /**
