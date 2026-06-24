@@ -4498,18 +4498,43 @@ object LiveUpdateNotifier {
                             (localUserName != null && senderName == localUserName) ||
                             isLocalUserKeyword ||
                             senderKeyMatchesLocalUser
-                        if (isFromLocalUser) {
-                            // Sent by me -> pass null as Person so Android uses the
-                            // MessagingStyle's own user and renders on the RIGHT side.
-                            // This is the most reliable way to get right-aligned bubbles.
-                            nativeMessagingStyle.addMessage(text, timestamp, null as Person?)
-                            lastEchoText = text.toString()
-                            Log.d(TAG, "buildMirroredNotification: Added 'Me' message (person=null for right-align) to thread=${sbn.packageName}_${conversationTitle?.toString().orEmpty()}")
+
+                        // --- DEEP COPY: Route the Person, then build a new Message
+                        // that carries ALL metadata from the original message. ---
+                        val routedPerson: Person? = if (isFromLocalUser) {
+                            // null → Android uses the Style's own user → RIGHT-side bubble
+                            null
                         } else {
-                            // Received -> attach the sender's person (renders on the LEFT).
-                            val senderPerson = Person.Builder().setName(senderName).build()
-                            nativeMessagingStyle.addMessage(text, timestamp, senderPerson)
-                            Log.d(TAG, "buildMirroredNotification: Added received message from sender='$senderName' to thread=${sbn.packageName}_${conversationTitle?.toString().orEmpty()}")
+                            Person.Builder().setName(senderName).build()
+                        }
+
+                        val clonedMessage = NotificationCompat.MessagingStyle.Message(
+                            text, timestamp, routedPerson
+                        )
+
+                        // Copy dataMimeType + dataUri (images, stickers, voice notes, etc.)
+                        val srcMimeType = message.dataMimeType
+                        val srcDataUri = message.dataUri
+                        if (srcMimeType != null && srcDataUri != null) {
+                            clonedMessage.setData(srcMimeType, srcDataUri)
+                        }
+
+                        // Deep-copy the extras Bundle (Spannable payloads, display
+                        // formatting, custom metadata that apps embed inside each
+                        // Message). Without this the Wear OS renderer sees an empty
+                        // extras and renders an invisible blank bubble.
+                        val srcExtras = message.extras
+                        if (srcExtras != null && !srcExtras.isEmpty) {
+                            clonedMessage.extras.putAll(srcExtras)
+                        }
+
+                        nativeMessagingStyle.addMessage(clonedMessage)
+
+                        if (isFromLocalUser) {
+                            lastEchoText = text.toString()
+                            Log.d(TAG, "buildMirroredNotification: Added 'Me' message (deep-copy, person=null for right-align) to thread=${sbn.packageName}_${conversationTitle?.toString().orEmpty()}")
+                        } else {
+                            Log.d(TAG, "buildMirroredNotification: Added received message from sender='$senderName' (deep-copy) to thread=${sbn.packageName}_${conversationTitle?.toString().orEmpty()}")
                         }
                     }
 
