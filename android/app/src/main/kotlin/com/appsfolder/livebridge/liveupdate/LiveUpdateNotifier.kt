@@ -4444,95 +4444,129 @@ object LiveUpdateNotifier {
                         } == true
 
             if (messagingStyle != null && isVerifiedMessagingNotification) {
-                val conversationTitle = messagingStyle.conversationTitle
-                    ?: source.extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
-                    ?: displayTitle.takeIf { it.isNotBlank() }
+                try {
+                    Log.d(TAG, "buildMirroredNotification: Processing MessagingStyle for package=${sbn.packageName}, key=${sbn.key}")
+                    
+                    val conversationTitle = messagingStyle.conversationTitle
+                        ?: source.extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
+                        ?: displayTitle.takeIf { it.isNotBlank() }
 
-                // Merge new messages from the source into our rolling cache so that
-                // history survives notification updates, then render them natively.
-                val cachedMessages = mergeAndGetCachedMessages(
-                    messagingStyle = messagingStyle,
-                    sourcePackageName = sbn.packageName,
-                    conversationTitle = conversationTitle
-                )
-
-                // Native Wear OS chat bubbles: build a MessagingStyle whose local
-                // user is "Me". Messages attached to the "Me" person render on the
-                // RIGHT; messages with another Person render on the LEFT.
-                // CRITICAL: Use the singleton LOCAL_USER_ME instance to ensure
-                // consistent Person identity across all operations.
-                val nativeMessagingStyle = NotificationCompat.MessagingStyle(LOCAL_USER_ME)
-                conversationTitle
-                    ?.toString()
-                    ?.trim()
-                    ?.takeIf { it.isNotEmpty() }
-                    ?.let { nativeMessagingStyle.conversationTitle = it }
-
-                val localUserName = messagingStyle.user?.name?.toString()?.trim()
-                    ?.takeIf { it.isNotEmpty() }
-                val renderedMessages = cachedMessages.ifEmpty { messagingStyle.messages.orEmpty() }
-                var lastEchoText: String? = null
-                renderedMessages.forEach { message ->
-                    val text = message.text ?: ""
-                    val timestamp = message.timestamp
-                    val messagePerson = message.person
-                    val senderName = messagePerson?.name?.toString()?.trim()
-                        ?.takeIf { it.isNotEmpty() }
-                    // A message is from the local user if:
-                    //   1. Its Person is the exact LOCAL_USER_ME singleton (echo messages), OR
-                    //   2. Its Person is null (convention: null = style's own user), OR
-                    //   3. Its Person.name matches the original app's local user name, OR
-                    //   4. Its Person.name is a common local user keyword (you/bạn/me/tôi), OR
-                    //   5. Its Person.key matches the style's user name.
-                    val isLocalUserKeyword = senderName?.lowercase() in setOf(
-                        "you", "bạn", "me", "tôi", "moi", "я", "je", "io", "eu"
+                    // Merge new messages from the source into our rolling cache so that
+                    // history survives notification updates, then render them natively.
+                    val cachedMessages = mergeAndGetCachedMessages(
+                        messagingStyle = messagingStyle,
+                        sourcePackageName = sbn.packageName,
+                        conversationTitle = conversationTitle
                     )
-                    val senderKeyMatchesLocalUser = messagePerson?.key != null &&
-                        localUserName != null &&
-                        messagePerson.key == localUserName
-                    val isFromLocalUser = messagePerson === LOCAL_USER_ME ||
-                        senderName == null ||
-                        (localUserName != null && senderName == localUserName) ||
-                        isLocalUserKeyword ||
-                        senderKeyMatchesLocalUser
-                    if (isFromLocalUser) {
-                        // Sent by me -> pass null as Person so Android uses the
-                        // MessagingStyle's own user and renders on the RIGHT side.
-                        // This is the most reliable way to get right-aligned bubbles.
-                        nativeMessagingStyle.addMessage(text, timestamp, null as Person?)
-                        lastEchoText = text.toString()
-                        Log.d(TAG, "buildMirroredNotification: Added 'Me' message (person=null for right-align) to thread=${sbn.packageName}_${conversationTitle?.toString().orEmpty()}")
-                    } else {
-                        // Received -> attach the sender's person (renders on the LEFT).
-                        val senderPerson = Person.Builder().setName(senderName).build()
-                        nativeMessagingStyle.addMessage(text, timestamp, senderPerson)
-                        Log.d(TAG, "buildMirroredNotification: Added received message from sender='$senderName' to thread=${sbn.packageName}_${conversationTitle?.toString().orEmpty()}")
+
+                    // Native Wear OS chat bubbles: build a MessagingStyle whose local
+                    // user is "Me". Messages attached to the "Me" person render on the
+                    // RIGHT; messages with another Person render on the LEFT.
+                    // CRITICAL: Use the singleton LOCAL_USER_ME instance to ensure
+                    // consistent Person identity across all operations.
+                    val nativeMessagingStyle = NotificationCompat.MessagingStyle(LOCAL_USER_ME)
+                    conversationTitle
+                        ?.toString()
+                        ?.trim()
+                        ?.takeIf { it.isNotEmpty() }
+                        ?.let { nativeMessagingStyle.conversationTitle = it }
+
+                    val localUserName = messagingStyle.user?.name?.toString()?.trim()
+                        ?.takeIf { it.isNotEmpty() }
+                    val renderedMessages = cachedMessages.ifEmpty { messagingStyle.messages.orEmpty() }
+                    var lastEchoText: String? = null
+                    renderedMessages.forEach { message ->
+                        val text = message.text ?: ""
+                        val timestamp = message.timestamp
+                        val messagePerson = message.person
+                        val senderName = messagePerson?.name?.toString()?.trim()
+                            ?.takeIf { it.isNotEmpty() }
+                        // A message is from the local user if:
+                        //   1. Its Person is the exact LOCAL_USER_ME singleton (echo messages), OR
+                        //   2. Its Person is null (convention: null = style's own user), OR
+                        //   3. Its Person.name matches the original app's local user name, OR
+                        //   4. Its Person.name is a common local user keyword (you/bạn/me/tôi), OR
+                        //   5. Its Person.key matches the style's user name.
+                        val isLocalUserKeyword = senderName?.lowercase() in setOf(
+                            "you", "bạn", "me", "tôi", "moi", "я", "je", "io", "eu"
+                        )
+                        val senderKeyMatchesLocalUser = messagePerson?.key != null &&
+                            localUserName != null &&
+                            messagePerson.key == localUserName
+                        val isFromLocalUser = messagePerson === LOCAL_USER_ME ||
+                            senderName == null ||
+                            (localUserName != null && senderName == localUserName) ||
+                            isLocalUserKeyword ||
+                            senderKeyMatchesLocalUser
+                        if (isFromLocalUser) {
+                            // Sent by me -> pass null as Person so Android uses the
+                            // MessagingStyle's own user and renders on the RIGHT side.
+                            // This is the most reliable way to get right-aligned bubbles.
+                            nativeMessagingStyle.addMessage(text, timestamp, null as Person?)
+                            lastEchoText = text.toString()
+                            Log.d(TAG, "buildMirroredNotification: Added 'Me' message (person=null for right-align) to thread=${sbn.packageName}_${conversationTitle?.toString().orEmpty()}")
+                        } else {
+                            // Received -> attach the sender's person (renders on the LEFT).
+                            val senderPerson = Person.Builder().setName(senderName).build()
+                            nativeMessagingStyle.addMessage(text, timestamp, senderPerson)
+                            Log.d(TAG, "buildMirroredNotification: Added received message from sender='$senderName' to thread=${sbn.packageName}_${conversationTitle?.toString().orEmpty()}")
+                        }
+                    }
+
+                    // Fallback: if we somehow have no messages to render, keep a single
+                    // line so Wear OS never shows an empty/invisible bubble box.
+                    if (renderedMessages.isEmpty()) {
+                        val fallback: CharSequence = text.trim().takeIf { it.isNotBlank() }
+                            ?: displayText.trim().takeIf { it.isNotBlank() }
+                            ?: source.tickerText?.toString()?.trim()?.takeIf { it.isNotBlank() }
+                            ?: "New message"
+                        nativeMessagingStyle.addMessage(fallback, System.currentTimeMillis(), LOCAL_USER_ME)
+                    }
+
+                    // Xóa EXTRA_MESSAGES và EXTRA_HISTORIC_MESSAGES để dọn đường
+                    // trước khi đắp MessagingStyle mới đã được phiên dịch.
+                    // Điều này đảm bảo Wear OS chỉ render messages từ Style mới,
+                    // không bị ảnh hưởng bởi dữ liệu cũ trong Bundle extras.
+                    builder.extras.remove(Notification.EXTRA_MESSAGES)
+                    builder.extras.remove(Notification.EXTRA_HISTORIC_MESSAGES)
+                    
+                    builder.setStyle(nativeMessagingStyle)
+                    addReplyActionIfNotAlreadyCopied(
+                        source = source,
+                        builder = builder,
+                        copiedActionLimit = MAX_MIRRORED_ACTIONS
+                    )
+                    
+                    Log.d(TAG, "buildMirroredNotification: Successfully applied MessagingStyle for package=${sbn.packageName}")
+                } catch (e: Exception) {
+                    Log.e(TAG, "buildMirroredNotification: Error processing MessagingStyle for package=${sbn.packageName}, falling back to BigTextStyle", e)
+                    
+                    // Fallback to BigTextStyle if MessagingStyle processing fails
+                    builder.addExtras(source.extras)
+                    
+                    val hiddenMsgText = messagingStyle?.messages
+                        ?.mapNotNull { message -> message.text?.toString()?.trim() }
+                        ?.filter { it.isNotEmpty() }
+                        ?.joinToString("\n")
+                        ?.takeIf { it.isNotEmpty() }
+                    val tickerString = source.tickerText?.toString()?.trim()
+                        ?.takeIf { it.length > 1 }
+                    val cleanText = text.trim().takeIf { it.length > 1 }
+                        ?: displayText.trim().takeIf { it.length > 1 }
+                    val fallbackBigText = hiddenMsgText
+                        ?: tickerString
+                        ?: cleanText
+                        ?: collectNotificationText(
+                            notification = source,
+                            fallbackTitle = "",
+                            includeRemoteViewTexts = true
+                        ).trim().takeIf { it.length > 1 }
+
+                    if (fallbackBigText != null) {
+                        builder.setContentText(fallbackBigText)
+                        builder.setStyle(NotificationCompat.BigTextStyle().bigText(fallbackBigText))
                     }
                 }
-
-                // Fallback: if we somehow have no messages to render, keep a single
-                // line so Wear OS never shows an empty/invisible bubble box.
-                if (renderedMessages.isEmpty()) {
-                    val fallback: CharSequence = text.trim().takeIf { it.isNotBlank() }
-                        ?: displayText.trim().takeIf { it.isNotBlank() }
-                        ?: source.tickerText?.toString()?.trim()?.takeIf { it.isNotBlank() }
-                        ?: "New message"
-                    nativeMessagingStyle.addMessage(fallback, System.currentTimeMillis(), LOCAL_USER_ME)
-                }
-
-                // Xóa EXTRA_MESSAGES và EXTRA_HISTORIC_MESSAGES để dọn đường
-                // trước khi đắp MessagingStyle mới đã được phiên dịch.
-                // Điều này đảm bảo Wear OS chỉ render messages từ Style mới,
-                // không bị ảnh hưởng bởi dữ liệu cũ trong Bundle extras.
-                builder.extras.remove(Notification.EXTRA_MESSAGES)
-                builder.extras.remove(Notification.EXTRA_HISTORIC_MESSAGES)
-                
-                builder.setStyle(nativeMessagingStyle)
-                addReplyActionIfNotAlreadyCopied(
-                    source = source,
-                    builder = builder,
-                    copiedActionLimit = MAX_MIRRORED_ACTIONS
-                )
             } else {
                 // Merge source extras FIRST so that any broken templates
                 // (e.g. empty InboxStyle from Zalo community notifications)
@@ -8278,12 +8312,13 @@ object LiveUpdateNotifier {
             }.getOrNull()
             val threadKey = "${sourcePackage}_${conversationTitle?.toString().orEmpty()}"
             val historyList = conversationHistoryCache.getOrPut(threadKey) { mutableListOf() }
-            // Add the echo message using null Person so it renders on the
-            // "Me" (right) side when the next notification is built.
+            // FIXED: Keep the original echoMessage.person (LOCAL_USER_ME) instead of null.
+            // The Person translation logic ("null = local user") belongs in
+            // buildMirroredNotification (incoming flow), NOT here (outgoing echo).
             val cachedMessage = NotificationCompat.MessagingStyle.Message(
                 replyText,
                 echoMessage.timestamp,
-                null as Person?
+                echoMessage.person  // Keep LOCAL_USER_ME from ReplyInterceptReceiver
             )
             historyList.add(cachedMessage)
             // Trim to keep only the most recent messages
@@ -8304,10 +8339,17 @@ object LiveUpdateNotifier {
             mirrorKeysByNotificationId.entries.firstOrNull { it.value == mirrorKey }?.key
         } ?: mirrorIdForKey(mirrorKey)
 
+        Log.d(TAG, "addLocalEchoAndRefresh: Attempting to cancel notification ID: $notificationId for mirrorKey=$mirrorKey")
+        
         val manager = NotificationManagerCompat.from(context)
-        cancelMirroredNotification(manager, notificationId)
-
-        Log.d(TAG, "addLocalEchoAndRefresh: Cancelled mirrored notification id=$notificationId for mirrorKey=$mirrorKey (Echo & Cancel)")
+        try {
+            cancelMirroredNotification(manager, notificationId)
+            Log.d(TAG, "addLocalEchoAndRefresh: Successfully cancelled mirrored notification id=$notificationId for mirrorKey=$mirrorKey (Echo & Cancel)")
+        } catch (e: Exception) {
+            Log.e(TAG, "addLocalEchoAndRefresh: Error cancelling notification id=$notificationId for mirrorKey=$mirrorKey", e)
+            // Even if cancel fails, the echo is still cached and will appear
+            // when the next notification update arrives.
+        }
     }
 
     /**
