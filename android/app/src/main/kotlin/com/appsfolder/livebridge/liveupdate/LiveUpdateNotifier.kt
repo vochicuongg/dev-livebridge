@@ -4481,10 +4481,20 @@ object LiveUpdateNotifier {
                     // A message is from the local user if:
                     //   1. Its Person is the exact LOCAL_USER_ME singleton (echo messages), OR
                     //   2. Its Person is null (convention: null = style's own user), OR
-                    //   3. Its Person.name matches the original app's local user name.
+                    //   3. Its Person.name matches the original app's local user name, OR
+                    //   4. Its Person.name is a common local user keyword (you/bạn/me/tôi), OR
+                    //   5. Its Person.key matches the style's user name.
+                    val isLocalUserKeyword = senderName?.lowercase() in setOf(
+                        "you", "bạn", "me", "tôi", "moi", "я", "je", "io", "eu"
+                    )
+                    val senderKeyMatchesLocalUser = messagePerson?.key != null &&
+                        localUserName != null &&
+                        messagePerson.key == localUserName
                     val isFromLocalUser = messagePerson === LOCAL_USER_ME ||
                         senderName == null ||
-                        (localUserName != null && senderName == localUserName)
+                        (localUserName != null && senderName == localUserName) ||
+                        isLocalUserKeyword ||
+                        senderKeyMatchesLocalUser
                     if (isFromLocalUser) {
                         // Sent by me -> pass null as Person so Android uses the
                         // MessagingStyle's own user and renders on the RIGHT side.
@@ -4510,6 +4520,13 @@ object LiveUpdateNotifier {
                     nativeMessagingStyle.addMessage(fallback, System.currentTimeMillis(), LOCAL_USER_ME)
                 }
 
+                // Xóa EXTRA_MESSAGES và EXTRA_HISTORIC_MESSAGES để dọn đường
+                // trước khi đắp MessagingStyle mới đã được phiên dịch.
+                // Điều này đảm bảo Wear OS chỉ render messages từ Style mới,
+                // không bị ảnh hưởng bởi dữ liệu cũ trong Bundle extras.
+                builder.extras.remove(Notification.EXTRA_MESSAGES)
+                builder.extras.remove(Notification.EXTRA_HISTORIC_MESSAGES)
+                
                 builder.setStyle(nativeMessagingStyle)
                 addReplyActionIfNotAlreadyCopied(
                     source = source,
