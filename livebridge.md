@@ -1,10 +1,10 @@
-Nhiệm vụ của bạn là điều tra và khắc phục nguyên nhân sâu xa trong luồng Rebuild Notification. Hãy làm theo các bước sau:
+Nhiệm vụ của bạn là sử dụng MCP Tools (truy cập `D:\livebridge`) để sửa lại hàm rebuild thông báo trong `LiveUpdateNotifier.kt` bằng chiến thuật "Rebuild Style từ đầu":
 
-1. Dùng tool `Search files` và `Read text file` để tìm và đọc nội dung file chứa `LiveUpdateNotifier` (đặc biệt là hàm `addLocalEchoAndRefresh` và `buildMirroredNotification`).
-2. Phân tích cách `MessagingStyle` được tạo ra và cập nhật:
-   - Kiểm tra `LOCAL_USER_ME`: Đối tượng `Person` này có được định nghĩa đồng nhất với `Person` dùng trong constructor của `MessagingStyle` không? (Gợi ý: Thử thay thế `person = LOCAL_USER_ME` bằng `person = null` khi gọi `addMessage()` cho tin nhắn gửi đi, Android thường tự hiểu null là Local User và căn lề phải).
-   - Kiểm tra luồng dữ liệu (Data flow): Khi `addLocalEchoAndRefresh` đẩy tin nhắn vào cache, hàm `buildMirroredNotification` có thực sự LẤY tin nhắn từ cache đó để đưa vào `MessagingStyle` không? Hay nó vô tình lấy lại dữ liệu từ `Notification.extras` cũ?
-   - Phương án dự phòng: Nếu `MessagingStyle` vẫn "lì lợm", hãy bổ sung thêm `setRemoteInputHistory(arrayOf(echoMessage))` vào builder như một cơ chế fallback mạnh mẽ của Android để hiển thị tin nhắn vừa reply.
-3. Suy luận cẩn thận, tìm ra điểm đứt gãy và dùng tool `Edit file` để sửa trực tiếp lỗi trong `LiveUpdateNotifier.kt` (hoặc file tương ứng). 
+1. Gỡ bỏ hoàn toàn dòng `setRemoteInputHistory(arrayOf(echoMessage))`. (Tuyệt đối không dùng cái này khi đã dùng MessagingStyle).
+2. Thay vì dùng `extractMessagingStyleFromNotification`, hãy tạo một instance `MessagingStyle` MỚI TINH: `val newStyle = NotificationCompat.MessagingStyle(userPerson)`. (Chú ý tên conversation title nếu có).
+3. Duyệt qua TẤT CẢ tin nhắn trong danh sách cache (bao gồm cả tin nhắn cũ và tin nhắn vừa mới add vào). Thêm tuần tự từng tin nhắn vào `newStyle`. Nhớ quy tắc: tin của người dùng thì `person = null`.
+4. Ép Builder xóa cache cũ bằng cách gọi `.setStyle(null)` trước, sau đó mới gọi `.setStyle(newStyle)`.
+5. Kiểm tra kỹ biến ID truyền vào hàm `notificationManager.notify(id, builder.build())`. Hãy chắc chắn 100% ID này là kiểu `Int` và khớp chính xác với ID của thông báo đang hiển thị (ví dụ `mirrorIdForKey`).
+6. Dùng tool `Edit file` để lưu lại những thay đổi này.
 
-Mục tiêu tối thượng: Ngay khi người dùng nhấn gửi, dòng tin nhắn phải lập tức xuất hiện một cách mượt mà ở bên phải thông báo. Trải nghiệm phải thật sự liền mạch! Hãy nói cho tôi biết bạn đã sửa ở dòng nào và logic thay đổi ra sao.
+Hãy phân tích code hiện tại, thực hiện đúng các bước trên và báo lại cho tôi cấu trúc hàm sau khi đã tối ưu.
