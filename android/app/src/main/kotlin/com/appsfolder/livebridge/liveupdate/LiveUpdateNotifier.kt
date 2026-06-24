@@ -8281,6 +8281,12 @@ object LiveUpdateNotifier {
         // 5. Inject the reply history via the only mechanism the OS accepts.
         builder.setRemoteInputHistory(historyArray)
 
+        // 5b. Force a fresh timestamp so Samsung Galaxy Wearable's
+        //     battery-optimisation layer recognises the payload as changed
+        //     and pushes it over the Bluetooth bridge to the watch.
+        builder.setWhen(System.currentTimeMillis())
+        builder.setShowWhen(true)
+
         // 6. Suppress sound / vibration on this update.
         builder.setOnlyAlertOnce(true)
         builder.setSilent(true)
@@ -8289,21 +8295,18 @@ object LiveUpdateNotifier {
         // Belt-and-suspenders: force FLAG_ONLY_ALERT_ONCE at the framework level.
         updatedNotification.flags = updatedNotification.flags or Notification.FLAG_ONLY_ALERT_ONCE
 
-        // 7. "Flicker Update": Cancel then re-notify with the EXACT SAME TAG + ID.
-        //    Samsung OneUI can be stubborn about updating notification content in-place
-        //    after a RemoteInput reply (the spinner keeps spinning). Cancelling first
-        //    forces the OS to tear down the old UI and render fresh content.
-        //    We use the raw NotificationManager (not NotificationManagerCompat) to
-        //    pass the TAG consistently.
+        // 7. In-place update: re-notify with the EXACT SAME TAG + ID.
+        //    IMPORTANT: Do NOT cancel() before notify(). On Samsung Wearable,
+        //    cancel() destroys the Bluetooth bridging session on the watch,
+        //    creating an orphan spinner that never resolves. The fresh timestamp
+        //    from setWhen() + setShowWhen(true) above is sufficient to force
+        //    Galaxy Wearable to recognise the payload as changed and sync it.
         val rawManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val sourceSbn = synchronized(stateLock) { sourceSnapshotsByMirrorKey[mirrorKey] }
 
-        Log.d(TAG, "addLocalEchoAndRefresh: Flicker-cancel then notify tag=$notificationTag, id=$notificationId for mirrorKey=$mirrorKey")
+        Log.d(TAG, "addLocalEchoAndRefresh: In-place notify tag=$notificationTag, id=$notificationId for mirrorKey=$mirrorKey")
 
-        // 7a. Cancel the current notification to dismiss the RemoteInput spinner.
-        rawManager.cancel(notificationTag, notificationId)
-
-        // 7b. Re-notify with TAG + ID so the OS treats it as the same notification slot.
+        // 7a. Re-notify with TAG + ID so the OS treats it as the same notification slot.
         val finalNotification = SamsungOneUi7NowBarCompat.markEligible(updatedNotification)
         rawManager.notify(notificationTag, notificationId, finalNotification)
 
