@@ -8331,24 +8331,113 @@ object LiveUpdateNotifier {
             Log.w(TAG, "addLocalEchoAndRefresh: No source snapshot for mirrorKey=$mirrorKey - echo cached only in replyHistory")
         }
 
-        // -- 3. Cancel the mirrored notification ---------------------------
-        //    Follow native Wear OS UX: after sending a reply the notification
-        //    disappears. The cached reply will resurface when the conversation
-        //    partner responds and a new notification is posted.
+        // -- 3. Dummy Update then Cancel -----------------------------------
+        //    CRITICAL FIX for Android Framework RemoteInput spinner deadlock:
+        //    When a RemoteInput PendingIntent is activated, the OS locks the
+        //    notification UI (shows a spinner) and WAITS for the app to call
+        //    NotificationManager.notify() with the SAME tag & id to confirm
+        //    the reply flow is complete. If we only call cancel(), the system
+        //    considers the reply still in-progress and the spinner stays stuck.
+        //
+        //    Strategy: "Dummy Update then Cancel"
+        //    1. Find the active StatusBarNotification to extract its tag & id.
+        //    2. Rebuild a silent dummy notification from the original.
+        //    3. notify(tag, id, dummy) → OS sees the update, clears spinner.
+        //    4. Delay ~350ms to let the OS process the update.
+        //    5. cancel(tag, id) → cleanly removes the notification.
         val notificationId: Int = synchronized(stateLock) {
             mirrorKeysByNotificationId.entries.firstOrNull { it.value == mirrorKey }?.key
         } ?: mirrorIdForKey(mirrorKey)
 
-        Log.d(TAG, "addLocalEchoAndRefresh: Attempting to cancel notification ID: $notificationId for mirrorKey=$mirrorKey")
-        
-        val manager = NotificationManagerCompat.from(context)
+        Log.d(TAG, "addLocalEchoAndRefresh: Starting Dummy-Update-then-Cancel for notificationId=$notificationId, mirrorKey=$mirrorKey")
+
+        val rawManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+        if (rawManager == null) {
+            Log.e(TAG, "addLocalEchoAndRefresh: NotificationManager is null – cannot proceed")
+            return
+        }
+
         try {
-            cancelMirroredNotification(manager, notificationId)
-            Log.d(TAG, "addLocalEchoAndRefresh: Successfully cancelled mirrored notification id=$notificationId for mirrorKey=$mirrorKey (Echo & Cancel)")
+            // Step 1: Find the active StatusBarNotification to extract tag & id.
+            //         These are the EXACT values the OS is waiting for.
+            val activeSbn: StatusBarNotification? = try {
+                rawManager.activeNotifications?.firstOrNull { sbn ->
+                    sbn.id == notificationId && sbn.packageName == context.packageName
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "addLocalEchoAndRefresh: Failed to query activeNotifications", e)
+                null
+            }
+
+            // Extract the ORIGINAL tag and id from the active SBN.
+            // These are CRITICAL – the OS matches on (tag, id) pair.
+            val originalTag: String? = activeSbn?.tag
+            val originalId: Int = activeSbn?.id ?: notificationId
+
+            Log.d(TAG, "addLocalEchoAndRefresh: activeSbn found=${activeSbn != null}, tag=$originalTag, id=$originalId")
+
+            // Step 2: Build a silent dummy notification to signal the OS that
+            //         the RemoteInput reply flow is complete.
+            val dummyNotification: Notification = if (activeSbn != null) {
+                // Recover Builder from the original notification
+                val dummyBuilder = NotificationCompat.Builder(context, activeSbn.notification)
+                    .setOnlyAlertOnce(true)  // No sound/vibration on update
+                    .setSilent(true)         // Completely silent
+
+                // IMPORTANT: Do NOT set RemoteInputHistory – clearing it tells
+                // the OS that the input flow has been cleaned up.
+
+                dummyBuilder.build()
+            } else {
+                // Fallback: build a minimal notification if no active SBN found
+                Log.w(TAG, "addLocalEchoAndRefresh: No active SBN found, building minimal dummy notification")
+                NotificationCompat.Builder(context, MirrorNotificationChannel.ALERTS.id)
+                    .setSmallIcon(R.drawable.ic_notification_capsule)
+                    .setOnlyAlertOnce(true)
+                    .setSilent(true)
+                    .setAutoCancel(true)
+                    .build()
+            }
+
+            // Step 3: NOTIFY with the original tag & id to kill the spinner.
+            rawManager.notify(originalTag, originalId, dummyNotification)
+            Log.d(TAG, "addLocalEchoAndRefresh: Dummy notify sent (tag=$originalTag, id=$originalId) – spinner should clear")
+
+            // Step 4 & 5: Delay then Cancel via Handler on main thread.
+            //             350ms gives the OS enough time to process the dummy
+            //             update and release the RemoteInput spinner lock.
+            Handler(Looper.getMainLooper()).postDelayed({
+                try {
+                    // Clean up internal state maps before cancelling
+                    synchronized(stateLock) {
+                        programmaticMirrorCancelDeadlines[originalId] =
+                            SystemClock.elapsedRealtime() + PROGRAMMATIC_MIRROR_CANCEL_GRACE_MS
+                        val removedKey = mirrorKeysByNotificationId.remove(originalId)
+                        if (removedKey != null) {
+                            sourceSnapshotsByMirrorKey.remove(removedKey)
+                            callMirrorStates.remove(removedKey)
+                            smartAnimationGenerations.remove(removedKey)
+                            smartAnimationStates.remove(removedKey)
+                        }
+                    }
+
+                    rawManager.cancel(originalTag, originalId)
+                    Log.d(TAG, "addLocalEchoAndRefresh: Delayed cancel executed (tag=$originalTag, id=$originalId) – notification removed")
+                } catch (e: Exception) {
+                    Log.e(TAG, "addLocalEchoAndRefresh: Error in delayed cancel (tag=$originalTag, id=$originalId)", e)
+                }
+            }, 350L)
+
         } catch (e: Exception) {
-            Log.e(TAG, "addLocalEchoAndRefresh: Error cancelling notification id=$notificationId for mirrorKey=$mirrorKey", e)
-            // Even if cancel fails, the echo is still cached and will appear
-            // when the next notification update arrives.
+            Log.e(TAG, "addLocalEchoAndRefresh: Error in Dummy-Update-then-Cancel for mirrorKey=$mirrorKey", e)
+            // Last resort: try a plain cancel to at least attempt cleanup
+            try {
+                val manager = NotificationManagerCompat.from(context)
+                cancelMirroredNotification(manager, notificationId)
+                Log.w(TAG, "addLocalEchoAndRefresh: Fallback cancelMirroredNotification executed for id=$notificationId")
+            } catch (fallbackError: Exception) {
+                Log.e(TAG, "addLocalEchoAndRefresh: Fallback cancel also failed", fallbackError)
+            }
         }
     }
 
