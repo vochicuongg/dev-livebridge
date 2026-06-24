@@ -1,16 +1,13 @@
-**Nhiệm vụ của bạn:**
-1. Hãy mở lại `ReplyInterceptReceiver.kt`.
-2. Định vị đoạn code sử dụng `RemoteInput.Builder` trong vòng lặp `originalNotification.actions`.
-3. **Cách khắc phục:**
-   - Nếu `setAllowGeneratedReplies` không tồn tại, hãy **xóa bỏ hoàn toàn dòng `.setAllowGeneratedReplies(...)`** đó. Đối với các tác vụ Reply thông thường, việc này là tùy chọn (optional) và không làm ảnh hưởng đến khả năng gửi tin nhắn.
-   - Đảm bảo rằng việc tạo `RemoteInput` chỉ sử dụng các thuộc tính cơ bản nhất: `resultKey`, `label`, `choices`, và `setAllowFreeFormInput(true)` (nếu cần thiết để cho phép nhập văn bản).
-4. Kiểm tra lại imports: Đảm bảo chỉ dùng `androidx.core.app.RemoteInput` và không import nhầm `android.app.RemoteInput`.
-5. Sau khi sửa, hãy chắc chắn đoạn code vẫn giữ được logic build lại `NotificationCompat.MessagingStyle` như đã thống nhất.
+Yêu cầu thực thi:
+1. Hãy dùng tool `Read text file` hoặc `Search files` để đọc nội dung file `ReplyInterceptReceiver.kt`.
+2. Phân tích logic trong hàm `onReceive()` hiện tại.
+3. Cập nhật thêm đoạn code xử lý UI ngay sau khi lấy được nội dung tin nhắn (`RemoteInput`):
+   - Trích xuất/Tìm lại thông báo đang active (gợi ý: sử dụng `NotificationManager.getActiveNotifications()` đối chiếu với Notification ID từ intent, hoặc lấy trực tiếp từ intent nếu có truyền).
+   - Trích xuất `MessagingStyle` từ thông báo đó.
+   - Tạo một đối tượng `Person` đại diện cho người dùng (người gửi) để tin nhắn tự động được căn lề phải.
+   - Thêm nội dung vừa gõ vào `MessagingStyle` đó.
+   - Sử dụng `NotificationManager.notify()` với ĐÚNG ID của thông báo cũ để cập nhật giao diện mà không làm mất thông báo.
+4. Đảm bảo tính an toàn (null safety) và tương thích phiên bản Android.
+5. Sau khi suy luận xong, hãy dùng tool `Edit file` hoặc `Write file` để cập nhật lại trực tiếp file `ReplyInterceptReceiver.kt`.
 
-**Các bước thực hiện:**
-1. Đọc nội dung `ReplyInterceptReceiver.kt`.
-2. Sửa lỗi "Unresolved reference" bằng cách xóa hoặc điều chỉnh hàm builder.
-3. Kiểm tra lại toàn bộ logic re-notify để đảm bảo tính an toàn (null safety).
-4. Lưu file và báo cáo lại khi đã sẵn sàng để build.
-
-Mục tiêu là phải build thành công `flutter run --release`. Hãy thực hiện ngay!
+Hãy làm việc thật cẩn thận, giải thích ngắn gọn cách bạn lấy ID thông báo cũ trước khi ghi file nhé.

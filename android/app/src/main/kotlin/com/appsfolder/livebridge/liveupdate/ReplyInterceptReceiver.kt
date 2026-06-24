@@ -1,27 +1,31 @@
 package com.kakao.taxi.liveupdate
 
-import android.app.Notification
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import android.os.Bundle
-import android.service.notification.StatusBarNotification
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
 import androidx.core.app.RemoteInput
 
 /**
  * Proxy BroadcastReceiver that intercepts reply actions from Wear OS.
  *
- * Requirements:
- * - Append the just-sent reply into the mirrored MessagingStyle history.
- * - Re-notify using the SAME watchNotificationId so Wear OS updates in-place and the card stays.
- * - Copy original actions (including Reply RemoteInputs) to avoid losing the notification.
- * - Always forward the reply to the original app.
+ * Flow:
+ * 1. User types a reply on Wear OS → OS fires this receiver via the proxy PendingIntent.
+ * 2. We extract the reply text from [RemoteInput].
+ * 3. **Local echo**: Delegate to [LiveUpdateNotifier.addLocalEchoAndRefresh] which:
+ *    - Creates a "Me" [Person] message appended to the conversation cache.
+ *    - Rebuilds the full mirrored notification through the standard pipeline
+ *      ([buildMirroredNotification]) so the chat bubble appears on the RIGHT side.
+ *    - Re-notifies with the SAME notification ID so the card stays in place
+ *      (no dismiss, no extra vibration).
+ * 4. **Forward**: Send the reply to the original app's [PendingIntent].
+ *
+ * This ensures the user sees their message instantly in the notification
+ * without waiting for the remote party to respond.
  */
 class ReplyInterceptReceiver : BroadcastReceiver() {
 
@@ -47,6 +51,7 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
         val mirrorKey = intent.getStringExtra(EXTRA_MIRROR_KEY).orEmpty()
         val resultKey = intent.getStringExtra(EXTRA_RESULT_KEY).orEmpty()
 
+        // Extract the reply text from RemoteInput results
         val replyText = RemoteInput.getResultsFromIntent(intent)
             ?.getCharSequence(resultKey)
             ?.toString()
@@ -54,108 +59,45 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
             .trim()
 
         if (replyText.isBlank()) {
-            Log.w(TAG, "Empty reply text")
+            Log.w(TAG, "Empty reply text – ignoring")
             return
         }
 
-        // 1) Update UI first (best effort). Never block forwarding.
+        Log.d(TAG, "Received reply for mirrorKey=$mirrorKey, text=$replyText")
+
+        // ── 1) Local echo: update the notification in-place ────────────
+        // Delegate to LiveUpdateNotifier which owns the conversation cache,
+        // notification building pipeline, and the mirrorKey→notificationId map.
+        // This guarantees:
+        //   • The "Me" message appears on the RIGHT (sender = LOCAL_USER_ME).
+        //   • The notification is rebuilt with all original actions (including Reply).
+        //   • The same notification ID is reused → card stays, no vibration.
         if (mirrorKey.isNotBlank()) {
             try {
-                appendLocalEchoAndRefresh(context, mirrorKey, replyText)
+                val me: Person = LiveUpdateNotifier.LOCAL_USER_ME
+                val echoMessage = NotificationCompat.MessagingStyle.Message(
+                    replyText,
+                    System.currentTimeMillis(),
+                    me
+                )
+                LiveUpdateNotifier.addLocalEchoAndRefresh(context, mirrorKey, echoMessage)
+                Log.d(TAG, "Local echo posted for mirrorKey=$mirrorKey")
             } catch (t: Throwable) {
-                Log.e(TAG, "appendLocalEchoAndRefresh failed for mirrorKey=$mirrorKey", t)
+                Log.e(TAG, "addLocalEchoAndRefresh failed for mirrorKey=$mirrorKey", t)
             }
         }
 
-        // 2) Always forward to source app.
+        // ── 2) Forward the reply to the original app ───────────────────
         forwardReplyToOriginalApp(context, intent, resultKey, replyText)
     }
 
-    private fun appendLocalEchoAndRefresh(
-        context: Context,
-        mirrorKey: String,
-        replyText: String,
-    ) {
-        // 1. Lấy thông báo gốc + watch id
-        val originalSbn: StatusBarNotification = LiveUpdateNotifier.snapshotForMirrorKey(mirrorKey) ?: run {
-            Log.w(TAG, "snapshotForMirrorKey is null: $mirrorKey")
-            return
-        }
-
-        val watchNotificationId: Int = LiveUpdateNotifier.watchNotificationIdForMirrorKey(mirrorKey) ?: run {
-            Log.w(TAG, "watchNotificationIdForMirrorKey is null: $mirrorKey")
-            return
-        }
-
-        val originalNotification: Notification = originalSbn.notification ?: run {
-            Log.w(TAG, "originalNotification is null: $mirrorKey")
-            return
-        }
-
-        // 2. Cập nhật MessagingStyle
-        val messagingStyle = NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(originalNotification)
-            ?: run {
-                Log.w(TAG, "No MessagingStyle in original notification: $mirrorKey")
-                return
-            }
-
-        val me: Person = LiveUpdateNotifier.LOCAL_USER_ME
-        val echoMessage = NotificationCompat.MessagingStyle.Message(
-            replyText,
-            System.currentTimeMillis(),
-            me,
-        )
-        messagingStyle.addMessage(echoMessage)
-
-        // 3. Build lại notification + copy actions
-        val builder = NotificationCompat.Builder(context, originalNotification)
-            .setStyle(messagingStyle)
-            .setOnlyAlertOnce(true)
-
-        // Copy actions explicitly (Reply RemoteInputs are critical)
-        try {
-            val actions = originalNotification.actions
-            if (actions != null) {
-                for (a in actions) {
-                    val actionBuilder = NotificationCompat.Action.Builder(
-                        a.icon,
-                        a.title,
-                        a.actionIntent,
-                    )
-
-                    val ris = a.remoteInputs
-                    if (ris != null) {
-                        for (platformRi in ris) {
-                            val compatRi = RemoteInput.Builder(platformRi.resultKey)
-                                .setLabel(platformRi.label)
-                                .setAllowFreeFormInput(platformRi.allowFreeFormInput)
-                            val choices = platformRi.choices
-                            if (choices != null) {
-                                compatRi.setChoices(choices)
-                            }
-                            actionBuilder.addRemoteInput(compatRi.build())
-                        }
-                    }
-
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                        actionBuilder.setSemanticAction(a.semanticAction)
-                    }
-
-                    builder.addAction(actionBuilder.build())
-                }
-            }
-        } catch (t: Throwable) {
-            Log.w(TAG, "Failed copying actions; continuing", t)
-        }
-
-        val updated = builder.build().apply {
-            flags = flags or Notification.FLAG_ONLY_ALERT_ONCE
-        }
-
-        // 4. Re-notify same id
-        NotificationManagerCompat.from(context).notify(watchNotificationId, updated)
-    }
-
+    /**
+     * Sends the user's reply text to the original app via its [PendingIntent].
+     *
+     * We rebuild a minimal [Intent] carrying the [RemoteInput] results bundle
+     * so the source app (KakaoTalk, Zalo, Telegram, …) processes the reply
+     * as if it came from the system's inline-reply UI.
+     */
     private fun forwardReplyToOriginalApp(
         context: Context,
         originalIntent: Intent,
@@ -163,9 +105,12 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
         replyText: String,
     ) {
         try {
-            val originalPendingIntent: PendingIntent? = originalIntent.getParcelableExtra(EXTRA_ORIGINAL_PENDING_INTENT)
+            @Suppress("DEPRECATION")
+            val originalPendingIntent: PendingIntent? =
+                originalIntent.getParcelableExtra(EXTRA_ORIGINAL_PENDING_INTENT)
+
             if (originalPendingIntent == null) {
-                Log.w(TAG, "No original PendingIntent found; cannot forward")
+                Log.w(TAG, "No original PendingIntent found; cannot forward reply")
                 return
             }
 
@@ -182,8 +127,9 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
             }
 
             originalPendingIntent.send(context, 0, forwardIntent)
+            Log.d(TAG, "Reply forwarded to original app")
         } catch (t: Throwable) {
-            Log.e(TAG, "Failed to forward reply", t)
+            Log.e(TAG, "Failed to forward reply to original app", t)
         }
     }
 }
