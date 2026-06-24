@@ -290,7 +290,31 @@ object LiveUpdateNotifier {
      * messages always render on the RIGHT side of chat bubbles on Wear OS.
      */
     val LOCAL_USER_ME: Person = Person.Builder().setName("Me").build()
-    
+
+    /**
+     * Returns the cached original [StatusBarNotification] for the given mirrorKey,
+     * or null if no snapshot is currently retained. Read-only accessor used by
+     * [ReplyInterceptReceiver] to rebuild the conversation MessagingStyle after a
+     * Wear OS reply so the just-sent message can be appended to the chat history.
+     */
+    fun snapshotForMirrorKey(mirrorKey: String): StatusBarNotification? {
+        if (mirrorKey.isBlank()) return null
+        return synchronized(stateLock) { sourceSnapshotsByMirrorKey[mirrorKey] }
+    }
+
+    /**
+     * Returns the integer notification id of the mirrored (watch) notification
+     * associated with [mirrorKey], or null if none is currently posted.
+     * Read-only accessor used by [ReplyInterceptReceiver] so it can re-notify the
+     * exact same notification id and let Wear OS update the chat UI in place.
+     */
+    fun watchNotificationIdForMirrorKey(mirrorKey: String): Int? {
+        if (mirrorKey.isBlank()) return null
+        return synchronized(stateLock) {
+            mirrorKeysByNotificationId.entries.firstOrNull { it.value == mirrorKey }?.key
+        }
+    }
+
     private val notificationCapsuleIds = mutableSetOf<Int>()
     private var chargingInfoDelayScheduled = false
     private var chargingInfoDelayGeneration = 0L
