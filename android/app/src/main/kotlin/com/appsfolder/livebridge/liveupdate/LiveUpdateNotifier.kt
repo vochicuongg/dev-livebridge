@@ -281,6 +281,16 @@ object LiveUpdateNotifier {
     
     // Chat History Cache: Stores conversation history to preserve messages across notification updates
     private val conversationHistoryCache = java.util.concurrent.ConcurrentHashMap<String, MutableList<NotificationCompat.MessagingStyle.Message>>()
+
+    /**
+     * Per-mirrorKey cache of reply texts sent from Wear OS.
+     * Used by [addLocalEchoAndRefresh] to populate
+     * [NotificationCompat.Builder.setRemoteInputHistory] so that ALL previous
+     * replies remain visible (newest first) until the source app itself
+     * refreshes the notification.
+     */
+    private val replyHistoryByMirrorKey = java.util.concurrent.ConcurrentHashMap<String, MutableList<CharSequence>>()
+    private const val MAX_REPLY_HISTORY = 5
     
     /**
      * Singleton Person object representing the local user ("Me").
@@ -701,6 +711,7 @@ object LiveUpdateNotifier {
         }
         // Clear all chat history cache entries
         conversationHistoryCache.clear()
+        replyHistoryByMirrorKey.clear()
     }
 
     fun cancelAllMirrored(context: Context) {
@@ -2840,6 +2851,7 @@ object LiveUpdateNotifier {
             smartAnimationGenerations.remove(mirrorKey)
             smartAnimationStates.remove(mirrorKey)
             otpAnimationGenerations.remove(mirrorKey)
+            replyHistoryByMirrorKey.remove(mirrorKey)
         }
     }
     private fun notMirroredResult(): MirrorResult {
@@ -8195,203 +8207,109 @@ object LiveUpdateNotifier {
     }
 
     /**
-     * Injects a local-echo "Me" message into the conversation cache and
-     * refreshes the mirrored notification on the watch WITHOUT vibrating.
+     * Displays the user's just-typed reply text beneath the existing notification
+     * using [NotificationCompat.Builder.setRemoteInputHistory].
+     *
+     * This is the ONLY mechanism the Android framework on Samsung devices allows
+     * a third-party app (like LiveBridge) to visually append text to a notification
+     * it does NOT own.  Rebuilding MessagingStyle is silently rejected by the OS
+     * because the package name doesn't match the original notification owner.
+     *
+     * The reply history is accumulated per mirrorKey so that consecutive replies
+     * all remain visible (newest first) until the source app refreshes the
+     * notification itself.
      *
      * Called from [ReplyInterceptReceiver] after the user replies via
      * RemoteInput on Wear OS.
      *
      * @param context      Application context
      * @param mirrorKey    The mirrorKey identifying the mirrored conversation
-     * @param echoMessage  The local-echo message to append (sender = "Me")
+     * @param echoMessage  The local-echo message (only [echoMessage.text] is used)
      */
     fun addLocalEchoAndRefresh(
         context: Context,
         mirrorKey: String,
         echoMessage: NotificationCompat.MessagingStyle.Message
     ) {
-        // 1. Retrieve the source StatusBarNotification for this mirrorKey.
-        val sourceSbn = synchronized(stateLock) {
-            sourceSnapshotsByMirrorKey[mirrorKey]
-        } ?: run {
-            Log.w(TAG, "addLocalEchoAndRefresh: no source snapshot for mirrorKey=$mirrorKey")
+        val replyText = echoMessage.text?.toString()?.trim().orEmpty()
+        if (replyText.isBlank()) {
+            Log.w(TAG, "addLocalEchoAndRefresh: empty reply text – ignoring")
             return
         }
 
-        // 2. Reconstruct the thread key exactly as mergeAndGetCachedMessages does.
-        val source = sourceSbn.notification
-        val originalMessagingStyle = runCatching {
-            NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(source)
-        }.getOrNull()
-        val conversationTitle = originalMessagingStyle?.conversationTitle
-            ?: source.extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
-            ?: ""
-        val threadKey = "${sourceSbn.packageName}_${conversationTitle.toString()}"
+        // 1. Resolve the notification ID that the visible mirror was posted under.
+        val notificationId: Int = synchronized(stateLock) {
+            mirrorKeysByNotificationId.entries.firstOrNull { it.value == mirrorKey }?.key
+        } ?: mirrorIdForKey(mirrorKey)
 
-        // 3. Append the echo message to the conversation history cache.
-        val historyList = conversationHistoryCache.getOrPut(threadKey) { mutableListOf() }
-        historyList.add(echoMessage)
-        // Trim to keep only the last MAX_CHAT_HISTORY_MESSAGES messages.
-        if (historyList.size > MAX_CHAT_HISTORY_MESSAGES) {
-            val trimmed = historyList.takeLast(MAX_CHAT_HISTORY_MESSAGES).toMutableList()
-            conversationHistoryCache[threadKey] = trimmed
-        }
-
-        // 4. Build a BRAND-NEW MessagingStyle from scratch (not extracted from old notification).
-        //    This avoids stale extras cache issues where the OS refuses to update
-        //    because the Bundle hasn't changed enough from the previous notification.
-        val userPerson = LOCAL_USER_ME
-        val newStyle = NotificationCompat.MessagingStyle(userPerson)
-        conversationTitle
-            .toString()
-            .trim()
-            .takeIf { it.isNotEmpty() }
-            ?.let { newStyle.conversationTitle = it }
-
-        // Resolve the original app's local user name for sender matching.
-        val localUserName = originalMessagingStyle?.user?.name?.toString()?.trim()
-            ?.takeIf { it.isNotEmpty() }
-
-        // Re-read the (now-updated) cache to get ALL messages including the echo.
-        val allCachedMessages = conversationHistoryCache[threadKey] ?: mutableListOf()
-        allCachedMessages.forEach { message ->
-            val messageText = message.text ?: ""
-            val timestamp = message.timestamp
-            val messagePerson = message.person
-            val senderName = messagePerson?.name?.toString()?.trim()
-                ?.takeIf { it.isNotEmpty() }
-            // A message is from the local user if:
-            //   1. Its Person is the exact LOCAL_USER_ME singleton (echo messages), OR
-            //   2. Its Person is null (convention: null = style's own user), OR
-            //   3. Its Person.name matches the original app's local user name.
-            val isFromLocalUser = messagePerson === LOCAL_USER_ME ||
-                senderName == null ||
-                (localUserName != null && senderName == localUserName)
-            if (isFromLocalUser) {
-                // Sent by me -> pass null as Person so Android uses the
-                // MessagingStyle's own user and renders on the RIGHT side.
-                newStyle.addMessage(messageText, timestamp, null as Person?)
-            } else {
-                // Received -> attach the sender's person (renders on the LEFT).
-                val senderPerson = Person.Builder().setName(senderName).build()
-                newStyle.addMessage(messageText, timestamp, senderPerson)
+        // 2. Find the currently active notification posted by us with that ID.
+        val notificationManager =
+            context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+        val activeNotification: Notification? = notificationManager
+            ?.activeNotifications
+            ?.firstOrNull { sbn ->
+                sbn.id == notificationId && sbn.packageName == context.packageName
             }
+            ?.notification
+
+        if (activeNotification == null) {
+            Log.w(TAG, "addLocalEchoAndRefresh: no active notification found for id=$notificationId, mirrorKey=$mirrorKey")
+            return
         }
 
-        // Safety net: if cache was somehow empty, add the echo as a fallback.
-        if (allCachedMessages.isEmpty()) {
-            newStyle.addMessage(
-                echoMessage.text ?: "",
-                echoMessage.timestamp,
-                null as Person?
-            )
+        // 3. Accumulate reply texts in the per-mirrorKey history cache (newest first).
+        val historyList = replyHistoryByMirrorKey.getOrPut(mirrorKey) { mutableListOf() }
+        historyList.add(0, replyText)               // newest at index 0
+        while (historyList.size > MAX_REPLY_HISTORY) {
+            historyList.removeAt(historyList.lastIndex)
         }
+        val historyArray = historyList.toTypedArray()
 
-        Log.d(TAG, "addLocalEchoAndRefresh: Rebuilt MessagingStyle from scratch with ${allCachedMessages.size} messages for mirrorKey=$mirrorKey")
+        Log.d(TAG, "addLocalEchoAndRefresh: Using setRemoteInputHistory with ${historyArray.size} entries for mirrorKey=$mirrorKey")
 
-        // 5. Build the notification using the standard pipeline, then FORCE-replace the style.
-        val appPresentationOverride = AppPresentationOverridesLoader
-            .get(ConverterPrefs(context))
-            .resolve(sourceSbn.packageName.lowercase(Locale.ROOT))
-        val samsungBridge = SamsungBridgePreprocessor.build(
-            context = context,
-            prefs = ConverterPrefs(context),
-            sbn = sourceSbn,
-            sourceHasNativeProgress = hasEffectiveProgress(
-                sourceSbn.packageName,
-                sourceSbn.notification
-            )
-        )
-        val notification = buildMirroredNotification(
-            context = context,
-            sbn = sourceSbn,
-            appPresentationOverride = appPresentationOverride,
-            mirrorChannel = MirrorNotificationChannel.ALERTS,
-            progressOverride = null,
-            otpOverride = null,
-            smartShortTextOverride = null,
-            requestPromoted = false,
-            samsungBridge = samsungBridge
-        )
+        // 4. Recover a Builder from the active notification, preserving ALL of
+        //    its existing style, actions, icons, extras, etc.
+        val builder = NotificationCompat.Builder(context, activeNotification)
 
-        // 6. CRITICAL: Force the OS to recognize the notification as "new" by
-        //    rebuilding the Builder with style cache cleared.
-        //    - First set style to null to purge any stale extras from the old style.
-        //    - Then set the brand-new MessagingStyle we built from scratch.
-        //    - This ensures the Bundle extras are fully refreshed so the OS
-        //      detects a real change and re-renders the UI.
-        val mirrorChannel = MirrorNotificationChannel.ALERTS
-        val rebuiltBuilder = NotificationCompat.Builder(context, mirrorChannel.id)
-            .setContentTitle(conversationTitle.toString().trim().ifEmpty { sourceSbn.packageName })
-            .setContentText(echoMessage.text ?: "")
-            .setSubText(resolveAppName(context, sourceSbn.packageName))
-            .setOnlyAlertOnce(true)
-            .setSilent(true)
-            .setDefaults(0)
-            .setOngoing(true)
-            .setAutoCancel(false)
-            .setWhen(System.currentTimeMillis())
-            .setShowWhen(false)
-            .setColor(notification.color)
-            .setCategory(Notification.CATEGORY_MESSAGE)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+        // 5. Inject the reply history via the only mechanism the OS accepts.
+        builder.setRemoteInputHistory(historyArray)
 
-        // Copy small icon from the original built notification.
-        val sourceSmallIcon = resolveSourceSmallIcon(context, sourceSbn)
-        val appIconAssets = resolveAppIconAssets(context, sourceSbn.packageName)
-        val appSmallIcon = appIconAssets?.smallIcon
-        applySmallIcon(context, rebuiltBuilder, sourceSmallIcon ?: appSmallIcon)
-        appIconAssets?.largeIconBitmap?.let(rebuiltBuilder::setLargeIcon)
+        // 6. Suppress sound / vibration on this update.
+        builder.setOnlyAlertOnce(true)
+        builder.setSilent(true)
 
-        // Copy content intent from source.
-        source.contentIntent?.let(rebuiltBuilder::setContentIntent)
+        val updatedNotification = builder.build()
+        // Belt-and-suspenders: force FLAG_ONLY_ALERT_ONCE at the framework level.
+        updatedNotification.flags = updatedNotification.flags or Notification.FLAG_ONLY_ALERT_ONCE
 
-        // Copy actions from the original notification (including Reply).
-        notification.actions?.forEach { action ->
-            rebuiltBuilder.addAction(
-                NotificationCompat.Action.Builder(
-                    action.getIcon()?.let { icon -> IconCompat.createFromIcon(context, icon) },
-                    action.title,
-                    action.actionIntent
-                ).apply {
-                    action.remoteInputs?.forEach { remoteInput ->
-                        addRemoteInput(
-                            RemoteInputCompat.Builder(remoteInput.resultKey)
-                                .setLabel(remoteInput.label)
-                                .setAllowFreeFormInput(remoteInput.allowFreeFormInput)
-                                .build()
-                        )
-                    }
-                }.build()
-            )
-        }
-
-        // Force clear old style cache, then apply the new MessagingStyle.
-        rebuiltBuilder.setStyle(null)
-        rebuiltBuilder.setStyle(newStyle)
-
-        // 7. CRITICAL: Do NOT use setRemoteInputHistory — it conflicts with
-        //    MessagingStyle and causes a race condition that prevents the OS
-        //    from rendering the updated UI. The echo message is already part
-        //    of the MessagingStyle messages above.
-
-        val rebuiltNotification = rebuiltBuilder.build()
-
-        // 8. Prevent the watch from vibrating on this update.
-        rebuiltNotification.flags = rebuiltNotification.flags or Notification.FLAG_ONLY_ALERT_ONCE
-
-        // 9. Post the updated notification with the EXACT SAME notification ID (Int).
+        // 7. Re-notify with the EXACT SAME ID so the card stays in place.
         val manager = NotificationManagerCompat.from(context)
-        val notificationId: Int = mirrorIdForKey(mirrorKey)
-        Log.d(TAG, "addLocalEchoAndRefresh: Posting rebuilt notification with id=$notificationId for mirrorKey=$mirrorKey")
-        notifyMirroredNotification(
-            manager = manager,
-            notificationId = notificationId,
-            notification = rebuiltNotification,
-            mirrorKey = mirrorKey,
-            sourceSbn = sourceSbn
-        )
+        val sourceSbn = synchronized(stateLock) { sourceSnapshotsByMirrorKey[mirrorKey] }
+
+        Log.d(TAG, "addLocalEchoAndRefresh: Posting notification with RemoteInputHistory id=$notificationId for mirrorKey=$mirrorKey")
+
+        if (sourceSbn != null) {
+            notifyMirroredNotification(
+                manager = manager,
+                notificationId = notificationId,
+                notification = updatedNotification,
+                mirrorKey = mirrorKey,
+                sourceSbn = sourceSbn
+            )
+        } else {
+            // Fallback: post directly if we lost the source snapshot reference.
+            manager.notify(notificationId, SamsungOneUi7NowBarCompat.markEligible(updatedNotification))
+        }
+    }
+
+    /**
+     * Clears accumulated reply history for a given mirrorKey.
+     * Should be called when the source app refreshes its own notification
+     * (which would reset the RemoteInputHistory) or when the notification
+     * is dismissed.
+     */
+    fun clearReplyHistory(mirrorKey: String) {
+        replyHistoryByMirrorKey.remove(mirrorKey)
     }
 
     private fun mirrorIdForKey(key: String): Int {

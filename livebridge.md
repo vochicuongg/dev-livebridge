@@ -1,10 +1,13 @@
-Nhiệm vụ của bạn là sử dụng MCP Tools (truy cập `D:\livebridge`) để sửa lại hàm rebuild thông báo trong `LiveUpdateNotifier.kt` bằng chiến thuật "Rebuild Style từ đầu":
+Giải pháp: TỪ BỎ VIỆC REBUILD MESSAGING STYLE CHO TIN NHẮN PHẢN HỒI. Bắt buộc phải dùng cơ chế duy nhất mà OS cho phép: `setRemoteInputHistory()`.
 
-1. Gỡ bỏ hoàn toàn dòng `setRemoteInputHistory(arrayOf(echoMessage))`. (Tuyệt đối không dùng cái này khi đã dùng MessagingStyle).
-2. Thay vì dùng `extractMessagingStyleFromNotification`, hãy tạo một instance `MessagingStyle` MỚI TINH: `val newStyle = NotificationCompat.MessagingStyle(userPerson)`. (Chú ý tên conversation title nếu có).
-3. Duyệt qua TẤT CẢ tin nhắn trong danh sách cache (bao gồm cả tin nhắn cũ và tin nhắn vừa mới add vào). Thêm tuần tự từng tin nhắn vào `newStyle`. Nhớ quy tắc: tin của người dùng thì `person = null`.
-4. Ép Builder xóa cache cũ bằng cách gọi `.setStyle(null)` trước, sau đó mới gọi `.setStyle(newStyle)`.
-5. Kiểm tra kỹ biến ID truyền vào hàm `notificationManager.notify(id, builder.build())`. Hãy chắc chắn 100% ID này là kiểu `Int` và khớp chính xác với ID của thông báo đang hiển thị (ví dụ `mirrorIdForKey`).
-6. Dùng tool `Edit file` để lưu lại những thay đổi này.
+Nhiệm vụ của bạn:
+1. Dùng tool `Edit file` để chỉnh sửa hàm `addLocalEchoAndRefresh` trong `LiveUpdateNotifier.kt` (và các file liên quan nếu cần).
+2. XÓA BỎ hoàn toàn khối logic duyệt mảng `allCachedMessages` và khởi tạo lại `NotificationCompat.MessagingStyle`. KHÔNG DÙNG `.setStyle(newStyle)` nữa.
+3. Thay vì cố gắng vẽ lại bong bóng chat bằng MessagingStyle, hãy ép Android hiển thị tin nhắn vừa gõ bằng "cửa sau":
+   - Lấy `NotificationCompat.Builder(context, activeNotification)` (để giữ nguyên giao diện hiện tại).
+   - Gọi hàm `.setRemoteInputHistory(arrayOf(replyText))` trên Builder này. 
+   - Đảm bảo gọi thêm `.setOnlyAlertOnce(true)`.
+   - `notify()` lại đúng ID của activeNotification đó.
+   (Lưu ý: Mảng lịch sử có thể chứa nhiều tin nhắn cũ nếu bạn quản lý được, nhưng ít nhất phải chứa `replyText` vừa gõ).
 
-Hãy phân tích code hiện tại, thực hiện đúng các bước trên và báo lại cho tôi cấu trúc hàm sau khi đã tối ưu.
+Đây là cách duy nhất hệ điều hành chấp nhận để hiển thị chữ "Đang trả lời..." hoặc dòng text vừa gõ ở dưới đáy thông báo trên màn hình khóa và đồng hồ. Hãy thực thi việc gỡ bỏ MessagingStyle rebuild và áp dụng cơ chế RemoteInputHistory.
