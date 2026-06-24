@@ -8243,9 +8243,8 @@ object LiveUpdateNotifier {
         } ?: mirrorIdForKey(mirrorKey)
 
         // 2. Find the currently active StatusBarNotification posted by us with that ID.
-        //    CRITICAL: We must retain the full StatusBarNotification (not just .notification)
-        //    so we can extract the TAG. Without the correct TAG, the OS treats
-        //    notify(id, ...) as a DIFFERENT notification and silently ignores the update.
+        //    We need the full SBN to extract the TAG – without the correct TAG the OS
+        //    treats notify(id, …) as a DIFFERENT notification and silently ignores it.
         val notificationManager =
             context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
         val activeSbn: StatusBarNotification? = notificationManager
@@ -8259,35 +8258,47 @@ object LiveUpdateNotifier {
             return
         }
 
+        // 3. Recover Builder from the original notification and extract TAG.
         val activeNotification: Notification = activeSbn.notification
         val notificationTag: String? = activeSbn.tag
 
         Log.d(TAG, "addLocalEchoAndRefresh: Found active notification tag=$notificationTag, id=$notificationId for mirrorKey=$mirrorKey")
 
-        // 3. Accumulate reply texts in the per-mirrorKey history cache (newest first).
-        val historyList = replyHistoryByMirrorKey.getOrPut(mirrorKey) { mutableListOf() }
-        historyList.add(0, replyText)               // newest at index 0
-        while (historyList.size > MAX_REPLY_HISTORY) {
-            historyList.removeAt(historyList.lastIndex)
-        }
-        val historyArray = historyList.toTypedArray()
-
-        Log.d(TAG, "addLocalEchoAndRefresh: Using setRemoteInputHistory with ${historyArray.size} entries for mirrorKey=$mirrorKey")
-
-        // 4. Recover a Builder from the active notification, preserving ALL of
-        //    its existing style, actions, icons, extras, etc.
         val builder = NotificationCompat.Builder(context, activeNotification)
 
-        // 5. Inject the reply history via the only mechanism the OS accepts.
-        builder.setRemoteInputHistory(historyArray)
+        // 4. Extract the existing MessagingStyle from the notification.
+        val existingStyle = NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(activeNotification)
 
-        // 5b. Force a fresh timestamp so Samsung Galaxy Wearable's
-        //     battery-optimisation layer recognises the payload as changed
-        //     and pushes it over the Bluetooth bridge to the watch.
+        if (existingStyle != null) {
+            // ── Step 1: Clear EXTRA_MESSAGES & EXTRA_HISTORIC_MESSAGES from the
+            //    Builder's extras bundle. If stale Parcelable data remains the OS
+            //    will refuse to render the updated UI due to Parcelable conflicts.
+            builder.extras.remove(NotificationCompat.EXTRA_MESSAGES)
+            builder.extras.remove(NotificationCompat.EXTRA_HISTORIC_MESSAGES)
+
+            // ── Step 2: Append the user's reply into the Style.
+            //    Person MUST be null so Wear OS renders the bubble right-aligned
+            //    (the "me" side). Safe-cast to Person? to satisfy the overload.
+            existingStyle.addMessage(
+                replyText,
+                System.currentTimeMillis(),
+                null as Person?
+            )
+
+            // ── Step 3: Re-apply the mutated Style back onto the Builder.
+            builder.setStyle(existingStyle)
+
+            Log.d(TAG, "addLocalEchoAndRefresh: Appended reply via MessagingStyle (null Person) for mirrorKey=$mirrorKey")
+        } else {
+            Log.w(TAG, "addLocalEchoAndRefresh: MessagingStyle not found – reply may not render as chat bubble for mirrorKey=$mirrorKey")
+        }
+
+        // 5. Force a fresh timestamp so Samsung Galaxy Wearable's Bluetooth
+        //    bridge recognises the payload as changed and pushes it to the watch.
         builder.setWhen(System.currentTimeMillis())
         builder.setShowWhen(true)
 
-        // 6. Suppress sound / vibration on this update.
+        // 6. Suppress sound / vibration on this update – prevent spam alerts.
         builder.setOnlyAlertOnce(true)
         builder.setSilent(true)
 
@@ -8296,21 +8307,17 @@ object LiveUpdateNotifier {
         updatedNotification.flags = updatedNotification.flags or Notification.FLAG_ONLY_ALERT_ONCE
 
         // 7. In-place update: re-notify with the EXACT SAME TAG + ID.
-        //    IMPORTANT: Do NOT cancel() before notify(). On Samsung Wearable,
-        //    cancel() destroys the Bluetooth bridging session on the watch,
-        //    creating an orphan spinner that never resolves. The fresh timestamp
-        //    from setWhen() + setShowWhen(true) above is sufficient to force
-        //    Galaxy Wearable to recognise the payload as changed and sync it.
+        //    Do NOT cancel() before notify() – on Samsung Wearable, cancel()
+        //    destroys the Bluetooth bridging session on the watch.
         val rawManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val sourceSbn = synchronized(stateLock) { sourceSnapshotsByMirrorKey[mirrorKey] }
 
         Log.d(TAG, "addLocalEchoAndRefresh: In-place notify tag=$notificationTag, id=$notificationId for mirrorKey=$mirrorKey")
 
-        // 7a. Re-notify with TAG + ID so the OS treats it as the same notification slot.
         val finalNotification = SamsungOneUi7NowBarCompat.markEligible(updatedNotification)
         rawManager.notify(notificationTag, notificationId, finalNotification)
 
-        // 7c. Update internal bookkeeping.
+        // 8. Update internal bookkeeping.
         if (sourceSbn != null) {
             synchronized(stateLock) {
                 pruneProgrammaticMirrorCancelsLocked(SystemClock.elapsedRealtime())
@@ -8319,7 +8326,7 @@ object LiveUpdateNotifier {
             }
         }
 
-        Log.d(TAG, "addLocalEchoAndRefresh: Successfully posted notification with RemoteInputHistory tag=$notificationTag, id=$notificationId for mirrorKey=$mirrorKey")
+        Log.d(TAG, "addLocalEchoAndRefresh: Successfully posted MessagingStyle echo tag=$notificationTag, id=$notificationId for mirrorKey=$mirrorKey")
     }
 
     /**
