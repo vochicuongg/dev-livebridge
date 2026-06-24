@@ -1,13 +1,13 @@
-Giải pháp: TỪ BỎ VIỆC REBUILD MESSAGING STYLE CHO TIN NHẮN PHẢN HỒI. Bắt buộc phải dùng cơ chế duy nhất mà OS cho phép: `setRemoteInputHistory()`.
-
 Nhiệm vụ của bạn:
-1. Dùng tool `Edit file` để chỉnh sửa hàm `addLocalEchoAndRefresh` trong `LiveUpdateNotifier.kt` (và các file liên quan nếu cần).
-2. XÓA BỎ hoàn toàn khối logic duyệt mảng `allCachedMessages` và khởi tạo lại `NotificationCompat.MessagingStyle`. KHÔNG DÙNG `.setStyle(newStyle)` nữa.
-3. Thay vì cố gắng vẽ lại bong bóng chat bằng MessagingStyle, hãy ép Android hiển thị tin nhắn vừa gõ bằng "cửa sau":
-   - Lấy `NotificationCompat.Builder(context, activeNotification)` (để giữ nguyên giao diện hiện tại).
-   - Gọi hàm `.setRemoteInputHistory(arrayOf(replyText))` trên Builder này. 
-   - Đảm bảo gọi thêm `.setOnlyAlertOnce(true)`.
-   - `notify()` lại đúng ID của activeNotification đó.
-   (Lưu ý: Mảng lịch sử có thể chứa nhiều tin nhắn cũ nếu bạn quản lý được, nhưng ít nhất phải chứa `replyText` vừa gõ).
+1. Đọc và phân tích kỹ hàm `addLocalEchoAndRefresh` hiện tại trong `LiveUpdateNotifier.kt`.
+2. Kiểm tra phần trích xuất `activeNotification`: Đối tượng này thường là `StatusBarNotification`. Hãy chắc chắn rằng bạn đã trích xuất được `activeNotification.tag`.
+3. Sửa lại hàm `notify`: 
+   - Thay vì `notificationManager.notify(notificationId, builder.build())`
+   - BẮT BUỘC phải dùng phiên bản có TAG: `notificationManager.notify(activeNotification.tag, notificationId, builder.build())`. Nếu gọi thiếu TAG, hệ thống sẽ coi đây là thông báo khác và phớt lờ việc update.
+4. Đảm bảo cờ tắt vòng xoay (Spinner):
+   - Khi phản hồi qua `RemoteInput`, OS cần ứng dụng update notification để xác nhận "đã gửi xong".
+   - Hãy đảm bảo `builder` hiện tại không vô tình set các cờ trạng thái làm block UI. 
+5. Áp dụng kỹ thuật "Flicker Update" (nếu cần): Nếu `notify` đè lên vẫn không xi nhê do Samsung OneUI quá cứng nhắc, hãy chèn một lệnh `notificationManager.cancel(activeNotification.tag, notificationId)` ngay trước dòng `notify(...)` (có thể cần delay 10-50ms nếu chạy bất đồng bộ, hoặc gọi thẳng luôn nếu chạy đồng bộ) để ép OS phải render lại UI mới.
+6. Lưu lại các thay đổi bằng `Edit file`.
 
-Đây là cách duy nhất hệ điều hành chấp nhận để hiển thị chữ "Đang trả lời..." hoặc dòng text vừa gõ ở dưới đáy thông báo trên màn hình khóa và đồng hồ. Hãy thực thi việc gỡ bỏ MessagingStyle rebuild và áp dụng cơ chế RemoteInputHistory.
+Hãy rà soát kỹ `TAG` và báo cáo lại kết quả cho tôi.
