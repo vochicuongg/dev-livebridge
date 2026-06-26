@@ -1,13 +1,29 @@
-Nhiệm vụ của bạn:
-1. Đọc và phân tích kỹ hàm `addLocalEchoAndRefresh` hiện tại trong `LiveUpdateNotifier.kt`.
-2. Kiểm tra phần trích xuất `activeNotification`: Đối tượng này thường là `StatusBarNotification`. Hãy chắc chắn rằng bạn đã trích xuất được `activeNotification.tag`.
-3. Sửa lại hàm `notify`: 
-   - Thay vì `notificationManager.notify(notificationId, builder.build())`
-   - BẮT BUỘC phải dùng phiên bản có TAG: `notificationManager.notify(activeNotification.tag, notificationId, builder.build())`. Nếu gọi thiếu TAG, hệ thống sẽ coi đây là thông báo khác và phớt lờ việc update.
-4. Đảm bảo cờ tắt vòng xoay (Spinner):
-   - Khi phản hồi qua `RemoteInput`, OS cần ứng dụng update notification để xác nhận "đã gửi xong".
-   - Hãy đảm bảo `builder` hiện tại không vô tình set các cờ trạng thái làm block UI. 
-5. Áp dụng kỹ thuật "Flicker Update" (nếu cần): Nếu `notify` đè lên vẫn không xi nhê do Samsung OneUI quá cứng nhắc, hãy chèn một lệnh `notificationManager.cancel(activeNotification.tag, notificationId)` ngay trước dòng `notify(...)` (có thể cần delay 10-50ms nếu chạy bất đồng bộ, hoặc gọi thẳng luôn nếu chạy đồng bộ) để ép OS phải render lại UI mới.
-6. Lưu lại các thay đổi bằng `Edit file`.
+Thực hiện chuẩn xác 3 tác vụ sau vào các file trong `app/src/main/kotlin/.../liveupdate/`:
 
-Hãy rà soát kỹ `TAG` và báo cáo lại kết quả cho tôi.
+1. TẠO TẤM KHIÊN BẢO VỆ 3 GIÂY (trong LiveUpdateNotifier.kt):
+   - Thêm vào scope toàn cục của object/class: 
+     `private val lastLocalReplyAtByMirrorKey = java.util.concurrent.ConcurrentHashMap<String, Long>()`
+     `private const val LOCAL_REPLY_GRACE_MS = 3_000L`
+   - Bổ sung hàm:
+     `fun stampLocalReply(mirrorKey: String) { lastLocalReplyAtByMirrorKey[mirrorKey] = android.os.SystemClock.elapsedRealtime() }`
+   - Bổ sung hàm:
+     `fun isWithinReplyGrace(mirrorKey: String): Boolean { val t = lastLocalReplyAtByMirrorKey[mirrorKey] ?: return false; return (android.os.SystemClock.elapsedRealtime() - t) < LOCAL_REPLY_GRACE_MS }`
+   - Gọi `stampLocalReply(mirrorKey)` ngay sau khi lưu vào `replyHistoryByMirrorKey` trong hàm `addLocalEchoAndRefresh`.
+
+2. BẢO VỆ CACHE & SỬA LISTENER (trong LiveUpdateNotificationListenerService.kt):
+   - Dùng tool search TẤT CẢ các lệnh `replyHistoryByMirrorKey.remove` hoặc `conversationHistoryCache.remove` đang bị gọi trong luồng cancel/removed của app gốc và XÓA BỎ CHÚNG. Cache phải được giữ lại để gộp.
+   - Trong hàm xử lý sự kiện `onNotificationRemoved` hoặc các hàm cancel: Thêm logic kiểm tra `if (LiveUpdateNotifier.isWithinReplyGrace(mk)) return` để chặn việc xóa. 
+   - TUYỆT ĐỐI KHÔNG CHẶN ở hàm `onNotificationPosted` (update thông báo mới thì vẫn phải cho chạy qua để gộp).
+
+3. PIPELINE GỘP LỊCH SỬ (trong LiveUpdateNotifier.kt):
+   - Xây dựng hàm `mergeForMirror(mirrorKey: String, sourceMessages: List<Message>): List<Message>` ngay trên hàm `buildMirroredNotification`.
+   - Logic của hàm:
+     + Lấy tin nhắn từ `replyHistoryByMirrorKey[mirrorKey]`.
+     + Viết logic `deepCopy` chép toàn bộ (text, timestamp, dataMimeType, dataUri, extras).
+     + Nếu tin nhắn đến từ cache (của mình gửi) -> bắt buộc set `Person = null` trong bản copy.
+     + Gộp tin nhắn từ sourceMessages và cache lại.
+     + Lọc trùng (distinct) bằng `text.toString().trim().lowercase()` + timestamp.
+     + Sắp xếp (sortedBy) tăng dần theo timestamp và trả về list.
+   - Trong `buildMirroredNotification`, thay vì add thẳng tin nhắn gốc vào Style, hãy dùng list `merged` từ hàm trên để add vào `MessagingStyle`.
+
+Hãy tự tin phân tích file, tìm đúng vị trí và thực hiện `edit_file` một cách cẩn thận, đảm bảo null-safe và không làm vỡ các logic hiện tại. Báo cáo lại cho tôi những hàm bạn đã sửa.

@@ -261,6 +261,7 @@ object LiveUpdateNotifier {
     private val appIconCacheLock = Any()
     private val appIconCache = mutableMapOf<String, AppIconAssets>()
     private val missingAppIconPackages = mutableSetOf<String>()
+    private const val LOCAL_REPLY_GRACE_MS = 3_000L
 
     private val stateLock = Any()
     private val sbnToAggregateKey = mutableMapOf<String, String>()
@@ -276,6 +277,7 @@ object LiveUpdateNotifier {
     private val mirrorKeysByNotificationId = mutableMapOf<Int, String>()
     private val sourceSnapshotsByMirrorKey = mutableMapOf<String, StatusBarNotification>()
     private val userDismissedMirrorKeys = mutableSetOf<String>()
+    private val lastLocalReplyAtByMirrorKey = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val programmaticMirrorCancelDeadlines = mutableMapOf<Int, Long>()
     private val bypassContentHashes = java.util.concurrent.ConcurrentHashMap<String, Int>()
     
@@ -351,6 +353,15 @@ object LiveUpdateNotifier {
         val sourceKey: String,
         val messageIndex: Int
     )
+
+fun stampLocalReply(mirrorKey: String) {
+    lastLocalReplyAtByMirrorKey[mirrorKey] = android.os.SystemClock.elapsedRealtime()
+}
+
+fun isWithinReplyGrace(mirrorKey: String): Boolean {
+    val t = lastLocalReplyAtByMirrorKey[mirrorKey] ?: return false
+    return (android.os.SystemClock.elapsedRealtime() - t) < LOCAL_REPLY_GRACE_MS
+}
 
     private data class ChargingInfoSnapshot(
         val percent: Int,
@@ -2800,11 +2811,15 @@ object LiveUpdateNotifier {
             staleAggregateIds.forEach { cancelMirroredNotification(manager, it) }
             cancelMirroredNotification(manager, mirrorIdForKey(sbn.key))
 
-            // Clear chat history cache for this source package to free memory
-            val packagePrefix = "${sbn.packageName}_"
-            conversationHistoryCache.keys
-                .filter { it.startsWith(packagePrefix) }
-                .forEach { conversationHistoryCache.remove(it) }
+            // Clear chat history cache for this source package to free memory,
+            // but ONLY if we are NOT within the reply grace period for any key
+            // in this package. Otherwise, the just-sent echo would be lost.
+            if (!isWithinReplyGrace(sbn.key)) {
+                val packagePrefix = "${sbn.packageName}_"
+                conversationHistoryCache.keys
+                    .filter { it.startsWith(packagePrefix) }
+                    .forEach { conversationHistoryCache.remove(it) }
+            }
         } catch (error: Throwable) {
             Log.e(TAG, "Failed to cancel mirrored notification: ${sbn.key}", error)
         }
@@ -2851,7 +2866,12 @@ object LiveUpdateNotifier {
             smartAnimationGenerations.remove(mirrorKey)
             smartAnimationStates.remove(mirrorKey)
             otpAnimationGenerations.remove(mirrorKey)
-            replyHistoryByMirrorKey.remove(mirrorKey)
+            // Only clear reply history if NOT within the reply grace period.
+            // This prevents the just-sent echo from being lost when the
+            // source app's notification is briefly removed and re-posted.
+            if (!isWithinReplyGrace(mirrorKey)) {
+                replyHistoryByMirrorKey.remove(mirrorKey)
+            }
         }
     }
     private fun notMirroredResult(): MirrorResult {
@@ -8283,16 +8303,31 @@ object LiveUpdateNotifier {
     }
 
     /**
-     * Caches the user's reply text and then CANCELS the mirrored notification.
+     * Caches the user's reply text and then REFRESHES the mirrored notification
+     * in-place so the just-sent message appears immediately as a right-aligned
+     * (blue) chat bubble on Wear OS.
      *
-     * **Philosophy: "Echo & Cancel"**
-     * Native Wear OS messaging apps (Messenger, Zalo, KakaoTalk, etc.) do NOT
-     * attempt to re-render the notification in-place after a reply.  Instead
-     * the notification simply disappears.  The reply text is persisted in our
-     * local cache ([replyHistoryByMirrorKey] / [conversationHistoryCache]) so
-     * that when the *next* notification arrives from the conversation partner,
-     * the user's earlier message is merged back into the chat history and
-     * displayed alongside the new incoming message.
+     * **Philosophy: "Echo & Refresh UI"**
+     * Instead of cancelling the notification after a reply, we rebuild the
+     * active notification's MessagingStyle (deep-copying the existing messages),
+     * append the local-echo message, and re-post it with the EXACT original
+     * (tag, id). This serves two purposes simultaneously:
+     *   1. It satisfies the Android RemoteInput contract -- calling notify()
+     *      with the same (tag, id) tells the OS the reply flow is complete, so
+     *      the Wear OS spinner is dismissed.
+     *   2. It immediately shows the sent message in the conversation, keeping
+     *      the full chat history visible until the source app refreshes it.
+     *
+     * The reply is also persisted in our local caches
+     * ([replyHistoryByMirrorKey] / [conversationHistoryCache]) so history is not
+     * lost when the next incoming notification arrives.
+     *
+     * Proven Wear OS constraints honoured here:
+     *   - The spinner only clears when notify() is called with the ORIGINAL
+     *     tag & id.
+     *   - A message renders as the right-aligned blue "me" bubble only when its
+     *     Person is null AND the message data (extras / dataUri) is deep-copied.
+     *   - cancel() is never called.
      *
      * Called from [ReplyInterceptReceiver] after the user replies via
      * RemoteInput on Wear OS.
@@ -8322,6 +8357,7 @@ object LiveUpdateNotifier {
             history.subList(MAX_REPLY_HISTORY, history.size).clear()
         }
         Log.d(TAG, "addLocalEchoAndRefresh: Cached reply into replyHistoryByMirrorKey for mirrorKey=$mirrorKey (history size=${history.size})")
+        stampLocalReply(mirrorKey)
 
         // -- 2. Cache the echo message into conversationHistoryCache --------
         //    Derive the thread key from the source snapshot so the message
@@ -8356,35 +8392,28 @@ object LiveUpdateNotifier {
             Log.w(TAG, "addLocalEchoAndRefresh: No source snapshot for mirrorKey=$mirrorKey - echo cached only in replyHistory")
         }
 
-        // -- 3. Dummy Update then Cancel -----------------------------------
-        //    CRITICAL FIX for Android Framework RemoteInput spinner deadlock:
-        //    When a RemoteInput PendingIntent is activated, the OS locks the
-        //    notification UI (shows a spinner) and WAITS for the app to call
-        //    NotificationManager.notify() with the SAME tag & id to confirm
-        //    the reply flow is complete. If we only call cancel(), the system
-        //    considers the reply still in-progress and the spinner stays stuck.
-        //
-        //    Strategy: "Dummy Update then Cancel"
-        //    1. Find the active StatusBarNotification to extract its tag & id.
-        //    2. Rebuild a silent dummy notification from the original.
-        //    3. notify(tag, id, dummy) → OS sees the update, clears spinner.
-        //    4. Delay ~350ms to let the OS process the update.
-        //    5. cancel(tag, id) → cleanly removes the notification.
+        // -- 3. Echo & Refresh UI ------------------------------------------
+        //    Locate the ACTIVE mirrored notification, rebuild its
+        //    MessagingStyle (deep-copying every existing message), append the
+        //    just-sent reply as a Person=null "me" bubble, and re-post it with
+        //    the EXACT original (tag, id). This both clears the Wear OS spinner
+        //    (OS sees a notify() for the pending RemoteInput) and shows the
+        //    sent message instantly. cancel() is never called.
         val notificationId: Int = synchronized(stateLock) {
             mirrorKeysByNotificationId.entries.firstOrNull { it.value == mirrorKey }?.key
         } ?: mirrorIdForKey(mirrorKey)
 
-        Log.d(TAG, "addLocalEchoAndRefresh: Starting Dummy-Update-then-Cancel for notificationId=$notificationId, mirrorKey=$mirrorKey")
+        Log.d(TAG, "addLocalEchoAndRefresh: Starting Echo-and-Refresh for notificationId=$notificationId, mirrorKey=$mirrorKey")
 
         val rawManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
         if (rawManager == null) {
-            Log.e(TAG, "addLocalEchoAndRefresh: NotificationManager is null – cannot proceed")
+            Log.e(TAG, "addLocalEchoAndRefresh: NotificationManager is null - cannot refresh UI")
             return
         }
 
         try {
-            // Step 1: Find the active StatusBarNotification to extract tag & id.
-            //         These are the EXACT values the OS is waiting for.
+            // Step 1: Find the active StatusBarNotification to recover the
+            //         EXACT (tag, id) the OS is waiting for.
             val activeSbn: StatusBarNotification? = try {
                 rawManager.activeNotifications?.firstOrNull { sbn ->
                     sbn.id == notificationId && sbn.packageName == context.packageName
@@ -8394,75 +8423,126 @@ object LiveUpdateNotifier {
                 null
             }
 
-            // Extract the ORIGINAL tag and id from the active SBN.
-            // These are CRITICAL – the OS matches on (tag, id) pair.
-            val originalTag: String? = activeSbn?.tag
-            val originalId: Int = activeSbn?.id ?: notificationId
-
-            Log.d(TAG, "addLocalEchoAndRefresh: activeSbn found=${activeSbn != null}, tag=$originalTag, id=$originalId")
-
-            // Step 2: Build a silent dummy notification to signal the OS that
-            //         the RemoteInput reply flow is complete.
-            val dummyNotification: Notification = if (activeSbn != null) {
-                // Recover Builder from the original notification
-                val dummyBuilder = NotificationCompat.Builder(context, activeSbn.notification)
-                    .setOnlyAlertOnce(true)  // No sound/vibration on update
-                    .setSilent(true)         // Completely silent
-
-                // IMPORTANT: Do NOT set RemoteInputHistory – clearing it tells
-                // the OS that the input flow has been cleaned up.
-
-                dummyBuilder.build()
-            } else {
-                // Fallback: build a minimal notification if no active SBN found
-                Log.w(TAG, "addLocalEchoAndRefresh: No active SBN found, building minimal dummy notification")
-                NotificationCompat.Builder(context, MirrorNotificationChannel.ALERTS.id)
-                    .setSmallIcon(R.drawable.ic_notification_capsule)
-                    .setOnlyAlertOnce(true)
-                    .setSilent(true)
-                    .setAutoCancel(true)
-                    .build()
+            if (activeSbn == null) {
+                Log.w(TAG, "addLocalEchoAndRefresh: No active SBN for id=$notificationId - cannot refresh in place (echo cached only)")
+                return
             }
 
-            // Step 3: NOTIFY with the original tag & id to kill the spinner.
-            rawManager.notify(originalTag, originalId, dummyNotification)
-            Log.d(TAG, "addLocalEchoAndRefresh: Dummy notify sent (tag=$originalTag, id=$originalId) – spinner should clear")
+            // The OS matches the pending RemoteInput on the (tag, id) pair.
+            val originalTag: String? = activeSbn.tag
+            val originalId: Int = activeSbn.id
+            val activeNotification: Notification = activeSbn.notification
 
-            // Step 4 & 5: Delay then Cancel via Handler on main thread.
-            //             350ms gives the OS enough time to process the dummy
-            //             update and release the RemoteInput spinner lock.
-            Handler(Looper.getMainLooper()).postDelayed({
+            Log.d(TAG, "addLocalEchoAndRefresh: activeSbn tag=$originalTag, id=$originalId")
+
+            // Step 2: Recover a Builder from the active notification and extract
+            //         its current MessagingStyle (the existing chat history).
+            //         IMPORTANT: extractStyleFromNotification returns the generic
+            //         NotificationCompat.Style, so cast it safely to MessagingStyle
+            //         with as? to access conversationTitle / messages / etc.
+            val builder = NotificationCompat.Builder(context, activeNotification)
+            val existingStyle: NotificationCompat.MessagingStyle? = try {
+                NotificationCompat.MessagingStyle
+                    .extractMessagingStyleFromNotification(activeNotification)
+                    as? NotificationCompat.MessagingStyle
+            } catch (e: Exception) {
+                Log.w(TAG, "addLocalEchoAndRefresh: Failed to extract MessagingStyle", e)
+                null
+            }
+
+            if (existingStyle == null) {
+                // Non-messaging notification: cannot insert a chat bubble.
+                // Still satisfy the RemoteInput contract by re-posting silently
+                // so the spinner is dismissed.
+                Log.w(TAG, "addLocalEchoAndRefresh: No MessagingStyle present - re-posting silently to clear spinner")
+                builder.setOnlyAlertOnce(true)
+                builder.setSilent(true)
+                rawManager.notify(originalTag, originalId, builder.build())
+                return
+            }
+
+            // Step 3: Build a NEW MessagingStyle inheriting the original user,
+            //         then DEEP COPY every existing message into it. Local-user
+            //         ("me") messages get Person=null so Wear OS renders them as
+            //         right-aligned blue bubbles.
+            //
+            //         Sequential, statically-typed code only (no apply/let/run)
+            //         so the final expressions never collapse to Unit.
+            val originalUser: Person = existingStyle.user ?: LOCAL_USER_ME
+            val refreshedStyle = NotificationCompat.MessagingStyle(originalUser)
+            refreshedStyle.conversationTitle = existingStyle.conversationTitle
+            refreshedStyle.isGroupConversation = existingStyle.isGroupConversation
+
+            for (src in existingStyle.messages) {
                 try {
-                    // Clean up internal state maps before cancelling
-                    synchronized(stateLock) {
-                        programmaticMirrorCancelDeadlines[originalId] =
-                            SystemClock.elapsedRealtime() + PROGRAMMATIC_MIRROR_CANCEL_GRACE_MS
-                        val removedKey = mirrorKeysByNotificationId.remove(originalId)
-                        if (removedKey != null) {
-                            sourceSnapshotsByMirrorKey.remove(removedKey)
-                            callMirrorStates.remove(removedKey)
-                            smartAnimationGenerations.remove(removedKey)
-                            smartAnimationStates.remove(removedKey)
-                        }
-                    }
+                    // A message belongs to the local user when it has no Person
+                    // or its Person matches the conversation's own user.
+                    val srcPerson: Person? = src.person
+                    val isLocalUser: Boolean = srcPerson == null ||
+                        srcPerson.key == originalUser.key ||
+                        srcPerson.name?.toString() == originalUser.name?.toString()
+                    val copiedPerson: Person? = if (isLocalUser) null else srcPerson
 
-                    rawManager.cancel(originalTag, originalId)
-                    Log.d(TAG, "addLocalEchoAndRefresh: Delayed cancel executed (tag=$originalTag, id=$originalId) – notification removed")
+                    // Deep copy: text + timestamp + a fresh Message instance.
+                    val copied = NotificationCompat.MessagingStyle.Message(
+                        src.text,
+                        src.timestamp,
+                        copiedPerson
+                    )
+                    // Preserve rich data (image/audio) if present, deep-copying
+                    // the backing extras Bundle and re-using the data uri/mime.
+                    val srcMime: String? = src.dataMimeType
+                    val srcUri = src.dataUri
+                    if (srcMime != null && srcUri != null) {
+                        copied.setData(srcMime, srcUri)
+                    }
+                    copied.extras.putAll(Bundle(src.extras))
+                    refreshedStyle.addMessage(copied)
                 } catch (e: Exception) {
-                    Log.e(TAG, "addLocalEchoAndRefresh: Error in delayed cancel (tag=$originalTag, id=$originalId)", e)
+                    Log.w(TAG, "addLocalEchoAndRefresh: Failed to deep-copy a message - skipping", e)
                 }
-            }, 350L)
+            }
+
+            // Step 4: Insert the just-sent reply as a Person=null "me" bubble.
+            //         CRITICAL: Person MUST be null for the right-aligned blue
+            //         bubble to render on Wear OS.
+            val echoTimestamp: Long = if (echoMessage.timestamp > 0L) {
+                echoMessage.timestamp
+            } else {
+                System.currentTimeMillis()
+            }
+            val echoBubble = NotificationCompat.MessagingStyle.Message(
+                replyText,
+                echoTimestamp,
+                null as Person?
+            )
+            refreshedStyle.addMessage(echoBubble)
+
+            // Step 5: Re-attach the refreshed style and clean stale extras so
+            //         the OS rebuilds the message list from our style (not from
+            //         cached EXTRA_MESSAGES). Make the update silent.
+            builder.setStyle(refreshedStyle)
+            builder.extras.remove(Notification.EXTRA_MESSAGES)
+            builder.extras.remove(Notification.EXTRA_HISTORIC_MESSAGES)
+            builder.setWhen(System.currentTimeMillis())
+            builder.setShowWhen(true)
+            builder.setOnlyAlertOnce(true)
+            builder.setSilent(true)
+
+            // Step 6: notify() with the ORIGINAL (tag, id). This dismisses the
+            //         Wear OS spinner AND updates the chat UI in place. No
+            //         cancel() is ever issued.
+            rawManager.notify(originalTag, originalId, builder.build())
+            Log.d(TAG, "addLocalEchoAndRefresh: Refreshed in place (tag=$originalTag, id=$originalId) - spinner cleared, echo bubble shown")
+
+            // Keep our internal mapping current so future updates/dismissals
+            // resolve to the same notification id.
+            synchronized(stateLock) {
+                mirrorKeysByNotificationId[originalId] = mirrorKey
+            }
 
         } catch (e: Exception) {
-            Log.e(TAG, "addLocalEchoAndRefresh: Error in Dummy-Update-then-Cancel for mirrorKey=$mirrorKey", e)
-            // Last resort: try a plain cancel to at least attempt cleanup
-            try {
-                val manager = NotificationManagerCompat.from(context)
-                cancelMirroredNotification(manager, notificationId)
-                Log.w(TAG, "addLocalEchoAndRefresh: Fallback cancelMirroredNotification executed for id=$notificationId")
-            } catch (fallbackError: Exception) {
-                Log.e(TAG, "addLocalEchoAndRefresh: Fallback cancel also failed", fallbackError)
-            }
+            Log.e(TAG, "addLocalEchoAndRefresh: Error during Echo-and-Refresh for mirrorKey=$mirrorKey", e)
         }
     }
 

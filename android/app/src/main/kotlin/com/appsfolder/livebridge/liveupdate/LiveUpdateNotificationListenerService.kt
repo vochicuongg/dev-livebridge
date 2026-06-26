@@ -342,7 +342,13 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
                 refreshNotificationCapsuleFromActiveNotifications()
                 return
             }
-            LiveUpdateNotifier.cancelMirrored(applicationContext, sbn)
+            // Shield: if the user just replied from Wear OS, do NOT cancel
+            // the mirrored notification for 3 seconds so the echo message
+            // (and conversation cache) survive the source app's brief
+            // remove-then-repost cycle.
+            if (!LiveUpdateNotifier.isWithinReplyGrace(sbn.key)) {
+                LiveUpdateNotifier.cancelMirrored(applicationContext, sbn)
+            }
             refreshNotificationCapsuleFromActiveNotifications()
         } catch (e: Exception) {
             Log.e(TAG, "handleNotificationRemoved: unhandled exception for ${sbn.key}", e)
