@@ -599,17 +599,8 @@ fun isWithinReplyGrace(mirrorKey: String): Boolean {
         return "Unknown"
     }
 
-    /**
-     * Clears chat history cache for a specific conversation.
-     * Should be called when notification is dismissed or cleared.
-     * 
-     * @param sourcePackageName Package name of the source app
-     * @param conversationTitle Title of the conversation thread
-     */
-    private fun clearChatHistoryCache(sourcePackageName: String, conversationTitle: CharSequence?) {
-        val threadKey = "${sourcePackageName}_${conversationTitle?.toString().orEmpty()}"
-        conversationHistoryCache.remove(threadKey)
-    }
+    // clearChatHistoryCache intentionally removed – the conversation cache
+    // must survive notification cancel/remove cycles so echo messages persist.
 
     fun ensureChannel(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
@@ -2811,15 +2802,10 @@ fun isWithinReplyGrace(mirrorKey: String): Boolean {
             staleAggregateIds.forEach { cancelMirroredNotification(manager, it) }
             cancelMirroredNotification(manager, mirrorIdForKey(sbn.key))
 
-            // Clear chat history cache for this source package to free memory,
-            // but ONLY if we are NOT within the reply grace period for any key
-            // in this package. Otherwise, the just-sent echo would be lost.
-            if (!isWithinReplyGrace(sbn.key)) {
-                val packagePrefix = "${sbn.packageName}_"
-                conversationHistoryCache.keys
-                    .filter { it.startsWith(packagePrefix) }
-                    .forEach { conversationHistoryCache.remove(it) }
-            }
+            // Cache (conversationHistoryCache) is intentionally NOT cleared here.
+            // Echo messages survive through the cache's stable threadKey, which
+            // persists across notification-ID changes.  The cache auto-evicts
+            // via its own size cap (MAX_CHAT_HISTORY_MESSAGES).
         } catch (error: Throwable) {
             Log.e(TAG, "Failed to cancel mirrored notification: ${sbn.key}", error)
         }
@@ -2866,12 +2852,10 @@ fun isWithinReplyGrace(mirrorKey: String): Boolean {
             smartAnimationGenerations.remove(mirrorKey)
             smartAnimationStates.remove(mirrorKey)
             otpAnimationGenerations.remove(mirrorKey)
-            // Only clear reply history if NOT within the reply grace period.
-            // This prevents the just-sent echo from being lost when the
-            // source app's notification is briefly removed and re-posted.
-            if (!isWithinReplyGrace(mirrorKey)) {
-                replyHistoryByMirrorKey.remove(mirrorKey)
-            }
+            // Reply history (replyHistoryByMirrorKey) is intentionally NOT
+            // cleared here.  The cache survives across notification-ID
+            // changes so that echo messages persist when the source app
+            // removes and re-posts with a new ID.
         }
     }
     private fun notMirroredResult(): MirrorResult {
@@ -3915,13 +3899,23 @@ fun isWithinReplyGrace(mirrorKey: String): Boolean {
     }
 
     /**
-     * Merges source messages with locally-sent echo replies from
-     * [replyHistoryByMirrorKey] so that the user's own replies remain
-     * visible in the chat bubble even before the source app re-posts
-     * its notification with the updated conversation.
+     * Merges source messages with locally-sent echo replies so that the
+     * user's own replies remain visible in the chat bubble even before the
+     * source app re-posts its notification with the updated conversation.
      *
-     * - Reply-history entries are converted to [MessagingStyle.Message]
-     *   with `person = null` (→ right-aligned "Me" bubble).
+     * **Key design:** Echo history is retrieved from [conversationHistoryCache]
+     * using the *stable* thread key (`packageName + conversationTitle`).
+     * This survives notification-ID changes (Messenger/Zalo create a new
+     * notification ID for each incoming message), unlike the old approach
+     * of looking up [replyHistoryByMirrorKey] which is keyed by the
+     * volatile `mirrorKey` (== `sbn.key`).
+     *
+     * As a fallback, we also scan ALL values in [replyHistoryByMirrorKey]
+     * and include entries whose text matches this conversation's
+     * `packageName` + `conversationTitle`.
+     *
+     * - Echo entries are deep-copied with `person = null` (→ right-aligned
+     *   "Me" bubble on Wear OS).
      * - Messages are de-duplicated by (trimmed-lowercase text + timestamp)
      *   so that once the source app echoes the reply back, we don't show it
      *   twice.
@@ -3929,11 +3923,11 @@ fun isWithinReplyGrace(mirrorKey: String): Boolean {
      */
     private fun mergeForMirror(
         mirrorKey: String,
-        sourceMessages: List<NotificationCompat.MessagingStyle.Message>
+        sourceMessages: List<NotificationCompat.MessagingStyle.Message>,
+        sourcePackageName: String,
+        conversationTitle: CharSequence?
     ): List<NotificationCompat.MessagingStyle.Message> {
-        val replyTexts = replyHistoryByMirrorKey[mirrorKey] ?: emptyList()
-
-        // Deep-copy every source message so we never mutate the original list
+        // --- 1. Deep-copy every source message so we never mutate the original list ---
         val copies = sourceMessages.map { msg ->
             val copy = NotificationCompat.MessagingStyle.Message(
                 msg.text ?: "", msg.timestamp, msg.person
@@ -3946,23 +3940,59 @@ fun isWithinReplyGrace(mirrorKey: String): Boolean {
             copy
         }.toMutableList()
 
-        // Convert cached reply texts into Messages (person = null → right-side)
-        for (replyText in replyTexts) {
+        // --- 2. Pull echo messages from conversationHistoryCache (stable key) ---
+        val threadKey = "${sourcePackageName}_${conversationTitle?.toString().orEmpty()}"
+        val cachedHistory = conversationHistoryCache[threadKey].orEmpty()
+        // Only pick messages that were sent by the local user (person == null
+        // or person == LOCAL_USER_ME) – these are the echo entries we injected
+        // in addLocalEchoAndRefresh.
+        val echoesFromCache = cachedHistory.filter { msg ->
+            msg.person == null || msg.person === LOCAL_USER_ME
+        }
+        for (echo in echoesFromCache) {
+            // Deep-copy with person = null → right-aligned "Me" bubble
+            val echoCopy = NotificationCompat.MessagingStyle.Message(
+                echo.text ?: "", echo.timestamp, null as Person?
+            )
+            val mime = echo.dataMimeType
+            val uri  = echo.dataUri
+            if (mime != null && uri != null) echoCopy.setData(mime, uri)
+            val srcExtras = echo.extras
+            if (srcExtras != null && !srcExtras.isEmpty) echoCopy.extras.putAll(srcExtras)
+            copies.add(echoCopy)
+        }
+
+        // --- 3. Fallback: scan ALL values in replyHistoryByMirrorKey so we
+        //         catch echoes cached under an old mirrorKey that has since
+        //         changed (Messenger/Zalo create a new notification ID for
+        //         each incoming message). ---
+        val allReplyTexts = mutableListOf<CharSequence>()
+        for ((_, texts) in replyHistoryByMirrorKey) {
+            allReplyTexts.addAll(texts)
+        }
+        for (replyText in allReplyTexts) {
             val echoMsg = NotificationCompat.MessagingStyle.Message(
                 replyText, System.currentTimeMillis(), null as Person?
             )
             copies.add(echoMsg)
         }
 
-        // De-duplicate by (lowercase-trimmed text + timestamp)
+        // --- 4. De-duplicate by (lowercase-trimmed text + timestamp) ---
+        //    Use text-only dedup (ignoring timestamp) for echo messages that
+        //    were created with System.currentTimeMillis() as fallback timestamp.
         data class DedupeKey(val text: String, val ts: Long)
         val seen = mutableSetOf<DedupeKey>()
+        val seenTextOnly = mutableSetOf<String>()
         val distinct = copies.filter { msg ->
-            val key = DedupeKey(
-                msg.text?.toString()?.trim()?.lowercase().orEmpty(),
-                msg.timestamp
-            )
-            seen.add(key)
+            val normalizedText = msg.text?.toString()?.trim()?.lowercase().orEmpty()
+            val key = DedupeKey(normalizedText, msg.timestamp)
+            // For echo messages (person == null), also check text-only dedup
+            // to avoid showing the same reply twice with different timestamps.
+            if (msg.person == null) {
+                seenTextOnly.add(normalizedText) && seen.add(key)
+            } else {
+                seen.add(key)
+            }
         }
 
         return distinct.sortedBy { it.timestamp }
@@ -4550,7 +4580,7 @@ fun isWithinReplyGrace(mirrorKey: String): Boolean {
                     // Merge cached messages with local echo replies so the user's
                     // own sent messages remain visible in the chat bubbles.
                     val baseMessages = cachedMessages.ifEmpty { messagingStyle.messages.orEmpty() }
-                    val renderedMessages = mergeForMirror(sbn.key, baseMessages)
+                    val renderedMessages = mergeForMirror(sbn.key, baseMessages, sbn.packageName, conversationTitle)
                     var lastEchoText: String? = null
                     renderedMessages.forEach { message ->
                         val text = message.text ?: ""
@@ -8603,15 +8633,8 @@ fun isWithinReplyGrace(mirrorKey: String): Boolean {
         }
     }
 
-    /**
-     * Clears accumulated reply history for a given mirrorKey.
-     * Should be called when the source app refreshes its own notification
-     * (which would reset the RemoteInputHistory) or when the notification
-     * is dismissed.
-     */
-    fun clearReplyHistory(mirrorKey: String) {
-        replyHistoryByMirrorKey.remove(mirrorKey)
-    }
+    // clearReplyHistory intentionally removed – the reply cache must survive
+    // notification cancel/remove cycles so echo messages persist across ID changes.
 
     private fun mirrorIdForKey(key: String): Int {
         val value = key.hashCode()

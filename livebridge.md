@@ -1,29 +1,11 @@
-Thực hiện chuẩn xác 3 tác vụ sau vào các file trong `app/src/main/kotlin/.../liveupdate/`:
+1. Mở khóa việc tắt UI (Sửa lại Lớp Khiên):
+   - Trong các hàm `cancelMirroredNotification`, `handleMirroredRemoved`, hoặc luồng xóa: HÃY XÓA BỎ dòng `if (isWithinReplyGrace(mk)) return`. Chúng ta TUYỆT ĐỐI MUỐN thông báo biến mất khỏi màn hình khi gửi xong.
+   - Để bảo vệ bộ nhớ đệm (cache), nhiệm vụ duy nhất của bạn là: Tìm và XÓA VĨNH VIỄN các đoạn code gọi `.remove()` đối với `replyHistoryByMirrorKey` và `conversationHistoryCache` trong các luồng cancel/removed đó. Khi không bị xóa chủ động, cache sẽ tự động sống sót qua các lần thông báo bị hủy.
 
-1. TẠO TẤM KHIÊN BẢO VỆ 3 GIÂY (trong LiveUpdateNotifier.kt):
-   - Thêm vào scope toàn cục của object/class: 
-     `private val lastLocalReplyAtByMirrorKey = java.util.concurrent.ConcurrentHashMap<String, Long>()`
-     `private const val LOCAL_REPLY_GRACE_MS = 3_000L`
-   - Bổ sung hàm:
-     `fun stampLocalReply(mirrorKey: String) { lastLocalReplyAtByMirrorKey[mirrorKey] = android.os.SystemClock.elapsedRealtime() }`
-   - Bổ sung hàm:
-     `fun isWithinReplyGrace(mirrorKey: String): Boolean { val t = lastLocalReplyAtByMirrorKey[mirrorKey] ?: return false; return (android.os.SystemClock.elapsedRealtime() - t) < LOCAL_REPLY_GRACE_MS }`
-   - Gọi `stampLocalReply(mirrorKey)` ngay sau khi lưu vào `replyHistoryByMirrorKey` trong hàm `addLocalEchoAndRefresh`.
+2. Cứu vớt lịch sử bị mất do sai Khóa (Sửa Pipeline Gộp Lịch Sử):
+   - Khi có tin nhắn mới, app gốc (Messenger/Zalo) thường tạo ID thông báo mới, khiến `mirrorKey` thay đổi. Việc dùng `replyHistoryByMirrorKey[mirrorKey]` ở hàm gộp là SAI, vì nó không tìm thấy lịch sử của ID cũ.
+   - GIẢI PHÁP TỐI ƯU: Trong hàm `mergeForMirror`, bạn BẮT BUỘC phải chuyển sang trích xuất dữ liệu từ `conversationHistoryCache` (vì cache này thường được thiết kế lưu theo Thread Key: `packageName + conversationTitle` - nó không bị đổi khi ID đổi).
+   - Nếu bắt buộc phải dùng `replyHistoryByMirrorKey`, hãy viết logic lặp qua TOÀN BỘ các values (tất cả tin nhắn Echo của mọi ID cũ), sau đó filter (lọc) lại để chỉ lấy những tin nhắn thuộc về cùng `packageName` và `conversationTitle` hiện tại.
+   - Những tin nhắn lấy từ cache này bắt buộc phải ép `Person = null` (qua hàm deepCopy) rồi mới gộp chung với `sourceMessages`.
 
-2. BẢO VỆ CACHE & SỬA LISTENER (trong LiveUpdateNotificationListenerService.kt):
-   - Dùng tool search TẤT CẢ các lệnh `replyHistoryByMirrorKey.remove` hoặc `conversationHistoryCache.remove` đang bị gọi trong luồng cancel/removed của app gốc và XÓA BỎ CHÚNG. Cache phải được giữ lại để gộp.
-   - Trong hàm xử lý sự kiện `onNotificationRemoved` hoặc các hàm cancel: Thêm logic kiểm tra `if (LiveUpdateNotifier.isWithinReplyGrace(mk)) return` để chặn việc xóa. 
-   - TUYỆT ĐỐI KHÔNG CHẶN ở hàm `onNotificationPosted` (update thông báo mới thì vẫn phải cho chạy qua để gộp).
-
-3. PIPELINE GỘP LỊCH SỬ (trong LiveUpdateNotifier.kt):
-   - Xây dựng hàm `mergeForMirror(mirrorKey: String, sourceMessages: List<Message>): List<Message>` ngay trên hàm `buildMirroredNotification`.
-   - Logic của hàm:
-     + Lấy tin nhắn từ `replyHistoryByMirrorKey[mirrorKey]`.
-     + Viết logic `deepCopy` chép toàn bộ (text, timestamp, dataMimeType, dataUri, extras).
-     + Nếu tin nhắn đến từ cache (của mình gửi) -> bắt buộc set `Person = null` trong bản copy.
-     + Gộp tin nhắn từ sourceMessages và cache lại.
-     + Lọc trùng (distinct) bằng `text.toString().trim().lowercase()` + timestamp.
-     + Sắp xếp (sortedBy) tăng dần theo timestamp và trả về list.
-   - Trong `buildMirroredNotification`, thay vì add thẳng tin nhắn gốc vào Style, hãy dùng list `merged` từ hàm trên để add vào `MessagingStyle`.
-
-Hãy tự tin phân tích file, tìm đúng vị trí và thực hiện `edit_file` một cách cẩn thận, đảm bảo null-safe và không làm vỡ các logic hiện tại. Báo cáo lại cho tôi những hàm bạn đã sửa.
+Hãy tự phân tích cấu trúc lưu trữ Thread/Conversation đang có sẵn trong `LiveUpdateNotifier.kt`, tìm đúng khóa định danh không đổi, và thực hiện `edit_file` một cách cẩn trọng. Báo cáo lại logic định danh bạn đã dùng để gộp lịch sử.
