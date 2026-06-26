@@ -3914,6 +3914,60 @@ fun isWithinReplyGrace(mirrorKey: String): Boolean {
         }
     }
 
+    /**
+     * Merges source messages with locally-sent echo replies from
+     * [replyHistoryByMirrorKey] so that the user's own replies remain
+     * visible in the chat bubble even before the source app re-posts
+     * its notification with the updated conversation.
+     *
+     * - Reply-history entries are converted to [MessagingStyle.Message]
+     *   with `person = null` (→ right-aligned "Me" bubble).
+     * - Messages are de-duplicated by (trimmed-lowercase text + timestamp)
+     *   so that once the source app echoes the reply back, we don't show it
+     *   twice.
+     * - Result is sorted ascending by timestamp.
+     */
+    private fun mergeForMirror(
+        mirrorKey: String,
+        sourceMessages: List<NotificationCompat.MessagingStyle.Message>
+    ): List<NotificationCompat.MessagingStyle.Message> {
+        val replyTexts = replyHistoryByMirrorKey[mirrorKey] ?: emptyList()
+
+        // Deep-copy every source message so we never mutate the original list
+        val copies = sourceMessages.map { msg ->
+            val copy = NotificationCompat.MessagingStyle.Message(
+                msg.text ?: "", msg.timestamp, msg.person
+            )
+            val mime = msg.dataMimeType
+            val uri  = msg.dataUri
+            if (mime != null && uri != null) copy.setData(mime, uri)
+            val srcExtras = msg.extras
+            if (srcExtras != null && !srcExtras.isEmpty) copy.extras.putAll(srcExtras)
+            copy
+        }.toMutableList()
+
+        // Convert cached reply texts into Messages (person = null → right-side)
+        for (replyText in replyTexts) {
+            val echoMsg = NotificationCompat.MessagingStyle.Message(
+                replyText, System.currentTimeMillis(), null as Person?
+            )
+            copies.add(echoMsg)
+        }
+
+        // De-duplicate by (lowercase-trimmed text + timestamp)
+        data class DedupeKey(val text: String, val ts: Long)
+        val seen = mutableSetOf<DedupeKey>()
+        val distinct = copies.filter { msg ->
+            val key = DedupeKey(
+                msg.text?.toString()?.trim()?.lowercase().orEmpty(),
+                msg.timestamp
+            )
+            seen.add(key)
+        }
+
+        return distinct.sortedBy { it.timestamp }
+    }
+
     private fun buildMirroredNotification(
         context: Context,
         sbn: StatusBarNotification,
@@ -4493,7 +4547,10 @@ fun isWithinReplyGrace(mirrorKey: String): Boolean {
 
                     val localUserName = messagingStyle.user?.name?.toString()?.trim()
                         ?.takeIf { it.isNotEmpty() }
-                    val renderedMessages = cachedMessages.ifEmpty { messagingStyle.messages.orEmpty() }
+                    // Merge cached messages with local echo replies so the user's
+                    // own sent messages remain visible in the chat bubbles.
+                    val baseMessages = cachedMessages.ifEmpty { messagingStyle.messages.orEmpty() }
+                    val renderedMessages = mergeForMirror(sbn.key, baseMessages)
                     var lastEchoText: String? = null
                     renderedMessages.forEach { message ->
                         val text = message.text ?: ""
