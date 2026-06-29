@@ -4537,28 +4537,29 @@ fun isWithinReplyGrace(mirrorKey: String): Boolean {
                 )
             )
         } else {
-            val messagingStyle = runCatching {
+            // ── Style Classification ──────────────────────────────────────
+            // Use extractMessagingStyleFromNotification as the authoritative
+            // classifier: if it returns non-null the source is genuinely a
+            // chat/messaging notification and we render native chat bubbles.
+            // For ALL other notification types (Facebook comments, alarms,
+            // etc.) we preserve the original Style from the source app.
+            val extractedMessagingStyle = runCatching {
                 NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(source)
             }.getOrNull()
 
-            val isVerifiedMessagingNotification =
-                source.category == Notification.CATEGORY_MESSAGE ||
-                        source.actions?.any { action ->
-                            action.actionIntent != null && !action.remoteInputs.isNullOrEmpty()
-                        } == true
-
-            if (messagingStyle != null && isVerifiedMessagingNotification) {
+            if (extractedMessagingStyle != null) {
+                // ── Chat notification: apply MessagingStyle with history ──
                 try {
                     Log.d(TAG, "buildMirroredNotification: Processing MessagingStyle for package=${sbn.packageName}, key=${sbn.key}")
                     
-                    val conversationTitle = messagingStyle.conversationTitle
+                    val conversationTitle = extractedMessagingStyle.conversationTitle
                         ?: source.extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
                         ?: displayTitle.takeIf { it.isNotBlank() }
 
                     // Merge new messages from the source into our rolling cache so that
                     // history survives notification updates, then render them natively.
                     val cachedMessages = mergeAndGetCachedMessages(
-                        messagingStyle = messagingStyle,
+                        messagingStyle = extractedMessagingStyle,
                         sourcePackageName = sbn.packageName,
                         conversationTitle = conversationTitle
                     )
@@ -4575,11 +4576,11 @@ fun isWithinReplyGrace(mirrorKey: String): Boolean {
                         ?.takeIf { it.isNotEmpty() }
                         ?.let { nativeMessagingStyle.conversationTitle = it }
 
-                    val localUserName = messagingStyle.user?.name?.toString()?.trim()
+                    val localUserName = extractedMessagingStyle.user?.name?.toString()?.trim()
                         ?.takeIf { it.isNotEmpty() }
                     // Merge cached messages with local echo replies so the user's
                     // own sent messages remain visible in the chat bubbles.
-                    val baseMessages = cachedMessages.ifEmpty { messagingStyle.messages.orEmpty() }
+                    val baseMessages = cachedMessages.ifEmpty { extractedMessagingStyle.messages.orEmpty() }
                     val renderedMessages = mergeForMirror(sbn.key, baseMessages, sbn.packageName, conversationTitle)
                     var lastEchoText: String? = null
                     renderedMessages.forEach { message ->
@@ -4676,7 +4677,7 @@ fun isWithinReplyGrace(mirrorKey: String): Boolean {
                     // Fallback to BigTextStyle if MessagingStyle processing fails
                     builder.addExtras(source.extras)
                     
-                    val hiddenMsgText = messagingStyle?.messages
+                    val hiddenMsgText = extractedMessagingStyle.messages
                         ?.mapNotNull { message -> message.text?.toString()?.trim() }
                         ?.filter { it.isNotEmpty() }
                         ?.joinToString("\n")
@@ -4700,32 +4701,38 @@ fun isWithinReplyGrace(mirrorKey: String): Boolean {
                     }
                 }
             } else {
-                // Merge source extras FIRST so that any broken templates
-                // (e.g. empty InboxStyle from Zalo community notifications)
-                // are subsequently overwritten by our explicit BigTextStyle below.
-                builder.addExtras(source.extras)
+                // ── Non-chat notification: preserve original Style ────────
+                // Extract the original Style from the source notification and
+                // re-apply it to the builder so that Facebook comments, alarms,
+                // InboxStyle, BigPictureStyle, etc. render with their intended
+                // layout instead of being forced into MessagingStyle.
+                val originalStyle = runCatching {
+                    NotificationCompat.Style.extractStyleFromNotification(source)
+                }.getOrNull()
 
-                val hiddenMsgText = messagingStyle?.messages
-                    ?.mapNotNull { message -> message.text?.toString()?.trim() }
-                    ?.filter { it.isNotEmpty() }
-                    ?.joinToString("\n")
-                    ?.takeIf { it.isNotEmpty() }
-                val tickerString = source.tickerText?.toString()?.trim()
-                    ?.takeIf { it.length > 1 }
-                val cleanText = text.trim().takeIf { it.length > 1 }
-                    ?: displayText.trim().takeIf { it.length > 1 }
-                val fallbackBigText = hiddenMsgText
-                    ?: tickerString
-                    ?: cleanText
-                    ?: collectNotificationText(
-                        notification = source,
-                        fallbackTitle = "",
-                        includeRemoteViewTexts = true
-                    ).trim().takeIf { it.length > 1 }
+                if (originalStyle != null) {
+                    builder.setStyle(originalStyle)
+                } else {
+                    // No recognizable Style found – fall back to BigTextStyle
+                    // so that at least the notification text is fully visible.
+                    builder.addExtras(source.extras)
 
-                if (fallbackBigText != null) {
-                    builder.setContentText(fallbackBigText)
-                    builder.setStyle(NotificationCompat.BigTextStyle().bigText(fallbackBigText))
+                    val tickerString = source.tickerText?.toString()?.trim()
+                        ?.takeIf { it.length > 1 }
+                    val cleanText = text.trim().takeIf { it.length > 1 }
+                        ?: displayText.trim().takeIf { it.length > 1 }
+                    val fallbackBigText = tickerString
+                        ?: cleanText
+                        ?: collectNotificationText(
+                            notification = source,
+                            fallbackTitle = "",
+                            includeRemoteViewTexts = true
+                        ).trim().takeIf { it.length > 1 }
+
+                    if (fallbackBigText != null) {
+                        builder.setContentText(fallbackBigText)
+                        builder.setStyle(NotificationCompat.BigTextStyle().bigText(fallbackBigText))
+                    }
                 }
             }
         }
