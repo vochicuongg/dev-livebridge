@@ -427,9 +427,12 @@ object LiveUpdateNotifier {
                 continue
             }
 
+            // Fuzzy dedup: match on timestamp+text, or text-only within 5s window
             val isDuplicate = historyList.any { cached ->
-                cached.timestamp == message.timestamp &&
-                    cached.text?.toString() == message.text?.toString()
+                val sameText = cached.text?.toString() == message.text?.toString()
+                val sameTimestamp = cached.timestamp == message.timestamp
+                val closeTimestamp = Math.abs(cached.timestamp - message.timestamp) < 5_000L
+                (sameTimestamp && sameText) || (closeTimestamp && sameText)
             }
             if (!isDuplicate) {
                 historyList.add(message)
@@ -439,13 +442,20 @@ object LiveUpdateNotifier {
         // Sort by timestamp to ensure proper chronological order
         historyList.sortBy { it.timestamp }
 
-        val recentMessages = if (historyList.size > MAX_CHAT_HISTORY_MESSAGES) {
-            historyList.takeLast(MAX_CHAT_HISTORY_MESSAGES)
+        // ponytail: Append-only trim – never drop local echo (null person = "Me").
+        // If the newest message is a local echo and would be trimmed, keep it.
+        val trimmed = if (historyList.size > MAX_CHAT_HISTORY_MESSAGES) {
+            val tail = historyList.takeLast(MAX_CHAT_HISTORY_MESSAGES).toMutableList()
+            val newestEcho = historyList.lastOrNull { it.person == null }
+            if (newestEcho != null && newestEcho !in tail) {
+                tail.removeAt(0)
+                tail.add(newestEcho)
+                tail.sortBy { it.timestamp }
+            }
+            tail
         } else {
-            historyList
+            historyList.toMutableList()
         }
-
-        val trimmed = recentMessages.toMutableList()
         conversationHistoryCache[threadKey] = trimmed
         
         Log.d(TAG, "mergeAndGetCachedMessages: Thread=$threadKey, cached=${trimmed.size} messages")
@@ -4473,14 +4483,19 @@ object LiveUpdateNotifier {
 
                 val localUserName = messagingStyle.user?.name?.toString()?.trim()
                     ?.takeIf { it.isNotEmpty() }
+                val userDisplayName = messagingStyle.user?.name?.toString()?.trim()
+                    ?.takeIf { it.isNotEmpty() }
                 val renderedMessages = cachedMessages.ifEmpty { messagingStyle.messages.orEmpty() }
                 renderedMessages.forEach { message ->
                     val text = message.text ?: ""
                     val timestamp = message.timestamp
                     val senderName = message.person?.name?.toString()?.trim()
                         ?.takeIf { it.isNotEmpty() }
+                    // ponytail: Dynamic self-sender – also match messagingStyle.user.name.
+                    // Upgrade: add per-app sender name overrides if needed.
                     val isFromLocalUser = senderName == null ||
                         (localUserName != null && senderName == localUserName) ||
+                        (userDisplayName != null && senderName.equals(userDisplayName, ignoreCase = true)) ||
                         SELF_SENDER_NAMES.contains(senderName.lowercase(Locale.ROOT))
                     if (isFromLocalUser) {
                         // Sent by me -> use null Person so Wear OS renders on the RIGHT (blue bubble).
@@ -4509,7 +4524,8 @@ object LiveUpdateNotifier {
                 addReplyActionIfNotAlreadyCopied(
                     source = source,
                     builder = builder,
-                    copiedActionLimit = MAX_MIRRORED_ACTIONS
+                    copiedActionLimit = MAX_MIRRORED_ACTIONS,
+                    mirrorKey = sbn.key
                 )
             } else {
                 // Merge source extras FIRST so that any broken templates
@@ -7660,6 +7676,13 @@ object LiveUpdateNotifier {
                 builder.addRemoteInput(compatRemoteInput.build())
             }
 
+            // ponytail: Wear OS reply action flags – without these, the watch
+            // assumes the intent opens a phone Activity and kills the inline UI.
+            if (hasRemoteInputs) {
+                builder.setShowsUserInterface(false)
+                builder.setAllowGeneratedReplies(true)
+            }
+
             builder.build()
         } catch (_: Exception) {
             val title = titleOverride?.takeIf { it.isNotBlank() }
@@ -7672,6 +7695,7 @@ object LiveUpdateNotifier {
             )
 
             // Fallback: also attempt to forward RemoteInputs
+            val fallbackHasRemoteInputs = !frameworkAction.remoteInputs.isNullOrEmpty()
             frameworkAction.remoteInputs?.forEach { frameworkRemoteInput ->
                 runCatching {
                     val compatRemoteInput = RemoteInputCompat.Builder(frameworkRemoteInput.resultKey)
@@ -7682,6 +7706,11 @@ object LiveUpdateNotifier {
                     }
                     builder.addRemoteInput(compatRemoteInput.build())
                 }
+            }
+
+            if (fallbackHasRemoteInputs) {
+                builder.setShowsUserInterface(false)
+                builder.setAllowGeneratedReplies(true)
             }
 
             builder.build()
