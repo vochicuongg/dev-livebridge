@@ -1725,6 +1725,24 @@ object LiveUpdateNotifier {
                 return notMirroredResult()
             }
             val source = sbn.notification
+
+            // ── THE SHIELD: UI Lock – drop state-downgrade updates ──
+            // When the user just replied, the target app often cancels and
+            // replaces the notification with a style-less "Sending…" stub.
+            // If ANY thread for this package is UI-locked, check whether
+            // the incoming notification still carries a MessagingStyle.
+            // If it does NOT, DROP this update entirely so the local-echo
+            // "Me" bubble stays on screen.
+            if (ChatHistoryStore.isAnyThreadLockedForPackage(sbn.packageName)) {
+                val incomingStyle = runCatching {
+                    NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(source)
+                }.getOrNull()
+                if (incomingStyle == null || incomingStyle.messages.isNullOrEmpty()) {
+                    Log.d(TAG, "maybeMirror: UI-LOCK SHIELD – dropped style-less update for ${sbn.key}")
+                    return notMirroredResult()
+                }
+            }
+
             val sourceHasEffectiveProgress = hasEffectiveProgress(sbn.packageName, source)
             val samsungBridge = SamsungBridgePreprocessor.build(
                 context = context,
@@ -2818,6 +2836,12 @@ object LiveUpdateNotifier {
             }
             if (recentReplyKey != null) {
                 Log.d(TAG, "cancelMirrored: debounced removal for key=${sbn.key} (reply ${now - (replyDebounceTimestamps[recentReplyKey] ?: 0)}ms ago)")
+                return
+            }
+
+            // ── THE SHIELD: UI Lock – ignore removals during lock period ──
+            if (ChatHistoryStore.isAnyThreadLockedForPackage(sbn.packageName)) {
+                Log.d(TAG, "cancelMirrored: UI-LOCK SHIELD – ignored removal for ${sbn.key}")
                 return
             }
 
@@ -4548,7 +4572,8 @@ object LiveUpdateNotifier {
                     source = source,
                     builder = builder,
                     copiedActionLimit = MAX_MIRRORED_ACTIONS,
-                    mirrorKey = sbn.key
+                    mirrorKey = sbn.key,
+                    context = context
                 )
             } else {
                 // Merge source extras FIRST so that any broken templates
@@ -7558,7 +7583,8 @@ object LiveUpdateNotifier {
         source: Notification,
         builder: NotificationCompat.Builder,
         copiedActionLimit: Int,
-        mirrorKey: String? = null
+        mirrorKey: String? = null,
+        context: Context? = null
     ) {
         val actions = source.actions ?: return
         val safeCopiedLimit = copiedActionLimit.coerceAtLeast(0)
@@ -7568,7 +7594,7 @@ object LiveUpdateNotifier {
                 !action.remoteInputs.isNullOrEmpty() && action.actionIntent != null
             }
             ?: return
-        val compatAction = toCompatAction(replyAction, mirrorKey = mirrorKey) ?: return
+        val compatAction = toCompatAction(replyAction, mirrorKey = mirrorKey, context = context) ?: return
         builder.addAction(compatAction)
     }
 
@@ -7656,7 +7682,8 @@ object LiveUpdateNotifier {
     private fun toCompatAction(
         frameworkAction: Notification.Action,
         titleOverride: String? = null,
-        mirrorKey: String? = null
+        mirrorKey: String? = null,
+        context: Context? = null
     ): NotificationCompat.Action? {
         if (frameworkAction.actionIntent == null) {
             return null
@@ -7674,8 +7701,8 @@ object LiveUpdateNotifier {
             // is provided, reroute through ReplyInterceptReceiver so we can inject
             // a local-echo "Me" message before forwarding to the original app.
             val hasRemoteInputs = !frameworkAction.remoteInputs.isNullOrEmpty()
-            val effectiveIntent = if (hasRemoteInputs && mirrorKey != null && actionIntent != null) {
-                createProxyReplyPendingIntent(actionIntent, mirrorKey, frameworkAction.remoteInputs!!.first().resultKey)
+            val effectiveIntent = if (hasRemoteInputs && mirrorKey != null && actionIntent != null && context != null) {
+                createProxyReplyPendingIntent(context, actionIntent, mirrorKey, frameworkAction.remoteInputs!!.first().resultKey)
                     ?: actionIntent
             } else {
                 actionIntent
@@ -8242,6 +8269,7 @@ object LiveUpdateNotifier {
     }
 
     private fun createProxyReplyPendingIntent(
+        context: Context,
         originalIntent: PendingIntent,
         mirrorKey: String,
         resultKey: String
@@ -8250,8 +8278,8 @@ object LiveUpdateNotifier {
             val threadKey = resolveThreadKeyForMirror(mirrorKey)
             val proxyIntent = Intent(ReplyInterceptReceiver.ACTION_PROXY_REPLY).apply {
                 setClassName(
-                    originalIntent.creatorPackage ?: "com.kakao.taxi",
-                    "com.kakao.taxi.liveupdate.ReplyInterceptReceiver"
+                    context.packageName,
+                    ReplyInterceptReceiver::class.java.name
                 )
                 putExtra(ReplyInterceptReceiver.EXTRA_ORIGINAL_PENDING_INTENT, originalIntent)
                 putExtra(ReplyInterceptReceiver.EXTRA_MIRROR_KEY, mirrorKey)
@@ -8259,7 +8287,7 @@ object LiveUpdateNotifier {
                 putExtra(ReplyInterceptReceiver.EXTRA_THREAD_KEY, threadKey)
             }
             PendingIntent.getBroadcast(
-                null,
+                context,
                 (mirrorKey + resultKey).hashCode(),
                 proxyIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE

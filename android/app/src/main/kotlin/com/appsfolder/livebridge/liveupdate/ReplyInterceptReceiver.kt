@@ -7,17 +7,21 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import androidx.core.app.NotificationCompat
+import androidx.core.app.Person
 import androidx.core.app.RemoteInput
 
 /**
  * Proxy BroadcastReceiver that intercepts reply actions from Wear OS.
  *
- * Stateful Native Mirroring approach:
+ * Absolute Local Truth + UI Lock approach:
  *  1. Extracts the typed text from the RemoteInput bundle.
- *  2. Saves it as a pending reply in [ChatHistoryStore] so that
- *     [LiveUpdateNotifier] can inject it on the next onNotificationPosted.
- *  3. Forwards the RemoteInput text to the original app's PendingIntent.
- *  4. Does NOT call any UI update (notify) – lets the target app do it.
+ *  2. Saves it as a pending reply in [ChatHistoryStore].
+ *  3. Sets a [ChatHistoryStore.setUiLock] so that [LiveUpdateNotifier]
+ *     drops any state-downgrade notifications for 6 seconds.
+ *  4. Calls [LiveUpdateNotifier.addLocalEchoAndRefresh] to FORCE the
+ *     "Me" bubble onto the watch immediately from the cache.
+ *  5. Forwards the RemoteInput text to the original app's PendingIntent.
  */
 class ReplyInterceptReceiver : BroadcastReceiver() {
 
@@ -62,11 +66,12 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
         val mirrorKey = intent.getStringExtra(EXTRA_MIRROR_KEY).orEmpty()
         val threadKey = intent.getStringExtra(EXTRA_THREAD_KEY).orEmpty()
 
-        // 2. Save pending reply state so LiveUpdateNotifier can inject it
-        //    when the target app's next notification update arrives.
+        // 2. Save pending reply + activate UI lock so LiveUpdateNotifier
+        //    drops any state-downgrade from the target app for 6 seconds.
         if (threadKey.isNotBlank()) {
             ChatHistoryStore.setPendingReply(threadKey, replyText)
-            Log.d(TAG, "Saved pending reply for threadKey=$threadKey: '$replyText'")
+            ChatHistoryStore.setUiLock(threadKey)
+            Log.d(TAG, "Saved pending reply + UI lock for threadKey=$threadKey: '$replyText'")
         }
 
         // 3. Record reply timestamp for debounce protection against instant deletion.
@@ -74,7 +79,19 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
             LiveUpdateNotifier.recordReplyDebounce(mirrorKey)
         }
 
-        // 4. Forward the reply text to the original app's PendingIntent.
+        // 4. FORCE the local-echo "Me" bubble onto the watch immediately
+        //    from the cache – do NOT wait for onNotificationPosted.
+        if (mirrorKey.isNotBlank()) {
+            val echoMessage = NotificationCompat.MessagingStyle.Message(
+                replyText,
+                System.currentTimeMillis(),
+                null as Person?   // null Person → right-aligned blue "Me" bubble
+            )
+            LiveUpdateNotifier.addLocalEchoAndRefresh(context, mirrorKey, echoMessage)
+            Log.d(TAG, "Triggered addLocalEchoAndRefresh for mirrorKey=$mirrorKey")
+        }
+
+        // 5. Forward the reply text to the original app's PendingIntent.
         val originalPendingIntent: PendingIntent? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             intent.getParcelableExtra(EXTRA_ORIGINAL_PENDING_INTENT, PendingIntent::class.java)
         } else {
