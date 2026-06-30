@@ -7,19 +7,17 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
-import androidx.core.app.NotificationCompat
-import androidx.core.app.Person
 import androidx.core.app.RemoteInput
 
 /**
  * Proxy BroadcastReceiver that intercepts reply actions from Wear OS.
  *
- * When the user replies via RemoteInput on the watch, this receiver:
+ * Stateful Native Mirroring approach:
  *  1. Extracts the typed text from the RemoteInput bundle.
- *  2. Injects a local-echo "Me" message into the conversation cache so that
- *     the watch UI instantly reflects the sent message.
- *  3. Forwards the RemoteInput text to the original app's PendingIntent so
- *     the message is actually delivered (e.g. to Zalo, Messenger, etc.).
+ *  2. Saves it as a pending reply in [ChatHistoryStore] so that
+ *     [LiveUpdateNotifier] can inject it on the next onNotificationPosted.
+ *  3. Forwards the RemoteInput text to the original app's PendingIntent.
+ *  4. Does NOT call any UI update (notify) – lets the target app do it.
  */
 class ReplyInterceptReceiver : BroadcastReceiver() {
 
@@ -37,6 +35,9 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
 
         /** Extra key: the RemoteInput result key used by the original app. */
         const val EXTRA_RESULT_KEY = "result_key"
+
+        /** Extra key: the thread key for ChatHistoryStore. */
+        const val EXTRA_THREAD_KEY = "thread_key"
     }
 
     override fun onReceive(context: Context, intent: Intent?) {
@@ -54,29 +55,23 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
             .trim()
 
         if (replyText.isBlank()) {
-            Log.w(TAG, "Empty reply text, skipping local echo and forward.")
+            Log.w(TAG, "Empty reply text, skipping.")
             return
         }
 
         val mirrorKey = intent.getStringExtra(EXTRA_MIRROR_KEY).orEmpty()
+        val threadKey = intent.getStringExtra(EXTRA_THREAD_KEY).orEmpty()
 
-        // 2. Create a local-echo message attributed to "Me" (the local user).
-        // CRITICAL: Use null Person so Wear OS renders on the RIGHT (blue bubble).
-        // MessagingStyle treats null person = "from me" = right-aligned blue bubble.
-        val echoMessage = NotificationCompat.MessagingStyle.Message(
-            replyText,
-            System.currentTimeMillis(),
-            null as Person?
-        )
+        // 2. Save pending reply state so LiveUpdateNotifier can inject it
+        //    when the target app's next notification update arrives.
+        if (threadKey.isNotBlank()) {
+            ChatHistoryStore.setPendingReply(threadKey, replyText)
+            Log.d(TAG, "Saved pending reply for threadKey=$threadKey: '$replyText'")
+        }
 
-        // 3. Inject into the local cache and refresh the watch notification
-        //    (without vibrating).
+        // 3. Record reply timestamp for debounce protection against instant deletion.
         if (mirrorKey.isNotBlank()) {
-            try {
-                LiveUpdateNotifier.addLocalEchoAndRefresh(context, mirrorKey, echoMessage)
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to inject local echo for mirrorKey=$mirrorKey", e)
-            }
+            LiveUpdateNotifier.recordReplyDebounce(mirrorKey)
         }
 
         // 4. Forward the reply text to the original app's PendingIntent.
@@ -93,9 +88,6 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
         }
 
         try {
-            // Build a new Intent and pack the RemoteInput result into it so that
-            // the original app receives the text just as if the user had replied
-            // directly from its own notification.
             val forwardIntent = Intent()
             val resultBundle = Bundle().apply {
                 putCharSequence(resultKey, replyText)

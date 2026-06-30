@@ -439,6 +439,29 @@ object LiveUpdateNotifier {
             }
         }
 
+        // --- Stateful Native Mirroring: pending reply injection ---
+        val pendingText = ChatHistoryStore.getPendingReplyText(threadKey)
+        if (pendingText != null) {
+            // Check if the target app has already confirmed the reply by including it
+            val appConfirmed = historyList.any { msg ->
+                msg.text?.toString()?.trim().equals(pendingText, ignoreCase = true)
+            }
+            if (appConfirmed) {
+                // Reply confirmed by the target app – clear pending state
+                ChatHistoryStore.clearPendingReply(threadKey)
+                Log.d(TAG, "mergeAndGetCachedMessages: Pending reply confirmed by app, cleared for thread=$threadKey")
+            } else {
+                // Still pending – inject a synthetic "Me" message (Person=null → blue right bubble)
+                val syntheticEcho = NotificationCompat.MessagingStyle.Message(
+                    pendingText,
+                    System.currentTimeMillis(),
+                    null as Person?
+                )
+                historyList.add(syntheticEcho)
+                Log.d(TAG, "mergeAndGetCachedMessages: Injected pending reply '$pendingText' for thread=$threadKey")
+            }
+        }
+
         // Sort by timestamp to ensure proper chronological order
         historyList.sortBy { it.timestamp }
 
@@ -8194,21 +8217,37 @@ object LiveUpdateNotifier {
     }
 
     /**
-     * Creates a proxy PendingIntent that routes through [ReplyInterceptReceiver]
-     * so we can inject a local-echo "Me" message before forwarding the reply
-     * to the original app's PendingIntent.
-     *
-     * @param originalIntent The original app's PendingIntent for the reply action
-     * @param mirrorKey      The mirrorKey identifying the mirrored conversation
-     * @param resultKey      The RemoteInput result key used by the original app
-     * @return A proxy PendingIntent, or null if creation fails
+     * Records a reply debounce timestamp so that [cancelMirrored] ignores
+     * notification removals within [REPLY_DEBOUNCE_MS] of a reply.
+     * Called from [ReplyInterceptReceiver].
      */
+    fun recordReplyDebounce(mirrorKey: String) {
+        replyDebounceTimestamps[mirrorKey] = SystemClock.elapsedRealtime()
+    }
+
+    /**
+     * Resolves the threadKey for a given mirrorKey by looking up the source
+     * notification snapshot. Used by [createProxyReplyPendingIntent] to pass
+     * the threadKey to [ReplyInterceptReceiver].
+     */
+    private fun resolveThreadKeyForMirror(mirrorKey: String): String {
+        val sourceSbn = synchronized(stateLock) {
+            sourceSnapshotsByMirrorKey[mirrorKey]
+        } ?: return ""
+        val conversationTitle = sourceSbn.notification.extras
+            .getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
+            ?.toString()
+            .orEmpty()
+        return "${sourceSbn.packageName}_$conversationTitle"
+    }
+
     private fun createProxyReplyPendingIntent(
         originalIntent: PendingIntent,
         mirrorKey: String,
         resultKey: String
     ): PendingIntent? {
         return try {
+            val threadKey = resolveThreadKeyForMirror(mirrorKey)
             val proxyIntent = Intent(ReplyInterceptReceiver.ACTION_PROXY_REPLY).apply {
                 setClassName(
                     originalIntent.creatorPackage ?: "com.kakao.taxi",
@@ -8217,6 +8256,7 @@ object LiveUpdateNotifier {
                 putExtra(ReplyInterceptReceiver.EXTRA_ORIGINAL_PENDING_INTENT, originalIntent)
                 putExtra(ReplyInterceptReceiver.EXTRA_MIRROR_KEY, mirrorKey)
                 putExtra(ReplyInterceptReceiver.EXTRA_RESULT_KEY, resultKey)
+                putExtra(ReplyInterceptReceiver.EXTRA_THREAD_KEY, threadKey)
             }
             PendingIntent.getBroadcast(
                 null,
