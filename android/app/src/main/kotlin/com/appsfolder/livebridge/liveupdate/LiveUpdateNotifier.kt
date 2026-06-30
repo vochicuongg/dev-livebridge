@@ -143,6 +143,20 @@ object LiveUpdateNotifier {
         Regex("""^You:\s*$""", RegexOption.IGNORE_CASE)
     )
 
+    /**
+     * Names that messaging apps use to label the local user's own messages.
+     * When a Person's name matches any of these (case-insensitive), the
+     * message is treated as "sent by me" and rendered with null Person
+     * so Wear OS shows a right-aligned blue bubble.
+     */
+    private val SELF_SENDER_NAMES = setOf(
+        "you", "me", "bạn", "tôi", "я", "나", "私", "我",
+        "du", "ich", "tú", "yo", "vous", "moi"
+    )
+
+    /** Grace period after a reply during which notification removals are ignored. */
+    private const val REPLY_DEBOUNCE_MS = 4_000L
+
     private val CALL_MIRROR_EXCLUDED_PACKAGES = setOf(
         "com.whatsapp",
         "com.whatsapp.w4b"
@@ -281,6 +295,14 @@ object LiveUpdateNotifier {
     
     // Chat History Cache: Stores conversation history to preserve messages across notification updates
     private val conversationHistoryCache = java.util.concurrent.ConcurrentHashMap<String, MutableList<NotificationCompat.MessagingStyle.Message>>()
+
+    /**
+     * Tracks the last reply timestamp per mirrorKey so that [cancelMirrored]
+     * can ignore removals that happen within [REPLY_DEBOUNCE_MS] of a reply.
+     * This prevents apps like Zalo from killing the watch UI immediately
+     * after the user sends a message.
+     */
+    private val replyDebounceTimestamps = java.util.concurrent.ConcurrentHashMap<String, Long>()
     
     /**
      * Singleton Person object representing the local user ("Me").
@@ -2752,6 +2774,20 @@ object LiveUpdateNotifier {
 
     fun cancelMirrored(context: Context, sbn: StatusBarNotification) {
         try {
+            // Debounce: if the user just replied via Wear OS, ignore the removal
+            // for REPLY_DEBOUNCE_MS so the watch UI stays alive for the user to
+            // read their sent message. Apps like Zalo cancel their notification
+            // immediately after processing the reply intent.
+            val now = SystemClock.elapsedRealtime()
+            val recentReplyKey = replyDebounceTimestamps.keys.firstOrNull { key ->
+                val ts = replyDebounceTimestamps[key] ?: return@firstOrNull false
+                (now - ts) < REPLY_DEBOUNCE_MS && sbn.key == key
+            }
+            if (recentReplyKey != null) {
+                Log.d(TAG, "cancelMirrored: debounced removal for key=${sbn.key} (reply ${now - (replyDebounceTimestamps[recentReplyKey] ?: 0)}ms ago)")
+                return
+            }
+
             val manager = NotificationManagerCompat.from(context)
             val staleAggregateIds = synchronized(stateLock) {
                 val directMirrorId = mirrorIdForKey(sbn.key)
@@ -2770,6 +2806,8 @@ object LiveUpdateNotifier {
             conversationHistoryCache.keys
                 .filter { it.startsWith(packagePrefix) }
                 .forEach { conversationHistoryCache.remove(it) }
+            // Clean up expired debounce entries
+            replyDebounceTimestamps.entries.removeIf { (now - it.value) > REPLY_DEBOUNCE_MS }
         } catch (error: Throwable) {
             Log.e(TAG, "Failed to cancel mirrored notification: ${sbn.key}", error)
         }
@@ -4426,6 +4464,7 @@ object LiveUpdateNotifier {
                 // CRITICAL: Use the singleton LOCAL_USER_ME instance to ensure
                 // consistent Person identity across all operations.
                 val nativeMessagingStyle = NotificationCompat.MessagingStyle(LOCAL_USER_ME)
+                nativeMessagingStyle.isGroupConversation = false
                 conversationTitle
                     ?.toString()
                     ?.trim()
@@ -4441,12 +4480,13 @@ object LiveUpdateNotifier {
                     val senderName = message.person?.name?.toString()?.trim()
                         ?.takeIf { it.isNotEmpty() }
                     val isFromLocalUser = senderName == null ||
-                        (localUserName != null && senderName == localUserName)
+                        (localUserName != null && senderName == localUserName) ||
+                        SELF_SENDER_NAMES.contains(senderName.lowercase(Locale.ROOT))
                     if (isFromLocalUser) {
-                        // Sent by me -> attach the singleton "Me" person (renders on the RIGHT).
-                        // CRITICAL: Use LOCAL_USER_ME singleton for consistent identity.
-                        nativeMessagingStyle.addMessage(text, timestamp, LOCAL_USER_ME)
-                        Log.d(TAG, "buildMirroredNotification: Added 'Me' message using LOCAL_USER_ME@${System.identityHashCode(LOCAL_USER_ME)} to thread=${sbn.packageName}_${conversationTitle?.toString().orEmpty()}")
+                        // Sent by me -> use null Person so Wear OS renders on the RIGHT (blue bubble).
+                        // On Wear OS, null person = "from me" = right-aligned blue bubble.
+                        nativeMessagingStyle.addMessage(text, timestamp, null as Person?)
+                        Log.d(TAG, "buildMirroredNotification: Added 'Me' message (null Person) to thread=${sbn.packageName}_${conversationTitle?.toString().orEmpty()}")
                     } else {
                         // Received -> attach the sender's person (renders on the LEFT).
                         val senderPerson = Person.Builder().setName(senderName).build()
@@ -4462,7 +4502,7 @@ object LiveUpdateNotifier {
                         ?: displayText.trim().takeIf { it.isNotBlank() }
                         ?: source.tickerText?.toString()?.trim()?.takeIf { it.isNotBlank() }
                         ?: "New message"
-                    nativeMessagingStyle.addMessage(fallback, System.currentTimeMillis(), LOCAL_USER_ME)
+                    nativeMessagingStyle.addMessage(fallback, System.currentTimeMillis(), null as Person?)
                 }
 
                 builder.setStyle(nativeMessagingStyle)
@@ -8192,7 +8232,10 @@ object LiveUpdateNotifier {
             .orEmpty()
         val threadKey = "${sourceSbn.packageName}_$conversationTitle"
 
-        // 3. Append the echo message to the conversation history cache.
+        // 3. Record reply timestamp for debounce protection against instant deletion.
+        replyDebounceTimestamps[mirrorKey] = SystemClock.elapsedRealtime()
+
+        // 4. Append the echo message to the conversation history cache.
         val historyList = conversationHistoryCache.getOrPut(threadKey) { mutableListOf() }
         historyList.add(echoMessage)
         // Trim to keep only the last MAX_CHAT_HISTORY_MESSAGES messages.

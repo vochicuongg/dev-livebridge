@@ -60,14 +60,13 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
 
         val mirrorKey = intent.getStringExtra(EXTRA_MIRROR_KEY).orEmpty()
 
-        // 2. Create a local-echo message attributed to "Me".
-        // CRITICAL: Use the singleton LOCAL_USER_ME from LiveUpdateNotifier to ensure
-        // consistent Person identity across all operations. This guarantees that the
-        // echo message will render on the RIGHT side of Wear OS chat bubbles.
+        // 2. Create a local-echo message attributed to "Me" (the local user).
+        // CRITICAL: Use null Person so Wear OS renders on the RIGHT (blue bubble).
+        // MessagingStyle treats null person = "from me" = right-aligned blue bubble.
         val echoMessage = NotificationCompat.MessagingStyle.Message(
             replyText,
             System.currentTimeMillis(),
-            LiveUpdateNotifier.LOCAL_USER_ME
+            null as Person?
         )
 
         // 3. Inject into the local cache and refresh the watch notification
