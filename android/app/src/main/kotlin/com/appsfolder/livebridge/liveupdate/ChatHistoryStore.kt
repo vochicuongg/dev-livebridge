@@ -4,13 +4,16 @@ import android.os.SystemClock
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Stores pending reply state and UI-lock timestamps per conversation thread.
+ * Stores pending reply state and thread-based lockdown timestamps per conversation thread.
  *
+ * ABSOLUTE LOCKDOWN MECHANISM:
  * When the user replies via Wear OS:
  *  - The reply text is saved as a pending reply.
- *  - A [uiLockTimestamp] is set so that [LiveUpdateNotifier] drops any
- *    state-downgrade notifications (missing MessagingStyle, "Sending…" text,
- *    or outright removal) for [UI_LOCK_DURATION_MS].
+ *  - A [lockdownDeadline] is set based on [threadKey] (packageName + conversationTitle)
+ *    so that [LiveUpdateNotifier] completely ignores ALL notification updates from
+ *    the target app for the lockdown duration (default 10 seconds).
+ *  - This prevents race conditions where apps like Messenger cancel and repost
+ *    notifications with new IDs during the "Sending..." state.
  */
 object ChatHistoryStore {
 
@@ -22,19 +25,19 @@ object ChatHistoryStore {
     private val pendingReplies = ConcurrentHashMap<String, PendingReply>()
 
     /**
-     * ElapsedRealtime timestamp until which the UI is "locked" for a thread.
+     * ElapsedRealtime timestamp until which the thread is "locked down".
      * Key = threadKey (e.g. "com.facebook.orca_ChatTitle").
-     * While locked, [LiveUpdateNotifier] must DROP any notification update
-     * that lacks a valid MessagingStyle (the "Sending…" downgrade) and
-     * IGNORE notification removals.
+     * While locked, [LiveUpdateNotifier] must DROP ALL notification updates
+     * (posted, removed, changed) for this conversation thread.
+     *
+     * This is the ABSOLUTE BLINDFOLD - we ignore the target app completely.
      */
-    private val uiLockTimestamps = ConcurrentHashMap<String, Long>()
+    private val lockdownDeadlines = ConcurrentHashMap<String, Long>()
 
     /** Max age before a pending reply is auto-expired (30 s). */
     private const val PENDING_REPLY_TTL_MS = 30_000L
 
-    /** Duration of the UI lock after a reply (6 s). */
-    private const val UI_LOCK_DURATION_MS = 6_000L
+    // ---- Pending Reply Management ----
 
     fun setPendingReply(threadKey: String, text: String) {
         pendingReplies[threadKey] = PendingReply(text.trim(), System.currentTimeMillis())
@@ -54,33 +57,47 @@ object ChatHistoryStore {
         pendingReplies.remove(threadKey)
     }
 
-    // ---- UI Lock ----
+    // ---- Thread-Based Lockdown (Absolute Blindfold) ----
 
-    /** Activate the UI lock for [threadKey]. */
-    fun setUiLock(threadKey: String) {
-        uiLockTimestamps[threadKey] = SystemClock.elapsedRealtime() + UI_LOCK_DURATION_MS
+    /**
+     * Activate absolute lockdown for [threadKey] for [durationMs] milliseconds.
+     * During lockdown, LiveUpdateNotifier will completely ignore all notification
+     * events from the target app for this conversation thread.
+     *
+     * @param threadKey Unique thread identifier (e.g., "com.facebook.orca_ChatTitle")
+     * @param durationMs Lockdown duration in milliseconds (typically 10000 = 10 seconds)
+     */
+    fun setLockdown(threadKey: String, durationMs: Long) {
+        lockdownDeadlines[threadKey] = SystemClock.elapsedRealtime() + durationMs
     }
 
-    /** Returns true if the UI lock is still active for [threadKey]. */
-    fun isUiLocked(threadKey: String): Boolean {
-        val deadline = uiLockTimestamps[threadKey] ?: return false
+    /**
+     * Returns true if the absolute lockdown is still active for [threadKey].
+     * While locked down, LiveUpdateNotifier should return immediately without
+     * processing any notification updates for this thread.
+     */
+    fun isLockedDown(threadKey: String): Boolean {
+        val deadline = lockdownDeadlines[threadKey] ?: return false
         if (SystemClock.elapsedRealtime() < deadline) return true
         // Expired – clean up
-        uiLockTimestamps.remove(threadKey)
+        lockdownDeadlines.remove(threadKey)
         return false
     }
 
-    /** Check UI lock by mirrorKey: scans all threadKeys that end with the conversation suffix. */
+    /**
+     * Check if any thread is locked down for a given package name.
+     * This is useful for broad package-level checks.
+     */
     fun isAnyThreadLockedForPackage(packageName: String): Boolean {
         val prefix = "${packageName}_"
         val now = SystemClock.elapsedRealtime()
-        return uiLockTimestamps.any { (key, deadline) ->
+        return lockdownDeadlines.any { (key, deadline) ->
             key.startsWith(prefix) && now < deadline
         }
     }
 
     fun clear() {
         pendingReplies.clear()
-        uiLockTimestamps.clear()
+        lockdownDeadlines.clear()
     }
 }

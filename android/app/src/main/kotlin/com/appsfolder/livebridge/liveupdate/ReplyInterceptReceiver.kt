@@ -6,6 +6,8 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.Person
@@ -14,14 +16,16 @@ import androidx.core.app.RemoteInput
 /**
  * Proxy BroadcastReceiver that intercepts reply actions from Wear OS.
  *
- * Absolute Local Truth + UI Lock approach:
+ * ABSOLUTE LOCKDOWN + INTENT DELAY STRATEGY:
  *  1. Extracts the typed text from the RemoteInput bundle.
- *  2. Saves it as a pending reply in [ChatHistoryStore].
- *  3. Sets a [ChatHistoryStore.setUiLock] so that [LiveUpdateNotifier]
- *     drops any state-downgrade notifications for 6 seconds.
- *  4. Calls [LiveUpdateNotifier.addLocalEchoAndRefresh] to FORCE the
- *     "Me" bubble onto the watch immediately from the cache.
- *  5. Forwards the RemoteInput text to the original app's PendingIntent.
+ *  2. Saves it to ChatHistoryStore (with Person = null for blue bubble).
+ *  3. Sets a 10-second absolute lockdown so that [LiveUpdateNotifier]
+ *     ignores ALL notification updates from the target app during this period.
+ *  4. Calls [LiveUpdateNotifier.forceUpdateChatUi] immediately to render
+ *     the local echo with setRemoteInputHistory() to clear the spinner.
+ *  5. **CRITICAL:** Uses Handler.postDelayed(500ms) to DELAY sending the
+ *     PendingIntent, giving Wear OS UI time to smoothly render before
+ *     the target app receives the reply and starts its erratic behavior.
  */
 class ReplyInterceptReceiver : BroadcastReceiver() {
 
@@ -42,6 +46,12 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
 
         /** Extra key: the thread key for ChatHistoryStore. */
         const val EXTRA_THREAD_KEY = "thread_key"
+
+        /** Delay before forwarding the reply to the target app (500ms). */
+        private const val INTENT_DELAY_MS = 500L
+
+        /** Absolute lockdown duration (10 seconds total blackout). */
+        private const val LOCKDOWN_DURATION_MS = 10_000L
     }
 
     override fun onReceive(context: Context, intent: Intent?) {
@@ -66,21 +76,30 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
         val mirrorKey = intent.getStringExtra(EXTRA_MIRROR_KEY).orEmpty()
         val threadKey = intent.getStringExtra(EXTRA_THREAD_KEY).orEmpty()
 
-        // 2. Save pending reply + activate UI lock so LiveUpdateNotifier
-        //    drops any state-downgrade from the target app for 6 seconds.
+        Log.d(TAG, "Intercepted reply: '$replyText' for threadKey=$threadKey, mirrorKey=$mirrorKey")
+
+        // 2. Save the message to ChatHistoryStore (with Person = null for blue bubble).
         if (threadKey.isNotBlank()) {
             ChatHistoryStore.setPendingReply(threadKey, replyText)
-            ChatHistoryStore.setUiLock(threadKey)
-            Log.d(TAG, "Saved pending reply + UI lock for threadKey=$threadKey: '$replyText'")
+            Log.d(TAG, "Saved pending reply for threadKey=$threadKey")
         }
 
-        // 3. Record reply timestamp for debounce protection against instant deletion.
+        // 3. Activate ABSOLUTE LOCKDOWN for 10 seconds.
+        // During this period, LiveUpdateNotifier will completely ignore
+        // all notification events from the target app for this conversation.
+        if (threadKey.isNotBlank()) {
+            ChatHistoryStore.setLockdown(threadKey, LOCKDOWN_DURATION_MS)
+            Log.d(TAG, "✓ LOCKDOWN ACTIVATED: threadKey=$threadKey for ${LOCKDOWN_DURATION_MS}ms")
+        }
+
+        // 4. Record reply timestamp for legacy debounce protection.
         if (mirrorKey.isNotBlank()) {
             LiveUpdateNotifier.recordReplyDebounce(mirrorKey)
         }
 
-        // 4. FORCE the local-echo "Me" bubble onto the watch immediately
-        //    from the cache – do NOT wait for onNotificationPosted.
+        // 5. FORCE the local-echo "Me" bubble onto the watch IMMEDIATELY.
+        // This calls forceUpdateChatUi which uses setRemoteInputHistory()
+        // to clear the spinner and show the blue bubble.
         if (mirrorKey.isNotBlank()) {
             val echoMessage = NotificationCompat.MessagingStyle.Message(
                 replyText,
@@ -88,10 +107,10 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
                 null as Person?   // null Person → right-aligned blue "Me" bubble
             )
             LiveUpdateNotifier.addLocalEchoAndRefresh(context, mirrorKey, echoMessage)
-            Log.d(TAG, "Triggered addLocalEchoAndRefresh for mirrorKey=$mirrorKey")
+            Log.d(TAG, "✓ LOCAL ECHO RENDERED: mirrorKey=$mirrorKey")
         }
 
-        // 5. Forward the reply text to the original app's PendingIntent.
+        // 6. Extract the original app's PendingIntent.
         val originalPendingIntent: PendingIntent? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             intent.getParcelableExtra(EXTRA_ORIGINAL_PENDING_INTENT, PendingIntent::class.java)
         } else {
@@ -104,23 +123,32 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
             return
         }
 
-        try {
-            val forwardIntent = Intent()
-            val resultBundle = Bundle().apply {
-                putCharSequence(resultKey, replyText)
+        // 7. **CRITICAL INTENT DELAY:** Use Handler.postDelayed to delay sending
+        // the PendingIntent by 500ms. This gives Wear OS UI time to smoothly
+        // render our local blue bubble BEFORE the target app receives the reply
+        // and starts its erratic notification behavior (canceling, reposting, etc.).
+        Handler(Looper.getMainLooper()).postDelayed({
+            try {
+                val forwardIntent = Intent()
+                val resultBundle = Bundle().apply {
+                    putCharSequence(resultKey, replyText)
+                }
+                RemoteInput.addResultsToIntent(
+                    arrayOf(
+                        RemoteInput.Builder(resultKey).build()
+                    ),
+                    forwardIntent,
+                    resultBundle
+                )
+                originalPendingIntent.send(context, 0, forwardIntent)
+                Log.d(TAG, "✓ INTENT FORWARDED (delayed ${INTENT_DELAY_MS}ms): Reply sent to target app")
+            } catch (e: PendingIntent.CanceledException) {
+                Log.e(TAG, "Original PendingIntent was cancelled – the source app may have removed it.", e)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to forward reply to original app.", e)
             }
-            RemoteInput.addResultsToIntent(
-                arrayOf(
-                    RemoteInput.Builder(resultKey).build()
-                ),
-                forwardIntent,
-                resultBundle
-            )
-            originalPendingIntent.send(context, 0, forwardIntent)
-        } catch (e: PendingIntent.CanceledException) {
-            Log.e(TAG, "Original PendingIntent was cancelled – the source app may have removed it.", e)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to forward reply to original app.", e)
-        }
+        }, INTENT_DELAY_MS)
+
+        Log.d(TAG, "Reply processing complete. Intent will be forwarded in ${INTENT_DELAY_MS}ms.")
     }
 }

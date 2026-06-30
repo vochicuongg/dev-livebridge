@@ -263,6 +263,13 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
             if (sbn.packageName == packageName) {
                 return
             }
+            
+            // ABSOLUTE BLINDFOLD: If this conversation thread is locked down,
+            // ignore ALL notification updates completely.
+            if (isThreadLockedDown(sbn)) {
+                Log.d(TAG, "⛔ BLINDFOLD: Ignoring notification POSTED (thread locked down): ${sbn.key}")
+                return
+            }
             if (isFlashlightSourceNotification(sbn)) {
                 syncFlashlightMirror(listOf(sbn))
                 refreshChargingInfoFromActiveNotifications()
@@ -326,6 +333,13 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
                 LiveUpdateNotifier.handleMirroredRemoved(applicationContext, sbn)
                 return
             }
+            
+            // ABSOLUTE BLINDFOLD: If this conversation thread is locked down,
+            // ignore ALL notification updates completely.
+            if (isThreadLockedDown(sbn)) {
+                Log.d(TAG, "⛔ BLINDFOLD: Ignoring notification REMOVED (thread locked down): ${sbn.key}")
+                return
+            }
             refreshChargingInfoFromActiveNotifications()
             if (consumeSelfDismissedSource(sbn)) {
                 refreshNotificationCapsuleFromActiveNotifications()
@@ -351,6 +365,29 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
 
     private fun isUnsupportedDevice(): Boolean {
         return DeviceBlocker.isBlockedDevice()
+    }
+
+    /**
+     * ABSOLUTE BLINDFOLD helper function.
+     * Checks if the conversation thread for this notification is currently locked down.
+     * When locked down (during the 10-second blackout period after a reply), we ignore
+     * ALL notification updates from the target app to prevent race conditions.
+     *
+     * @param sbn The notification to check
+     * @return true if this thread is locked down and should be completely ignored
+     */
+    private fun isThreadLockedDown(sbn: StatusBarNotification): Boolean {
+        // Extract conversationTitle from notification extras
+        val conversationTitle = sbn.notification.extras
+            .getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
+            ?.toString()
+            .orEmpty()
+        
+        // Build threadKey exactly as ChatHistoryStore and LiveUpdateNotifier do
+        val threadKey = "${sbn.packageName}_$conversationTitle"
+        
+        // Check if this thread is currently locked down
+        return ChatHistoryStore.isLockedDown(threadKey)
     }
 
     private fun syncNetworkSpeedService() {
