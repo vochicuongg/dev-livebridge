@@ -4568,6 +4568,19 @@ object LiveUpdateNotifier {
                 }
 
                 builder.setStyle(nativeMessagingStyle)
+                
+                // **CRITICAL: NATIVE REMOTE INPUT HISTORY**
+                // Check if there's a pending reply for this thread. If so, use
+                // setRemoteInputHistory() to force Wear OS to display the text
+                // on the right side natively as a blue "sent" bubble.
+                // This is the magic key that makes the local echo work reliably.
+                val threadKey = "${sbn.packageName}_${conversationTitle?.toString().orEmpty()}"
+                val pendingReplyText = ChatHistoryStore.getPendingReplyText(threadKey)
+                if (pendingReplyText != null) {
+                    builder.setRemoteInputHistory(arrayOf(pendingReplyText))
+                    Log.d(TAG, "✓ REMOTE INPUT HISTORY SET: threadKey=$threadKey, text='$pendingReplyText'")
+                }
+                
                 addReplyActionIfNotAlreadyCopied(
                     source = source,
                     builder = builder,

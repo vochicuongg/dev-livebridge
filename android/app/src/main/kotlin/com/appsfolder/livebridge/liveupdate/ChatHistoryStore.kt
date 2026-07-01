@@ -57,6 +57,19 @@ object ChatHistoryStore {
         pendingReplies.remove(threadKey)
     }
 
+    /**
+     * Combined helper: Set both lockdown and pending reply text atomically.
+     * This is a convenience method used by ReplyInterceptReceiver.
+     *
+     * @param threadKey Unique thread identifier
+     * @param replyText The reply text to store as pending
+     * @param durationMs Lockdown duration in milliseconds
+     */
+    fun setLockdownAndPendingText(threadKey: String, replyText: String, durationMs: Long) {
+        setPendingReply(threadKey, replyText)
+        setLockdown(threadKey, durationMs)
+    }
+
     // ---- Thread-Based Lockdown (Absolute Blindfold) ----
 
     /**

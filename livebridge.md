@@ -1,21 +1,20 @@
-# The Architecture: Absolute Local Truth & UI Lock
-1. **The Master Cache (`ChatHistoryStore`):** This is the absolute source of truth. It holds `MutableList<Message>`. We NEVER delete messages from this cache unless the thread is genuinely old.
-2. **The Intercept & Force Update (`ReplyInterceptReceiver`):** - When the user replies, append the sent text to `ChatHistoryStore` with `Person = null` (isMe = true).
-   - Set a `uiLockTimestamp` in `ChatHistoryStore` for this thread (e.g., `currentTime + 6000ms`).
-   - AGGRESSIVELY call a local UI update method (e.g., `LiveUpdateNotifier.forceUpdateChatUi()`) to re-render the notification immediately from the cache.
-   - Forward the PendingIntent.
-3. **The Shield (`LiveUpdateNotifier`):**
-   - In `onNotificationPosted`: 
-     - If the incoming notification has NO `MessagingStyle` (the "Sending..." downgrade) AND the `uiLockTimestamp` for this thread is still active (within 6 seconds), **DROP THE UPDATE ENTIRELY** (`return`). Do not let it collapse the UI.
-     - If it HAS a `MessagingStyle`, extract messages, fuzzy-merge them into `ChatHistoryStore` (Append-Only, never overwrite our local echo), and render from the cache.
-   - In `onNotificationRemoved`:
-     - If the `uiLockTimestamp` is active, **IGNORE THE REMOVAL**. 
+# The Ultimate Architecture: Absolute Lockdown + RemoteInputHistory
+We will combine the 10-second blackout window with the native `setRemoteInputHistory` API to FORCE Wear OS to show the right-aligned sent message.
 
-# Expected Output
-Please provide the refactored Kotlin code for:
-1. `ChatHistoryStore.kt`: Add the `uiLockTimestamp` logic.
-2. `ReplyInterceptReceiver.kt`: Extract text, save to cache, set the lock, FORCE the UI update via Notifier, then send the intent.
-3. `LiveUpdateNotifier.kt`: Implement "The Shield" in `onNotificationPosted` and `onNotificationRemoved` that drops state-downgrades during the lock period. Create the `forceUpdateChatUi` method that builds the `MessagingStyle` strictly from the cache.
+1. **`ChatHistoryStore.kt`**:
+   - Implement the 10-second lockdown based on `threadKey`.
+   - Store `pendingRemoteInputText: String?` alongside the lock.
+
+2. **`ReplyInterceptReceiver.kt`**:
+   - Extract the reply text.
+   - Call `ChatHistoryStore.setLockdownAndPendingText(threadKey, replyText, 10000L)`.
+   - Call `LiveUpdateNotifier.forceUpdateChatUi(...)`.
+   - Delay the execution of `pendingIntent.send()` by 500ms using a Handler to give Wear OS time to render the animation.
+
+3. **`LiveUpdateNotifier.kt`**:
+   - **The Blindfold:** In `onNotificationPosted` and `onNotificationRemoved`, if `ChatHistoryStore.isLockedDown(threadKey)` is true, `return` immediately. Ignore all incoming Messenger updates.
+   - **The Force Update (`forceUpdateChatUi`):** Rebuild the notification strictly from the cache. 
+   - **CRITICAL STEP:** When building the `NotificationCompat.Builder`, check if `ChatHistoryStore` has a `pendingRemoteInputText`. If it does, YOU MUST CALL `.setRemoteInputHistory(arrayOf(pendingText))`. This is the magic key that forces Wear OS to display the text on the right side natively.
 
 # Constraints
 - Keep `package com.kakao.taxi.liveupdate` or `package com.kakao.taxi` at the top of the files.
