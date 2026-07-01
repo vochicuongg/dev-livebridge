@@ -1,5 +1,6 @@
 package com.kakao.taxi.liveupdate
 
+import android.app.Notification
 import android.os.SystemClock
 import java.util.concurrent.ConcurrentHashMap
 
@@ -33,6 +34,14 @@ object ChatHistoryStore {
      * This is the ABSOLUTE BLINDFOLD - we ignore the target app completely.
      */
     private val lockdownDeadlines = ConcurrentHashMap<String, Long>()
+
+    /**
+     * Caches the currently-displayed [Notification] object per threadKey.
+     * Used by the clone-and-inject local echo pattern: instead of rebuilding
+     * from scratch (which drops OEM extras and breaks Person identity),
+     * we recover the builder from this cached notification and append to it.
+     */
+    private val activeNotifications = ConcurrentHashMap<String, Notification>()
 
     /** Max age before a pending reply is auto-expired (30 s). */
     private const val PENDING_REPLY_TTL_MS = 30_000L
@@ -109,8 +118,25 @@ object ChatHistoryStore {
         }
     }
 
+    // ---- Active Notification Cache (Clone-and-Inject) ----
+
+    /** Cache the currently-displayed notification for a thread so the local echo
+     *  can clone it instead of rebuilding from scratch. */
+    fun setActiveNotification(threadKey: String, notification: Notification) {
+        activeNotifications[threadKey] = notification
+    }
+
+    /** Retrieve the cached notification for clone-and-inject local echo. */
+    fun getActiveNotification(threadKey: String): Notification? =
+        activeNotifications[threadKey]
+
+    fun clearActiveNotification(threadKey: String) {
+        activeNotifications.remove(threadKey)
+    }
+
     fun clear() {
         pendingReplies.clear()
         lockdownDeadlines.clear()
+        activeNotifications.clear()
     }
 }

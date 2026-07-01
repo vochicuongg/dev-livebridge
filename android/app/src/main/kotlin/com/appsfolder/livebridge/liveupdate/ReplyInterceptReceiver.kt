@@ -21,8 +21,8 @@ import androidx.core.app.RemoteInput
  *  2. Saves it to ChatHistoryStore (with Person = null for blue bubble).
  *  3. Sets a 10-second absolute lockdown so that [LiveUpdateNotifier]
  *     ignores ALL notification updates from the target app during this period.
- *  4. Calls [LiveUpdateNotifier.forceUpdateChatUi] immediately to render
- *     the local echo with setRemoteInputHistory() to clear the spinner.
+ *  4. Calls [LiveUpdateNotifier.addLocalEchoAndRefresh] immediately to render
+ *     the local echo via clone-and-inject (appends to recovered MessagingStyle).
  *  5. **CRITICAL:** Uses Handler.postDelayed(500ms) to DELAY sending the
  *     PendingIntent, giving Wear OS UI time to smoothly render before
  *     the target app receives the reply and starts its erratic behavior.
@@ -98,8 +98,8 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
         }
 
         // 5. FORCE the local-echo "Me" bubble onto the watch IMMEDIATELY.
-        // This calls forceUpdateChatUi which uses setRemoteInputHistory()
-        // to clear the spinner and show the blue bubble.
+        // Uses clone-and-inject: recovers the active notification's builder,
+        // appends the echo to its MessagingStyle, and reposts.
         if (mirrorKey.isNotBlank()) {
             val echoMessage = NotificationCompat.MessagingStyle.Message(
                 replyText,

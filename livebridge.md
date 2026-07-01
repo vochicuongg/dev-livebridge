@@ -1,23 +1,23 @@
-# The Ultimate Architecture: Absolute Lockdown + RemoteInputHistory
-We will combine the 10-second blackout window with the native `setRemoteInputHistory` API to FORCE Wear OS to show the right-aligned sent message.
+# The 100% Native Injection Architecture
+We must completely abandon rebuilding the notification from scratch for the local echo. We must use a "Clone and Inject" (Native Payload Injection) pattern to preserve 100% of the active notification's OEM extras, `setWhen` timestamp, and internal `Person` objects.
 
 1. **`ChatHistoryStore.kt`**:
-   - Implement the 10-second lockdown based on `threadKey`.
-   - Store `pendingRemoteInputText: String?` alongside the lock.
+   - Must temporarily cache the actual `android.app.Notification` object currently displayed on the watch for each `threadKey`.
 
-2. **`ReplyInterceptReceiver.kt`**:
-   - Extract the reply text.
-   - Call `ChatHistoryStore.setLockdownAndPendingText(threadKey, replyText, 10000L)`.
-   - Call `LiveUpdateNotifier.forceUpdateChatUi(...)`.
-   - Delay the execution of `pendingIntent.send()` by 500ms using a Handler to give Wear OS time to render the animation.
+2. **`ReplyInterceptReceiver.kt` & `LiveUpdateNotifier.kt` (The Injection)**:
+   - When the user replies, retrieve the `activeNotification` from `ChatHistoryStore`.
+   - Safely recover the builder: `val builder = NotificationCompat.Builder(context, activeNotification)`.
+   - Extract the existing style: `val recoveredStyle = NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(activeNotification)`.
+   - **THE MAGIC INJECTION:** Append the local echo directly to the recovered style: `recoveredStyle?.addMessage(replyText, System.currentTimeMillis(), null as Person?)`.
+   - Reapply the updated style: `recoveredStyle?.setBuilder(builder)`.
+   - Set `.setOnlyAlertOnce(true)` so the watch doesn't buzz again. DO NOT explicitly change `.setWhen()`.
+   - Call `notificationManager.notify(TAG, ID, builder.build())`.
+   - Finally, run the 10-second lockdown and the 500ms delayed `PendingIntent.send()`.
 
-3. **`LiveUpdateNotifier.kt`**:
-   - **The Blindfold:** In `onNotificationPosted` and `onNotificationRemoved`, if `ChatHistoryStore.isLockedDown(threadKey)` is true, `return` immediately. Ignore all incoming Messenger updates.
-   - **The Force Update (`forceUpdateChatUi`):** Rebuild the notification strictly from the cache. 
-   - **CRITICAL STEP:** When building the `NotificationCompat.Builder`, check if `ChatHistoryStore` has a `pendingRemoteInputText`. If it does, YOU MUST CALL `.setRemoteInputHistory(arrayOf(pendingText))`. This is the magic key that forces Wear OS to display the text on the right side natively.
+# Expected Output
+Provide the refactored Kotlin code for `LiveUpdateNotifier.kt` (specifically the local echo update function) and `ReplyInterceptReceiver.kt` implementing this exact `extractMessagingStyleFromNotification` and cloning pattern.
+Remove the `setRemoteInputHistory` logic as it conflicts with this approach.
 
 # Constraints
-- Keep `package com.kakao.taxi.liveupdate` or `package com.kakao.taxi` at the top of the files.
-- The reply action MUST have `.setShowsUserInterface(false)` and `.setAllowGeneratedReplies(true)`.
-- Use Kotlin. 
-- DO NOT OUTPUT ANY GIT COMMANDS.
+- Keep `package com.kakao.taxi.liveupdate` or `package com.kakao.taxi` at the top.
+- DO NOT OUTPUT ANY GIT COMMANDS. Use Kotlin.

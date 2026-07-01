@@ -4568,19 +4568,12 @@ object LiveUpdateNotifier {
                 }
 
                 builder.setStyle(nativeMessagingStyle)
-                
-                // **CRITICAL: NATIVE REMOTE INPUT HISTORY**
-                // Check if there's a pending reply for this thread. If so, use
-                // setRemoteInputHistory() to force Wear OS to display the text
-                // on the right side natively as a blue "sent" bubble.
-                // This is the magic key that makes the local echo work reliably.
+
+                // Cache the built notification for this thread so the
+                // clone-and-inject local echo can recover it later.
+                // ponytail: setRemoteInputHistory removed — conflicts with MessagingStyle on Wear OS.
                 val threadKey = "${sbn.packageName}_${conversationTitle?.toString().orEmpty()}"
-                val pendingReplyText = ChatHistoryStore.getPendingReplyText(threadKey)
-                if (pendingReplyText != null) {
-                    builder.setRemoteInputHistory(arrayOf(pendingReplyText))
-                    Log.d(TAG, "✓ REMOTE INPUT HISTORY SET: threadKey=$threadKey, text='$pendingReplyText'")
-                }
-                
+
                 addReplyActionIfNotAlreadyCopied(
                     source = source,
                     builder = builder,
@@ -8322,39 +8315,98 @@ object LiveUpdateNotifier {
      * @param mirrorKey    The mirrorKey identifying the mirrored conversation
      * @param echoMessage  The local-echo message to append (sender = "Me")
      */
+    /**
+     * Clone-and-inject local echo: instead of rebuilding the notification from
+     * scratch (which drops OEM extras, breaks Person identity, and causes Wear OS
+     * to refuse the inline blue bubble), we recover the builder from the cached
+     * active notification, extract its MessagingStyle, append the echo message,
+     * and repost. This preserves 100% of the original notification's internal
+     * state (setWhen, Person objects, Samsung extras, etc.).
+     */
     fun addLocalEchoAndRefresh(
         context: Context,
         mirrorKey: String,
         echoMessage: NotificationCompat.MessagingStyle.Message
     ) {
-        // 1. Retrieve the source StatusBarNotification for this mirrorKey.
+        // 1. Resolve threadKey from source snapshot.
         val sourceSbn = synchronized(stateLock) {
             sourceSnapshotsByMirrorKey[mirrorKey]
         } ?: run {
             Log.w(TAG, "addLocalEchoAndRefresh: no source snapshot for mirrorKey=$mirrorKey")
             return
         }
-
-        // 2. Reconstruct the thread key exactly as mergeAndGetCachedMessages does.
         val conversationTitle = sourceSbn.notification.extras
             .getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
             ?.toString()
             .orEmpty()
         val threadKey = "${sourceSbn.packageName}_$conversationTitle"
 
-        // 3. Record reply timestamp for debounce protection against instant deletion.
-        replyDebounceTimestamps[mirrorKey] = SystemClock.elapsedRealtime()
-
-        // 4. Append the echo message to the conversation history cache.
-        val historyList = conversationHistoryCache.getOrPut(threadKey) { mutableListOf() }
-        historyList.add(echoMessage)
-        // Trim to keep only the last MAX_CHAT_HISTORY_MESSAGES messages.
-        if (historyList.size > MAX_CHAT_HISTORY_MESSAGES) {
-            val trimmed = historyList.takeLast(MAX_CHAT_HISTORY_MESSAGES).toMutableList()
-            conversationHistoryCache[threadKey] = trimmed
+        // 2. Retrieve the cached active notification for this thread.
+        val activeNotification = ChatHistoryStore.getActiveNotification(threadKey)
+        if (activeNotification == null) {
+            Log.w(TAG, "addLocalEchoAndRefresh: no cached active notification for threadKey=$threadKey, falling back to rebuild")
+            addLocalEchoAndRefreshFallback(context, mirrorKey, echoMessage, sourceSbn, threadKey)
+            return
         }
 
-        // 4. Rebuild the mirrored notification with the updated cache.
+        // 3. Clone the builder from the active notification (preserves ALL extras).
+        val builder = NotificationCompat.Builder(context, activeNotification)
+
+        // 4. Extract the existing MessagingStyle and append our echo.
+        val recoveredStyle = NotificationCompat.MessagingStyle
+            .extractMessagingStyleFromNotification(activeNotification)
+        if (recoveredStyle == null) {
+            Log.w(TAG, "addLocalEchoAndRefresh: no MessagingStyle in cached notification, falling back")
+            addLocalEchoAndRefreshFallback(context, mirrorKey, echoMessage, sourceSbn, threadKey)
+            return
+        }
+
+        // THE MAGIC INJECTION: append the local echo directly to the recovered style.
+        recoveredStyle.addMessage(echoMessage.text, echoMessage.timestamp, null as Person?)
+        recoveredStyle.setBuilder(builder)
+
+        // 5. Suppress vibration. Do NOT change setWhen – preserve the original timestamp.
+        builder.setOnlyAlertOnce(true)
+
+        // 6. Record reply debounce.
+        replyDebounceTimestamps[mirrorKey] = SystemClock.elapsedRealtime()
+
+        // 7. Post the cloned+injected notification.
+        val notification = builder.build()
+        val manager = NotificationManagerCompat.from(context)
+        val notificationId = mirrorIdForKey(mirrorKey)
+        notifyMirroredNotification(
+            manager = manager,
+            notificationId = notificationId,
+            notification = notification,
+            mirrorKey = mirrorKey,
+            sourceSbn = sourceSbn
+        )
+
+        // 8. Update the cache with the new notification (so subsequent echoes stack).
+        ChatHistoryStore.setActiveNotification(threadKey, notification)
+        Log.d(TAG, "addLocalEchoAndRefresh: Clone-and-inject SUCCESS for threadKey=$threadKey")
+    }
+
+    /**
+     * Fallback path when the active notification cache is empty (e.g. first reply
+     * before any notification was posted). Uses the old rebuild approach.
+     */
+    private fun addLocalEchoAndRefreshFallback(
+        context: Context,
+        mirrorKey: String,
+        echoMessage: NotificationCompat.MessagingStyle.Message,
+        sourceSbn: StatusBarNotification,
+        threadKey: String
+    ) {
+        replyDebounceTimestamps[mirrorKey] = SystemClock.elapsedRealtime()
+
+        val historyList = conversationHistoryCache.getOrPut(threadKey) { mutableListOf() }
+        historyList.add(echoMessage)
+        if (historyList.size > MAX_CHAT_HISTORY_MESSAGES) {
+            conversationHistoryCache[threadKey] = historyList.takeLast(MAX_CHAT_HISTORY_MESSAGES).toMutableList()
+        }
+
         val appPresentationOverride = AppPresentationOverridesLoader
             .get(ConverterPrefs(context))
             .resolve(sourceSbn.packageName.lowercase(Locale.ROOT))
@@ -8362,10 +8414,7 @@ object LiveUpdateNotifier {
             context = context,
             prefs = ConverterPrefs(context),
             sbn = sourceSbn,
-            sourceHasNativeProgress = hasEffectiveProgress(
-                sourceSbn.packageName,
-                sourceSbn.notification
-            )
+            sourceHasNativeProgress = hasEffectiveProgress(sourceSbn.packageName, sourceSbn.notification)
         )
         val notification = buildMirroredNotification(
             context = context,
@@ -8378,11 +8427,8 @@ object LiveUpdateNotifier {
             requestPromoted = false,
             samsungBridge = samsungBridge
         )
-
-        // 5. CRITICAL: Prevent the watch from vibrating on this update.
         notification.flags = notification.flags or Notification.FLAG_ONLY_ALERT_ONCE
 
-        // 6. Post the updated notification.
         val manager = NotificationManagerCompat.from(context)
         val notificationId = mirrorIdForKey(mirrorKey)
         notifyMirroredNotification(
@@ -8392,6 +8438,9 @@ object LiveUpdateNotifier {
             mirrorKey = mirrorKey,
             sourceSbn = sourceSbn
         )
+
+        ChatHistoryStore.setActiveNotification(threadKey, notification)
+        Log.d(TAG, "addLocalEchoAndRefresh: Fallback rebuild for threadKey=$threadKey")
     }
 
     private fun mirrorIdForKey(key: String): Int {
@@ -8417,6 +8466,21 @@ object LiveUpdateNotifier {
             pruneProgrammaticMirrorCancelsLocked(SystemClock.elapsedRealtime())
             mirrorKeysByNotificationId[notificationId] = mirrorKey
             sourceSnapshotsByMirrorKey[mirrorKey] = sourceSbn
+        }
+
+        // Cache this notification for the clone-and-inject local echo pattern.
+        // Only cache if this is a messaging notification (has MessagingStyle).
+        val hasMessagingStyle = runCatching {
+            NotificationCompat.MessagingStyle
+                .extractMessagingStyleFromNotification(notification) != null
+        }.getOrDefault(false)
+        if (hasMessagingStyle) {
+            val conversationTitle = sourceSbn.notification.extras
+                .getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
+                ?.toString()
+                .orEmpty()
+            val threadKey = "${sourceSbn.packageName}_$conversationTitle"
+            ChatHistoryStore.setActiveNotification(threadKey, notification)
         }
     }
 
