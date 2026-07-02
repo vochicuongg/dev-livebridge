@@ -380,11 +380,10 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         // Extract conversationTitle from notification extras
         val conversationTitle = sbn.notification.extras
             .getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
-            ?.toString()
-            .orEmpty()
+            ?: sbn.notification.extras.getCharSequence(Notification.EXTRA_TITLE)
         
         // Build threadKey exactly as ChatHistoryStore and LiveUpdateNotifier do
-        val threadKey = "${sbn.packageName}_$conversationTitle"
+        val threadKey = "${sbn.packageName}_${conversationTitle?.toString().orEmpty()}"
         
         // Check if this thread is currently locked down
         return ChatHistoryStore.isLockedDown(threadKey)

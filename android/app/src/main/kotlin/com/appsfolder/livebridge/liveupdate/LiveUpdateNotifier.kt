@@ -2769,11 +2769,6 @@ object LiveUpdateNotifier {
             staleAggregateIds.forEach { cancelMirroredNotification(manager, it) }
             cancelMirroredNotification(manager, mirrorIdForKey(sbn.key))
 
-            // Clear chat history cache for this source package to free memory
-            val packagePrefix = "${sbn.packageName}_"
-            conversationHistoryCache.keys
-                .filter { it.startsWith(packagePrefix) }
-                .forEach { conversationHistoryCache.remove(it) }
             // Clean up expired debounce entries
             replyDebounceTimestamps.entries.removeIf { (now - it.value) > REPLY_DEBOUNCE_MS }
         } catch (error: Throwable) {

@@ -17,6 +17,13 @@ import java.util.concurrent.ConcurrentHashMap
  *    notifications with new IDs during the "Sending..." state.
  */
 object ChatHistoryStore {
+    data class ChatMessageSnapshot(
+        val text: CharSequence,
+        val timestampMs: Long,
+        val senderName: String?,
+        val senderKey: String?,
+        val isMe: Boolean
+    )
 
     private data class PendingReply(
         val text: String,
@@ -24,6 +31,7 @@ object ChatHistoryStore {
     )
 
     private val pendingReplies = ConcurrentHashMap<String, PendingReply>()
+    private val messageHistory = ConcurrentHashMap<String, MutableList<ChatMessageSnapshot>>()
 
     /**
      * ElapsedRealtime timestamp until which the thread is "locked down".
@@ -45,11 +53,77 @@ object ChatHistoryStore {
 
     /** Max age before a pending reply is auto-expired (30 s). */
     private const val PENDING_REPLY_TTL_MS = 30_000L
+    private const val MAX_MESSAGES_PER_THREAD = 10
 
     // ---- Pending Reply Management ----
 
     fun setPendingReply(threadKey: String, text: String) {
         pendingReplies[threadKey] = PendingReply(text.trim(), System.currentTimeMillis())
+    }
+
+    fun upsertSourceMessages(threadKey: String, messages: List<ChatMessageSnapshot>) {
+        if (threadKey.isBlank() || messages.isEmpty()) {
+            return
+        }
+
+        val history = messageHistory.getOrPut(threadKey) { mutableListOf() }
+        messages.forEach { message ->
+            val normalizedText = message.text.toString().trim()
+            if (normalizedText.isBlank()) {
+                return@forEach
+            }
+
+            val alreadyPresent = history.any { existing ->
+                existing.text.toString() == normalizedText &&
+                    kotlin.math.abs(existing.timestampMs - message.timestampMs) < 5_000L &&
+                    existing.isMe == message.isMe
+            }
+            if (!alreadyPresent) {
+                history.add(message.copy(text = normalizedText))
+            }
+        }
+
+        history.sortBy { it.timestampMs }
+        if (history.size > MAX_MESSAGES_PER_THREAD) {
+            messageHistory[threadKey] = history.takeLast(MAX_MESSAGES_PER_THREAD).toMutableList()
+        }
+    }
+
+    fun appendLocalReply(threadKey: String, text: String, timestampMs: Long = System.currentTimeMillis()) {
+        if (threadKey.isBlank() || text.isBlank()) {
+            return
+        }
+
+        val history = messageHistory.getOrPut(threadKey) { mutableListOf() }
+        val normalizedText = text.trim()
+        val alreadyPresent = history.any { existing ->
+            existing.isMe &&
+                existing.text.toString() == normalizedText &&
+                kotlin.math.abs(existing.timestampMs - timestampMs) < 5_000L
+        }
+        if (!alreadyPresent) {
+            history.add(
+                ChatMessageSnapshot(
+                    text = normalizedText,
+                    timestampMs = timestampMs,
+                    senderName = null,
+                    senderKey = null,
+                    isMe = true
+                )
+            )
+        }
+
+        history.sortBy { it.timestampMs }
+        if (history.size > MAX_MESSAGES_PER_THREAD) {
+            messageHistory[threadKey] = history.takeLast(MAX_MESSAGES_PER_THREAD).toMutableList()
+        }
+    }
+
+    fun getMessages(threadKey: String): List<ChatMessageSnapshot> {
+        return messageHistory[threadKey]
+            ?.sortedBy { it.timestampMs }
+            ?.takeLast(MAX_MESSAGES_PER_THREAD)
+            .orEmpty()
     }
 
     /** Returns the pending reply text if one exists and hasn't expired, else null. */
@@ -136,6 +210,7 @@ object ChatHistoryStore {
 
     fun clear() {
         pendingReplies.clear()
+        messageHistory.clear()
         lockdownDeadlines.clear()
         activeNotifications.clear()
     }

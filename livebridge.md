@@ -1,23 +1,24 @@
-# The 100% Native Injection Architecture
-We must completely abandon rebuilding the notification from scratch for the local echo. We must use a "Clone and Inject" (Native Payload Injection) pattern to preserve 100% of the active notification's OEM extras, `setWhen` timestamp, and internal `Person` objects.
-
-1. **`ChatHistoryStore.kt`**:
-   - Must temporarily cache the actual `android.app.Notification` object currently displayed on the watch for each `threadKey`.
-
-2. **`ReplyInterceptReceiver.kt` & `LiveUpdateNotifier.kt` (The Injection)**:
-   - When the user replies, retrieve the `activeNotification` from `ChatHistoryStore`.
-   - Safely recover the builder: `val builder = NotificationCompat.Builder(context, activeNotification)`.
-   - Extract the existing style: `val recoveredStyle = NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(activeNotification)`.
-   - **THE MAGIC INJECTION:** Append the local echo directly to the recovered style: `recoveredStyle?.addMessage(replyText, System.currentTimeMillis(), null as Person?)`.
-   - Reapply the updated style: `recoveredStyle?.setBuilder(builder)`.
-   - Set `.setOnlyAlertOnce(true)` so the watch doesn't buzz again. DO NOT explicitly change `.setWhen()`.
-   - Call `notificationManager.notify(TAG, ID, builder.build())`.
-   - Finally, run the 10-second lockdown and the 500ms delayed `PendingIntent.send()`.
+1. **Deterministic `Person` Object:** In `LiveUpdateNotifier`, the host user MUST be created with a hardcoded, deterministic key:
+   `val me = Person.Builder().setName(cachedSelfName ?: "Tôi").setKey("livebridge_self_user_key").build()`
+2. **Synthetic Style Rebuild:**
+   - Instantiate `val style = NotificationCompat.MessagingStyle(me)`.
+   - Iterate through `ChatHistoryStore`'s cached messages. 
+   - For received messages, rebuild their `Person` object with a deterministic key based on the sender's name.
+   - For the local echo (the user's sent message), pass `null` as the `Person` parameter. (This triggers the blue bubble).
+3. **Thread Identity Locks:** The rebuilt `NotificationCompat.Builder` MUST explicitly bind the thread identity:
+   - `.setGroup(threadKey)`
+   - `.setSortKey(threadKey)`
+   - `.setOnlyAlertOnce(true)`
+4. **The Update Flow (`ReplyInterceptReceiver`)**:
+   - Save the reply text to `ChatHistoryStore` with `isMe = true`.
+   - Call `LiveUpdateNotifier.forceUpdateChatUi(threadKey)` immediately to trigger the Deterministic Rebuild.
+   - Run the 10-second lockdown.
+   - Fire the `PendingIntent.send()` with a 500ms delay to ensure the watch renders the UI first.
 
 # Expected Output
-Provide the refactored Kotlin code for `LiveUpdateNotifier.kt` (specifically the local echo update function) and `ReplyInterceptReceiver.kt` implementing this exact `extractMessagingStyleFromNotification` and cloning pattern.
-Remove the `setRemoteInputHistory` logic as it conflicts with this approach.
+Provide the refactored Kotlin code for the deterministic rebuilding logic in `LiveUpdateNotifier.kt` (specifically the `forceUpdateChatUi` method) and the exact trigger flow in `ReplyInterceptReceiver.kt`. 
 
 # Constraints
 - Keep `package com.kakao.taxi.liveupdate` or `package com.kakao.taxi` at the top.
+- The reply action MUST have `.setShowsUserInterface(false)` and `.setAllowGeneratedReplies(true)`.
 - DO NOT OUTPUT ANY GIT COMMANDS. Use Kotlin.
