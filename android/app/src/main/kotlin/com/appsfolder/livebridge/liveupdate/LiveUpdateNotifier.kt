@@ -89,6 +89,8 @@ object LiveUpdateNotifier {
     private const val NOTIFICATION_CAPSULE_SINGLE_LINE_GRAPHEME_LIMIT = 40
     private const val NOTIFICATION_CAPSULE_IMAGE_MAX_EDGE = 768
     private const val NOTIFICATION_EXTRA_PICTURE_ICON = "android.pictureIcon"
+    private const val LOCAL_USER_PERSON_KEY = "livebridge_self_user_key"
+    private const val DEFAULT_LOCAL_USER_NAME = "Tôi"
     private val KNOWN_NAVIGATION_PACKAGES = setOf(
         YANDEX_MAPS_PACKAGE,
         YANGO_MAPS_PACKAGE,
@@ -292,9 +294,6 @@ object LiveUpdateNotifier {
     private val userDismissedMirrorKeys = mutableSetOf<String>()
     private val programmaticMirrorCancelDeadlines = mutableMapOf<Int, Long>()
     private val bypassContentHashes = java.util.concurrent.ConcurrentHashMap<String, Int>()
-    
-    // Chat History Cache: Stores conversation history to preserve messages across notification updates
-    private val conversationHistoryCache = java.util.concurrent.ConcurrentHashMap<String, MutableList<NotificationCompat.MessagingStyle.Message>>()
 
     /**
      * Tracks the last reply timestamp per mirrorKey so that [cancelMirrored]
@@ -311,7 +310,10 @@ object LiveUpdateNotifier {
      * (reference equality), not value. Using the same instance ensures "Me"
      * messages always render on the RIGHT side of chat bubbles on Wear OS.
      */
-    val LOCAL_USER_ME: Person = Person.Builder().setName("Me").build()
+    val LOCAL_USER_ME: Person = Person.Builder()
+        .setName(DEFAULT_LOCAL_USER_NAME)
+        .setKey(LOCAL_USER_PERSON_KEY)
+        .build()
     
     private val notificationCapsuleIds = mutableSetOf<Int>()
     private var chargingInfoDelayScheduled = false
@@ -397,228 +399,141 @@ object LiveUpdateNotifier {
      */
     private const val MAX_CHAT_HISTORY_MESSAGES = 7
 
-    /**
-     * Merges new messages from the source MessagingStyle into the rolling
-     * per-conversation cache (so history survives notification updates) and
-     * returns the most recent messages to render as native chat bubbles.
-     *
-     * @param messagingStyle The MessagingStyle extracted from the source notification
-     * @param sourcePackageName Package name of the source app (e.g., "com.zing.zalo")
-     * @param conversationTitle Title of the conversation thread
-     * @return The cached, de-duplicated, trimmed list of messages (oldest first)
-     */
-    private fun mergeAndGetCachedMessages(
-        messagingStyle: NotificationCompat.MessagingStyle,
-        sourcePackageName: String,
-        conversationTitle: CharSequence?
-    ): List<NotificationCompat.MessagingStyle.Message> {
-        val threadKey = "${sourcePackageName}_${conversationTitle?.toString().orEmpty()}"
-        val historyList = conversationHistoryCache.getOrPut(threadKey) { mutableListOf() }
-
-        val newMessages = messagingStyle.messages ?: emptyList()
-        for (message in newMessages) {
-            val messageText = message.text?.toString()?.trim().orEmpty()
-            // Filter out Zalo's generic sent-confirmation echo strings
-            val isGarbageEcho = SENT_CONFIRMATION_PATTERNS.any { pattern ->
-                pattern.matches(messageText)
-            }
-            if (isGarbageEcho) {
-                Log.d(TAG, "mergeAndGetCachedMessages: Filtered garbage echo: '$messageText' from thread=$threadKey")
-                continue
-            }
-
-            // Fuzzy dedup: match on timestamp+text, or text-only within 5s window
-            val isDuplicate = historyList.any { cached ->
-                val sameText = cached.text?.toString() == message.text?.toString()
-                val sameTimestamp = cached.timestamp == message.timestamp
-                val closeTimestamp = Math.abs(cached.timestamp - message.timestamp) < 5_000L
-                (sameTimestamp && sameText) || (closeTimestamp && sameText)
-            }
-            if (!isDuplicate) {
-                historyList.add(message)
-            }
-        }
-
-        // --- Stateful Native Mirroring: pending reply injection ---
-        val pendingText = ChatHistoryStore.getPendingReplyText(threadKey)
-        if (pendingText != null) {
-            // Check if the target app has already confirmed the reply by including it
-            val appConfirmed = historyList.any { msg ->
-                msg.text?.toString()?.trim().equals(pendingText, ignoreCase = true)
-            }
-            if (appConfirmed) {
-                // Reply confirmed by the target app – clear pending state
-                ChatHistoryStore.clearPendingReply(threadKey)
-                Log.d(TAG, "mergeAndGetCachedMessages: Pending reply confirmed by app, cleared for thread=$threadKey")
-            } else {
-                // Still pending – inject a synthetic "Me" message (Person=null → blue right bubble)
-                val syntheticEcho = NotificationCompat.MessagingStyle.Message(
-                    pendingText,
-                    System.currentTimeMillis(),
-                    null as Person?
-                )
-                historyList.add(syntheticEcho)
-                Log.d(TAG, "mergeAndGetCachedMessages: Injected pending reply '$pendingText' for thread=$threadKey")
-            }
-        }
-
-        // Sort by timestamp to ensure proper chronological order
-        historyList.sortBy { it.timestamp }
-
-        // ponytail: Append-only trim – never drop local echo (null person = "Me").
-        // If the newest message is a local echo and would be trimmed, keep it.
-        val trimmed = if (historyList.size > MAX_CHAT_HISTORY_MESSAGES) {
-            val tail = historyList.takeLast(MAX_CHAT_HISTORY_MESSAGES).toMutableList()
-            val newestEcho = historyList.lastOrNull { it.person == null }
-            if (newestEcho != null && newestEcho !in tail) {
-                tail.removeAt(0)
-                tail.add(newestEcho)
-                tail.sortBy { it.timestamp }
-            }
-            tail
-        } else {
-            historyList.toMutableList()
-        }
-        conversationHistoryCache[threadKey] = trimmed
-        
-        Log.d(TAG, "mergeAndGetCachedMessages: Thread=$threadKey, cached=${trimmed.size} messages")
-        return trimmed
+    private fun buildThreadKey(sourcePackageName: String, conversationTitle: CharSequence?): String {
+        return "${sourcePackageName}_${conversationTitle?.toString().orEmpty()}"
     }
 
-    /**
-     * Builds chat history with cached messages to preserve conversation across updates.
-     * 
-     * @param messagingStyle The MessagingStyle extracted from notification
-     * @param sourcePackageName Package name of the source app (e.g., "com.zing.zalo")
-     * @param conversationTitle Title of the conversation thread
-     * @return Formatted chat history as CharSequence with bold sender names
-     */
-    private fun buildChatHistory(
-        messagingStyle: NotificationCompat.MessagingStyle,
-        sourcePackageName: String,
-        conversationTitle: CharSequence?
-    ): CharSequence {
-        // Create unique thread key based on package name and conversation title
-        val threadKey = "${sourcePackageName}_${conversationTitle?.toString().orEmpty()}"
-        
-        // Get or create history list for this conversation
-        val historyList = conversationHistoryCache.getOrPut(threadKey) { mutableListOf() }
-        
-        // Merge new messages from MessagingStyle into cache
-        val newMessages = messagingStyle.messages ?: emptyList()
-        for (message in newMessages) {
-            // Check for duplicates based on timestamp and text content
-            val isDuplicate = historyList.any { cached ->
-                cached.timestamp == message.timestamp && 
-                cached.text?.toString() == message.text?.toString()
-            }
-            
-            if (!isDuplicate) {
-                historyList.add(message)
-            }
+    private fun deterministicSenderKey(threadKey: String, senderName: String): String {
+        val normalized = senderName.trim().lowercase(Locale.ROOT)
+            .replace(Regex("[^a-z0-9_\\-.]+"), "_")
+            .ifBlank { "unknown" }
+        return "livebridge_sender_${threadKey.hashCode()}_$normalized"
+    }
+
+    private fun rawNotificationMessages(notification: Notification): List<Notification.MessagingStyle.Message> {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
+            return emptyList()
         }
-        
-        // Keep only the 7 most recent messages
-        val recentMessages = if (historyList.size > MAX_CHAT_HISTORY_MESSAGES) {
-            historyList.takeLast(MAX_CHAT_HISTORY_MESSAGES)
+        @Suppress("DEPRECATION")
+        return notification.extras
+            .getParcelableArray(Notification.EXTRA_MESSAGES)
+            ?.let(Notification.MessagingStyle.Message::getMessagesFromBundleArray)
+            ?.filter { message -> !message.text.isNullOrBlank() }
+            .orEmpty()
+    }
+
+    private fun frameworkMessageSenderName(message: Notification.MessagingStyle.Message): String? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            NotificationTextNormalizer.normalize(message.senderPerson?.name)
         } else {
-            historyList
+            @Suppress("DEPRECATION")
+            NotificationTextNormalizer.normalize(message.sender)
         }
-        
-        // Update cache with trimmed list
-        conversationHistoryCache[threadKey] = recentMessages.toMutableList()
-        
-        // Build formatted chat history using SpannableStringBuilder
-        val chatHistory = android.text.SpannableStringBuilder()
-        recentMessages.forEachIndexed { index, message ->
-            appendMessageToHistory(
-                chatHistory = chatHistory,
-                message = message,
-                messagingStyle = messagingStyle,
-                isFirstMessage = index == 0
+    }
+
+    private fun frameworkMessageSenderKey(
+        threadKey: String,
+        message: Notification.MessagingStyle.Message,
+        senderName: String
+    ): String {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            message.senderPerson?.key?.trim()?.takeIf { it.isNotEmpty() }
+        } else {
+            null
+        } ?: deterministicSenderKey(threadKey, senderName)
+    }
+
+    private fun selfDisplayNameFromNotification(source: Notification, fallback: String = DEFAULT_LOCAL_USER_NAME): String {
+        val extras = source.extras
+        return NotificationTextNormalizer.normalize(
+            extras.getCharSequence(Notification.EXTRA_SELF_DISPLAY_NAME)
+        ) ?: runCatching {
+            @Suppress("DEPRECATION")
+            extras.getParcelable<android.app.Person>(Notification.EXTRA_MESSAGING_PERSON)
+                ?.name
+                ?.let(NotificationTextNormalizer::normalize)
+        }.getOrNull() ?: fallback
+    }
+
+    private fun isSelfSender(senderName: String?, selfDisplayName: String?): Boolean {
+        val normalizedSender = senderName?.trim()?.takeIf { it.isNotEmpty() } ?: return true
+        val normalizedSelf = selfDisplayName?.trim()?.takeIf { it.isNotEmpty() }
+        return (normalizedSelf != null && normalizedSender.equals(normalizedSelf, ignoreCase = true)) ||
+            SELF_SENDER_NAMES.contains(normalizedSender.lowercase(Locale.ROOT))
+    }
+
+    private fun cacheRawNotificationMessages(
+        threadKey: String,
+        source: Notification,
+        selfDisplayName: String
+    ): List<ChatHistoryStore.ChatMessageSnapshot> {
+        val messages = rawNotificationMessages(source).map { message ->
+            val senderName = frameworkMessageSenderName(message)
+            val isMe = isSelfSender(senderName, selfDisplayName)
+            ChatHistoryStore.ChatMessageSnapshot(
+                text = message.text ?: "",
+                timestampMs = message.timestamp.takeIf { it > 0L } ?: System.currentTimeMillis(),
+                senderName = senderName,
+                senderKey = if (isMe || senderName.isNullOrBlank()) {
+                    null
+                } else {
+                    frameworkMessageSenderKey(threadKey, message, senderName)
+                },
+                isMe = isMe
             )
         }
-        
-        return chatHistory.trim()
+        ChatHistoryStore.upsertSourceMessages(threadKey, messages)
+        return ChatHistoryStore.getMessages(threadKey)
     }
 
-    /**
-     * Appends a single message to the chat history with formatting.
-     * Sender names are displayed in bold.
-     * 
-     * @param chatHistory The SpannableStringBuilder to append to
-     * @param message The message to append
-     * @param messagingStyle MessagingStyle for extracting sender info
-     * @param isFirstMessage Whether this is the first message (affects newlines)
-     */
-    private fun appendMessageToHistory(
-        chatHistory: android.text.SpannableStringBuilder,
-        message: NotificationCompat.MessagingStyle.Message,
-        messagingStyle: NotificationCompat.MessagingStyle,
-        isFirstMessage: Boolean
-    ) {
-        // Add double newline between messages (except for the first one)
-        if (!isFirstMessage) {
-            chatHistory.append("\n\n")
+    private fun buildDeterministicMessagingStyle(
+        threadKey: String,
+        conversationTitle: CharSequence?,
+        selfDisplayName: String,
+        messages: List<ChatHistoryStore.ChatMessageSnapshot>,
+        fallbackText: CharSequence
+    ): NotificationCompat.MessagingStyle {
+        val me = Person.Builder()
+            .setName(selfDisplayName.ifBlank { DEFAULT_LOCAL_USER_NAME })
+            .setKey(LOCAL_USER_PERSON_KEY)
+            .build()
+        val style = NotificationCompat.MessagingStyle(me)
+        conversationTitle
+            ?.toString()
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { title ->
+                style.conversationTitle = title
+                style.isGroupConversation = false
+            }
+
+        val renderMessages = messages.ifEmpty {
+            listOf(
+                ChatHistoryStore.ChatMessageSnapshot(
+                    text = fallbackText,
+                    timestampMs = System.currentTimeMillis(),
+                    senderName = "Unknown",
+                    senderKey = null,
+                    isMe = false
+                )
+            )
         }
-        
-        // Extract sender name
-        val senderName = extractSenderName(message, messagingStyle)
-        
-        // Record start position for bold styling
-        val senderStartPos = chatHistory.length
-        
-        // Append sender name
-        chatHistory.append(senderName)
-        
-        // Record end position for bold styling
-        val senderEndPos = chatHistory.length
-        
-        // Apply BOLD style to sender name
-        chatHistory.setSpan(
-            android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
-            senderStartPos,
-            senderEndPos,
-            android.text.SpannableStringBuilder.SPAN_EXCLUSIVE_EXCLUSIVE
-        )
-        
-        // Append message text
-        chatHistory.append(": ")
-        chatHistory.append(message.text ?: "")
-    }
 
-    /**
-     * Extracts the sender name from a message.
-     * Falls back to "Unknown" if no sender information is available.
-     * 
-     * @param message The message to extract sender from
-     * @param messagingStyle MessagingStyle for fallback user name
-     * @return Sender name as String
-     */
-    private fun extractSenderName(
-        message: NotificationCompat.MessagingStyle.Message,
-        messagingStyle: NotificationCompat.MessagingStyle
-    ): String {
-        // Try to get person name from message
-        message.person?.name?.toString()?.let { return it }
-        
-        // Fallback to user name from MessagingStyle (for own messages)
-        messagingStyle.user?.name?.toString()?.let { return it }
-        
-        // Final fallback
-        return "Unknown"
-    }
+        renderMessages.takeLast(MAX_CHAT_HISTORY_MESSAGES).forEach { message ->
+            val text = message.text
+            if (message.isMe) {
+                style.addMessage(text, message.timestampMs, null as Person?)
+            } else {
+                val senderName = message.senderName?.trim()?.takeIf { it.isNotEmpty() } ?: "Unknown"
+                val senderPerson = Person.Builder()
+                    .setName(senderName)
+                    .setKey(message.senderKey ?: deterministicSenderKey(threadKey, senderName))
+                    .build()
+                style.addMessage(text, message.timestampMs, senderPerson)
+            }
+        }
 
-    /**
-     * Clears chat history cache for a specific conversation.
-     * Should be called when notification is dismissed or cleared.
-     * 
-     * @param sourcePackageName Package name of the source app
-     * @param conversationTitle Title of the conversation thread
-     */
-    private fun clearChatHistoryCache(sourcePackageName: String, conversationTitle: CharSequence?) {
-        val threadKey = "${sourcePackageName}_${conversationTitle?.toString().orEmpty()}"
-        conversationHistoryCache.remove(threadKey)
+        return style
     }
 
     fun ensureChannel(context: Context) {
@@ -730,8 +645,7 @@ object LiveUpdateNotifier {
             appIconCache.clear()
             missingAppIconPackages.clear()
         }
-        // Clear all chat history cache entries
-        conversationHistoryCache.clear()
+        ChatHistoryStore.clear()
     }
 
     fun cancelAllMirrored(context: Context) {
@@ -1734,10 +1648,7 @@ object LiveUpdateNotifier {
             // If it does NOT, DROP this update entirely so the local-echo
             // "Me" bubble stays on screen.
             if (ChatHistoryStore.isAnyThreadLockedForPackage(sbn.packageName)) {
-                val incomingStyle = runCatching {
-                    NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(source)
-                }.getOrNull()
-                if (incomingStyle == null || incomingStyle.messages.isNullOrEmpty()) {
+                if (rawNotificationMessages(source).isEmpty()) {
                     Log.d(TAG, "maybeMirror: UI-LOCK SHIELD – dropped style-less update for ${sbn.key}")
                     return notMirroredResult()
                 }
@@ -4353,6 +4264,7 @@ object LiveUpdateNotifier {
             )
             .setVisibility(visibility)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+        var deterministicMessagingThreadKey: String? = null
 
         if (callChronometerStart != null) {
             builder.setUsesChronometer(true)
@@ -4492,87 +4404,44 @@ object LiveUpdateNotifier {
                 )
             )
         } else {
-            val messagingStyle = runCatching {
-                NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(source)
-            }.getOrNull()
-
+            val sourceMessages = rawNotificationMessages(source)
             val isVerifiedMessagingNotification =
                 source.category == Notification.CATEGORY_MESSAGE ||
                         source.actions?.any { action ->
                             action.actionIntent != null && !action.remoteInputs.isNullOrEmpty()
                         } == true
 
-            if (messagingStyle != null && isVerifiedMessagingNotification) {
-                val conversationTitle = messagingStyle.conversationTitle
-                    ?: source.extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
+            if (sourceMessages.isNotEmpty() && isVerifiedMessagingNotification) {
+                val conversationTitle = source.extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
+                    ?: source.extras.getCharSequence(Notification.EXTRA_TITLE)
                     ?: displayTitle.takeIf { it.isNotBlank() }
-
-                // Merge new messages from the source into our rolling cache so that
-                // history survives notification updates, then render them natively.
-                val cachedMessages = mergeAndGetCachedMessages(
-                    messagingStyle = messagingStyle,
-                    sourcePackageName = sbn.packageName,
-                    conversationTitle = conversationTitle
+                val threadKey = buildThreadKey(sbn.packageName, conversationTitle)
+                deterministicMessagingThreadKey = threadKey
+                val selfDisplayName = selfDisplayNameFromNotification(source)
+                val renderedMessages = cacheRawNotificationMessages(
+                    threadKey = threadKey,
+                    source = source,
+                    selfDisplayName = selfDisplayName
                 )
-
-                // Native Wear OS chat bubbles: build a MessagingStyle whose local
-                // user is "Me". Messages attached to the "Me" person render on the
-                // RIGHT; messages with another Person render on the LEFT.
-                // CRITICAL: Use the singleton LOCAL_USER_ME instance to ensure
-                // consistent Person identity across all operations.
-                val nativeMessagingStyle = NotificationCompat.MessagingStyle(LOCAL_USER_ME)
-                nativeMessagingStyle.isGroupConversation = false
-                conversationTitle
-                    ?.toString()
-                    ?.trim()
-                    ?.takeIf { it.isNotEmpty() }
-                    ?.let { nativeMessagingStyle.conversationTitle = it }
-
-                val localUserName = messagingStyle.user?.name?.toString()?.trim()
-                    ?.takeIf { it.isNotEmpty() }
-                val userDisplayName = messagingStyle.user?.name?.toString()?.trim()
-                    ?.takeIf { it.isNotEmpty() }
-                val renderedMessages = cachedMessages.ifEmpty { messagingStyle.messages.orEmpty() }
-                renderedMessages.forEach { message ->
-                    val text = message.text ?: ""
-                    val timestamp = message.timestamp
-                    val senderName = message.person?.name?.toString()?.trim()
-                        ?.takeIf { it.isNotEmpty() }
-                    // ponytail: Dynamic self-sender – also match messagingStyle.user.name.
-                    // Upgrade: add per-app sender name overrides if needed.
-                    val isFromLocalUser = senderName == null ||
-                        (localUserName != null && senderName == localUserName) ||
-                        (userDisplayName != null && senderName.equals(userDisplayName, ignoreCase = true)) ||
-                        SELF_SENDER_NAMES.contains(senderName.lowercase(Locale.ROOT))
-                    if (isFromLocalUser) {
-                        // Sent by me -> use null Person so Wear OS renders on the RIGHT (blue bubble).
-                        // On Wear OS, null person = "from me" = right-aligned blue bubble.
-                        nativeMessagingStyle.addMessage(text, timestamp, null as Person?)
-                        Log.d(TAG, "buildMirroredNotification: Added 'Me' message (null Person) to thread=${sbn.packageName}_${conversationTitle?.toString().orEmpty()}")
-                    } else {
-                        // Received -> attach the sender's person (renders on the LEFT).
-                        val senderPerson = Person.Builder().setName(senderName).build()
-                        nativeMessagingStyle.addMessage(text, timestamp, senderPerson)
-                        Log.d(TAG, "buildMirroredNotification: Added received message from sender='$senderName' to thread=${sbn.packageName}_${conversationTitle?.toString().orEmpty()}")
-                    }
-                }
-
-                // Fallback: if we somehow have no messages to render, keep a single
-                // line so Wear OS never shows an empty/invisible bubble box.
-                if (renderedMessages.isEmpty()) {
-                    val fallback: CharSequence = text.trim().takeIf { it.isNotBlank() }
-                        ?: displayText.trim().takeIf { it.isNotBlank() }
-                        ?: source.tickerText?.toString()?.trim()?.takeIf { it.isNotBlank() }
-                        ?: "New message"
-                    nativeMessagingStyle.addMessage(fallback, System.currentTimeMillis(), null as Person?)
-                }
-
+                val fallback: CharSequence = text.trim().takeIf { it.isNotBlank() }
+                    ?: displayText.trim().takeIf { it.isNotBlank() }
+                    ?: source.tickerText?.toString()?.trim()?.takeIf { it.isNotBlank() }
+                    ?: "New message"
+                val nativeMessagingStyle = buildDeterministicMessagingStyle(
+                    threadKey = threadKey,
+                    conversationTitle = conversationTitle,
+                    selfDisplayName = selfDisplayName,
+                    messages = renderedMessages,
+                    fallbackText = fallback
+                )
                 builder.setStyle(nativeMessagingStyle)
+                builder.setGroup(threadKey)
+                builder.setSortKey(threadKey)
+                builder.setOnlyAlertOnce(true)
 
-                // Cache the built notification for this thread so the
-                // clone-and-inject local echo can recover it later.
-                // ponytail: setRemoteInputHistory removed — conflicts with MessagingStyle on Wear OS.
-                val threadKey = "${sbn.packageName}_${conversationTitle?.toString().orEmpty()}"
+                synchronized(stateLock) {
+                    sourceSnapshotsByMirrorKey[sbn.key] = sbn
+                }
 
                 addReplyActionIfNotAlreadyCopied(
                     source = source,
@@ -4587,8 +4456,8 @@ object LiveUpdateNotifier {
                 // are subsequently overwritten by our explicit BigTextStyle below.
                 builder.addExtras(source.extras)
 
-                val hiddenMsgText = messagingStyle?.messages
-                    ?.mapNotNull { message -> message.text?.toString()?.trim() }
+                val hiddenMsgText = sourceMessages
+                    .mapNotNull { message -> message.text?.toString()?.trim() }
                     ?.filter { it.isNotEmpty() }
                     ?.joinToString("\n")
                     ?.takeIf { it.isNotEmpty() }
@@ -4879,6 +4748,12 @@ object LiveUpdateNotifier {
         } else {
             builder.setOngoing(true)
             builder.setLocalOnly(true)
+        }
+
+        deterministicMessagingThreadKey?.let { threadKey ->
+            builder.setGroup(threadKey)
+            builder.setSortKey(threadKey)
+            builder.setOnlyAlertOnce(true)
         }
 
         val notification = builder.build()
@@ -8269,9 +8144,8 @@ object LiveUpdateNotifier {
         } ?: return ""
         val conversationTitle = sourceSbn.notification.extras
             .getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
-            ?.toString()
-            .orEmpty()
-        return "${sourceSbn.packageName}_$conversationTitle"
+            ?: sourceSbn.notification.extras.getCharSequence(Notification.EXTRA_TITLE)
+        return buildThreadKey(sourceSbn.packageName, conversationTitle)
     }
 
     private fun createProxyReplyPendingIntent(
@@ -8304,143 +8178,103 @@ object LiveUpdateNotifier {
         }
     }
 
-    /**
-     * Injects a local-echo "Me" message into the conversation cache and
-     * refreshes the mirrored notification on the watch WITHOUT vibrating.
-     *
-     * Called from [ReplyInterceptReceiver] after the user replies via
-     * RemoteInput on Wear OS.
-     *
-     * @param context      Application context
-     * @param mirrorKey    The mirrorKey identifying the mirrored conversation
-     * @param echoMessage  The local-echo message to append (sender = "Me")
-     */
-    /**
-     * Clone-and-inject local echo: instead of rebuilding the notification from
-     * scratch (which drops OEM extras, breaks Person identity, and causes Wear OS
-     * to refuse the inline blue bubble), we recover the builder from the cached
-     * active notification, extract its MessagingStyle, append the echo message,
-     * and repost. This preserves 100% of the original notification's internal
-     * state (setWhen, Person objects, Samsung extras, etc.).
-     */
-    fun addLocalEchoAndRefresh(
-        context: Context,
-        mirrorKey: String,
-        echoMessage: NotificationCompat.MessagingStyle.Message
-    ) {
-        // 1. Resolve threadKey from source snapshot.
-        val sourceSbn = synchronized(stateLock) {
-            sourceSnapshotsByMirrorKey[mirrorKey]
+    fun forceUpdateChatUi(context: Context, threadKey: String) {
+        if (threadKey.isBlank()) {
+            return
+        }
+
+        val sourceEntry = synchronized(stateLock) {
+            sourceSnapshotsByMirrorKey.entries.firstOrNull { (_, sbn) ->
+                buildThreadKey(
+                    sbn.packageName,
+                    sbn.notification.extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
+                        ?: sbn.notification.extras.getCharSequence(Notification.EXTRA_TITLE)
+                ) == threadKey
+            }
         } ?: run {
-            Log.w(TAG, "addLocalEchoAndRefresh: no source snapshot for mirrorKey=$mirrorKey")
+            Log.w(TAG, "forceUpdateChatUi: no source snapshot for threadKey=$threadKey")
             return
         }
-        val conversationTitle = sourceSbn.notification.extras
-            .getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
-            ?.toString()
-            .orEmpty()
-        val threadKey = "${sourceSbn.packageName}_$conversationTitle"
 
-        // 2. Retrieve the cached active notification for this thread.
+        val mirrorKey = sourceEntry.key
+        val sourceSbn = sourceEntry.value
+        val source = sourceSbn.notification
+        val conversationTitle = source.extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
+            ?: source.extras.getCharSequence(Notification.EXTRA_TITLE)
+            ?: threadKey.substringAfter('_', "")
+        val selfDisplayName = selfDisplayNameFromNotification(source)
+        val messages = ChatHistoryStore.getMessages(threadKey)
+        val fallbackText = source.extras.getCharSequence(Notification.EXTRA_TEXT)
+            ?: source.tickerText
+            ?: "New message"
+        val style = buildDeterministicMessagingStyle(
+            threadKey = threadKey,
+            conversationTitle = conversationTitle,
+            selfDisplayName = selfDisplayName,
+            messages = messages,
+            fallbackText = fallbackText
+        )
+
         val activeNotification = ChatHistoryStore.getActiveNotification(threadKey)
-        if (activeNotification == null) {
-            Log.w(TAG, "addLocalEchoAndRefresh: no cached active notification for threadKey=$threadKey, falling back to rebuild")
-            addLocalEchoAndRefreshFallback(context, mirrorKey, echoMessage, sourceSbn, threadKey)
-            return
+        val builder = if (activeNotification != null) {
+            NotificationCompat.Builder(context, activeNotification)
+        } else {
+            NotificationCompat.Builder(context, MirrorNotificationChannel.ALERTS.id)
+                .setContentTitle(conversationTitle)
+                .setContentText(messages.lastOrNull()?.text ?: fallbackText)
+                .setSmallIcon(R.drawable.ic_stat_liveupdate)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
         }
 
-        // 3. Clone the builder from the active notification (preserves ALL extras).
-        val builder = NotificationCompat.Builder(context, activeNotification)
+        val appName = resolveAppName(context, sourceSbn.packageName)
+        builder
+            .setChannelId(MirrorNotificationChannel.ALERTS.id)
+            .setContentTitle(conversationTitle)
+            .setContentText(messages.lastOrNull()?.text ?: fallbackText)
+            .setSubText(appName)
+            .setStyle(style)
+            .setGroup(threadKey)
+            .setSortKey(threadKey)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .setDefaults(0)
+            .setOngoing(false)
+            .setAutoCancel(false)
+            .setWhen(System.currentTimeMillis())
+            .setShowWhen(false)
+            .setLocalOnly(false)
 
-        // 4. Extract the existing MessagingStyle and append our echo.
-        val recoveredStyle = NotificationCompat.MessagingStyle
-            .extractMessagingStyleFromNotification(activeNotification)
-        if (recoveredStyle == null) {
-            Log.w(TAG, "addLocalEchoAndRefresh: no MessagingStyle in cached notification, falling back")
-            addLocalEchoAndRefreshFallback(context, mirrorKey, echoMessage, sourceSbn, threadKey)
-            return
-        }
+        resolveSourceLargeIconBitmap(context, source)?.let(builder::setLargeIcon)
+        applySmallIcon(
+            context = context,
+            builder = builder,
+            sourceIcon = resolveSourceSmallIcon(context, sourceSbn)
+                ?: resolveAppIconAssets(context, sourceSbn.packageName)?.smallIcon
+        )
+        addReplyActionIfNotAlreadyCopied(
+            source = source,
+            builder = builder,
+            copiedActionLimit = MAX_MIRRORED_ACTIONS,
+            mirrorKey = mirrorKey,
+            context = context
+        )
 
-        // THE MAGIC INJECTION: append the local echo directly to the recovered style.
-        recoveredStyle.addMessage(echoMessage.text, echoMessage.timestamp, null as Person?)
-        recoveredStyle.setBuilder(builder)
-
-        // 5. Suppress vibration. Do NOT change setWhen – preserve the original timestamp.
-        builder.setOnlyAlertOnce(true)
-
-        // 6. Record reply debounce.
         replyDebounceTimestamps[mirrorKey] = SystemClock.elapsedRealtime()
 
-        // 7. Post the cloned+injected notification.
-        val notification = builder.build()
+        val notification = builder.build().also {
+            it.flags = it.flags or Notification.FLAG_ONLY_ALERT_ONCE
+        }
         val manager = NotificationManagerCompat.from(context)
-        val notificationId = mirrorIdForKey(mirrorKey)
         notifyMirroredNotification(
             manager = manager,
-            notificationId = notificationId,
+            notificationId = mirrorIdForKey(mirrorKey),
             notification = notification,
             mirrorKey = mirrorKey,
             sourceSbn = sourceSbn
         )
-
-        // 8. Update the cache with the new notification (so subsequent echoes stack).
         ChatHistoryStore.setActiveNotification(threadKey, notification)
-        Log.d(TAG, "addLocalEchoAndRefresh: Clone-and-inject SUCCESS for threadKey=$threadKey")
-    }
-
-    /**
-     * Fallback path when the active notification cache is empty (e.g. first reply
-     * before any notification was posted). Uses the old rebuild approach.
-     */
-    private fun addLocalEchoAndRefreshFallback(
-        context: Context,
-        mirrorKey: String,
-        echoMessage: NotificationCompat.MessagingStyle.Message,
-        sourceSbn: StatusBarNotification,
-        threadKey: String
-    ) {
-        replyDebounceTimestamps[mirrorKey] = SystemClock.elapsedRealtime()
-
-        val historyList = conversationHistoryCache.getOrPut(threadKey) { mutableListOf() }
-        historyList.add(echoMessage)
-        if (historyList.size > MAX_CHAT_HISTORY_MESSAGES) {
-            conversationHistoryCache[threadKey] = historyList.takeLast(MAX_CHAT_HISTORY_MESSAGES).toMutableList()
-        }
-
-        val appPresentationOverride = AppPresentationOverridesLoader
-            .get(ConverterPrefs(context))
-            .resolve(sourceSbn.packageName.lowercase(Locale.ROOT))
-        val samsungBridge = SamsungBridgePreprocessor.build(
-            context = context,
-            prefs = ConverterPrefs(context),
-            sbn = sourceSbn,
-            sourceHasNativeProgress = hasEffectiveProgress(sourceSbn.packageName, sourceSbn.notification)
-        )
-        val notification = buildMirroredNotification(
-            context = context,
-            sbn = sourceSbn,
-            appPresentationOverride = appPresentationOverride,
-            mirrorChannel = MirrorNotificationChannel.ALERTS,
-            progressOverride = null,
-            otpOverride = null,
-            smartShortTextOverride = null,
-            requestPromoted = false,
-            samsungBridge = samsungBridge
-        )
-        notification.flags = notification.flags or Notification.FLAG_ONLY_ALERT_ONCE
-
-        val manager = NotificationManagerCompat.from(context)
-        val notificationId = mirrorIdForKey(mirrorKey)
-        notifyMirroredNotification(
-            manager = manager,
-            notificationId = notificationId,
-            notification = notification,
-            mirrorKey = mirrorKey,
-            sourceSbn = sourceSbn
-        )
-
-        ChatHistoryStore.setActiveNotification(threadKey, notification)
-        Log.d(TAG, "addLocalEchoAndRefresh: Fallback rebuild for threadKey=$threadKey")
+        Log.d(TAG, "forceUpdateChatUi: deterministic rebuild posted for threadKey=$threadKey")
     }
 
     private fun mirrorIdForKey(key: String): Int {
@@ -8468,18 +8302,11 @@ object LiveUpdateNotifier {
             sourceSnapshotsByMirrorKey[mirrorKey] = sourceSbn
         }
 
-        // Cache this notification for the clone-and-inject local echo pattern.
-        // Only cache if this is a messaging notification (has MessagingStyle).
-        val hasMessagingStyle = runCatching {
-            NotificationCompat.MessagingStyle
-                .extractMessagingStyleFromNotification(notification) != null
-        }.getOrDefault(false)
-        if (hasMessagingStyle) {
+        if (rawNotificationMessages(sourceSbn.notification).isNotEmpty()) {
             val conversationTitle = sourceSbn.notification.extras
                 .getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
-                ?.toString()
-                .orEmpty()
-            val threadKey = "${sourceSbn.packageName}_$conversationTitle"
+                ?: sourceSbn.notification.extras.getCharSequence(Notification.EXTRA_TITLE)
+            val threadKey = buildThreadKey(sourceSbn.packageName, conversationTitle)
             ChatHistoryStore.setActiveNotification(threadKey, notification)
         }
     }
