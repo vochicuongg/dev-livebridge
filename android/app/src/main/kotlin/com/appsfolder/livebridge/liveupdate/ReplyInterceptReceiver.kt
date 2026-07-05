@@ -18,11 +18,10 @@ import androidx.core.app.RemoteInput
  * 1. Extract typed RemoteInput text.
  * 2. Store it as a local reply in ChatHistoryStore (it will be merged into
  *    the mirrored chat history when the other party replies later).
- * 3. Lock the thread for 10 seconds so source-app churn is ignored.
- * 4. Immediately cancel the currently-displayed mirrored notification so the
- *    Wear OS keyboard exits the "Sending..." state (NO UI rebuild here).
- * 5. Forward the original PendingIntent after 500 ms so the source app
+ * 3. Forward the original PendingIntent after 500 ms so the source app
  *    actually sends the message.
+ * 4. After the PendingIntent is handed to the source app, dismiss both the
+ *    LiveBridge mirror and the original phone notification.
  */
 class ReplyInterceptReceiver : BroadcastReceiver() {
 
@@ -36,7 +35,6 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
         const val EXTRA_THREAD_KEY = "thread_key"
 
         private const val INTENT_DELAY_MS = 500L
-        private const val LOCKDOWN_DURATION_MS = 10_000L
     }
 
     override fun onReceive(context: Context, intent: Intent?) {
@@ -71,15 +69,7 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
             // The cached history above is picked up automatically by the
             // mirrored-notification builder when the next incoming message
             // arrives from the other party.
-            ChatHistoryStore.setLockdown(threadKey, LOCKDOWN_DURATION_MS)
-            Log.d(TAG, "Reply cached and lockdown activated for threadKey=$threadKey")
-        }
-
-        if (mirrorKey.isNotBlank()) {
-            LiveUpdateNotifier.recordReplyDebounce(mirrorKey)
-            // Immediately dismiss the current mirrored notification so the
-            // Wear OS reply UI closes cleanly instead of waiting for an update.
-            LiveUpdateNotifier.cancelMirroredForReply(context, mirrorKey)
+            Log.d(TAG, "Reply cached for threadKey=$threadKey")
         }
 
         val originalPendingIntent: PendingIntent? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -94,6 +84,7 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
             return
         }
 
+        val pendingResult = goAsync()
         Handler(Looper.getMainLooper()).postDelayed({
             try {
                 val forwardIntent = Intent()
@@ -107,10 +98,15 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
                 )
                 originalPendingIntent.send(context, 0, forwardIntent)
                 Log.d(TAG, "Intent forwarded after ${INTENT_DELAY_MS}ms")
+                if (mirrorKey.isNotBlank()) {
+                    LiveUpdateNotifier.cancelMirroredForReply(context, mirrorKey)
+                }
             } catch (e: PendingIntent.CanceledException) {
                 Log.e(TAG, "Original PendingIntent was cancelled.", e)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to forward reply to original app.", e)
+            } finally {
+                pendingResult.finish()
             }
         }, INTENT_DELAY_MS)
     }

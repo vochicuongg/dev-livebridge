@@ -156,9 +156,6 @@ object LiveUpdateNotifier {
         "du", "ich", "tú", "yo", "vous", "moi"
     )
 
-    /** Grace period after a reply during which notification removals are ignored. */
-    private const val REPLY_DEBOUNCE_MS = 4_000L
-
     private val CALL_MIRROR_EXCLUDED_PACKAGES = setOf(
         "com.whatsapp",
         "com.whatsapp.w4b"
@@ -296,14 +293,6 @@ object LiveUpdateNotifier {
     private val programmaticMirrorCancelDeadlines = mutableMapOf<Int, Long>()
     private val bypassContentHashes = java.util.concurrent.ConcurrentHashMap<String, Int>()
 
-    /**
-     * Tracks the last reply timestamp per mirrorKey so that [cancelMirrored]
-     * can ignore removals that happen within [REPLY_DEBOUNCE_MS] of a reply.
-     * This prevents apps like Zalo from killing the watch UI immediately
-     * after the user sends a message.
-     */
-    private val replyDebounceTimestamps = java.util.concurrent.ConcurrentHashMap<String, Long>()
-    
     /**
      * Singleton Person object representing the local user ("Me").
      * CRITICAL: This must be a single instance reused across all operations.
@@ -1649,15 +1638,6 @@ object LiveUpdateNotifier {
             }
             val source = sbn.notification
 
-            // During reply lockdown the listener is also cancelling matching
-            // source notifications. Do not mirror any repost from that package;
-            // source apps often repost with a new key before the old source
-            // cancel callback has finished propagating to Wear OS.
-            if (ChatHistoryStore.isAnyThreadLockedForPackage(sbn.packageName)) {
-                Log.d(TAG, "maybeMirror: reply lockdown dropped update for ${sbn.key}")
-                return notMirroredResult()
-            }
-
             val sourceHasEffectiveProgress = hasEffectiveProgress(sbn.packageName, source)
             val samsungBridge = SamsungBridgePreprocessor.build(
                 context = context,
@@ -2740,26 +2720,6 @@ object LiveUpdateNotifier {
 
     fun cancelMirrored(context: Context, sbn: StatusBarNotification) {
         try {
-            // Debounce: if the user just replied via Wear OS, ignore the removal
-            // for REPLY_DEBOUNCE_MS so the watch UI stays alive for the user to
-            // read their sent message. Apps like Zalo cancel their notification
-            // immediately after processing the reply intent.
-            val now = SystemClock.elapsedRealtime()
-            val recentReplyKey = replyDebounceTimestamps.keys.firstOrNull { key ->
-                val ts = replyDebounceTimestamps[key] ?: return@firstOrNull false
-                (now - ts) < REPLY_DEBOUNCE_MS && sbn.key == key
-            }
-            if (recentReplyKey != null) {
-                Log.d(TAG, "cancelMirrored: debounced removal for key=${sbn.key} (reply ${now - (replyDebounceTimestamps[recentReplyKey] ?: 0)}ms ago)")
-                return
-            }
-
-            // ── THE SHIELD: UI Lock – ignore removals during lock period ──
-            if (ChatHistoryStore.isAnyThreadLockedForPackage(sbn.packageName)) {
-                Log.d(TAG, "cancelMirrored: UI-LOCK SHIELD – ignored removal for ${sbn.key}")
-                return
-            }
-
             val manager = NotificationManagerCompat.from(context)
             val staleAggregateIds = synchronized(stateLock) {
                 val directMirrorId = mirrorIdForKey(sbn.key)
@@ -2772,9 +2732,6 @@ object LiveUpdateNotifier {
             }
             staleAggregateIds.forEach { cancelMirroredNotification(manager, it) }
             cancelMirroredNotification(manager, mirrorIdForKey(sbn.key))
-
-            // Clean up expired debounce entries
-            replyDebounceTimestamps.entries.removeIf { (now - it.value) > REPLY_DEBOUNCE_MS }
         } catch (error: Throwable) {
             Log.e(TAG, "Failed to cancel mirrored notification: ${sbn.key}", error)
         }
@@ -8163,15 +8120,6 @@ object LiveUpdateNotifier {
     }
 
     /**
-     * Records a reply debounce timestamp so that [cancelMirrored] ignores
-     * notification removals within [REPLY_DEBOUNCE_MS] of a reply.
-     * Called from [ReplyInterceptReceiver].
-     */
-    fun recordReplyDebounce(mirrorKey: String) {
-        replyDebounceTimestamps[mirrorKey] = SystemClock.elapsedRealtime()
-    }
-
-    /**
      * Resolves the threadKey for a given mirrorKey by looking up the source
      * notification snapshot. Used by [createProxyReplyPendingIntent] to pass
      * the threadKey to [ReplyInterceptReceiver].
@@ -8295,8 +8243,6 @@ object LiveUpdateNotifier {
             context = context
         )
 
-        replyDebounceTimestamps[mirrorKey] = SystemClock.elapsedRealtime()
-
         val notification = builder.build().also {
             it.flags = it.flags or Notification.FLAG_ONLY_ALERT_ONCE
         }
@@ -8384,12 +8330,7 @@ object LiveUpdateNotifier {
             }
             ReplyMirrorCancelTarget(
                 notificationIds = ids,
-                sourceKey = sourceSbn?.key,
-                sourcePackageName = sourceSbn?.packageName,
-                sourceId = sourceSbn?.id,
-                sourceTag = sourceSbn?.tag,
-                sourceGroupKey = sourceSbn?.groupKey,
-                threadKey = sourceSbn?.let(::threadKeyForNotification)
+                sourceKey = sourceSbn?.key
             )
         }
 
@@ -8405,23 +8346,13 @@ object LiveUpdateNotifier {
 
         LiveUpdateNotificationListenerService.requestCancelSourceNotification(
             context = context.applicationContext,
-            sourceKey = sourceSnapshot.sourceKey?.takeIf { it.isNotBlank() } ?: mirrorKey,
-            sourcePackageName = sourceSnapshot.sourcePackageName,
-            sourceId = sourceSnapshot.sourceId,
-            sourceTag = sourceSnapshot.sourceTag,
-            sourceGroupKey = sourceSnapshot.sourceGroupKey,
-            threadKey = sourceSnapshot.threadKey
+            sourceKey = sourceSnapshot.sourceKey?.takeIf { it.isNotBlank() } ?: mirrorKey
         )
     }
 
     private data class ReplyMirrorCancelTarget(
         val notificationIds: Set<Int>,
-        val sourceKey: String?,
-        val sourcePackageName: String?,
-        val sourceId: Int?,
-        val sourceTag: String?,
-        val sourceGroupKey: String?,
-        val threadKey: String?
+        val sourceKey: String?
     )
 
     private fun cancelActiveMirrorNotificationsByIds(
