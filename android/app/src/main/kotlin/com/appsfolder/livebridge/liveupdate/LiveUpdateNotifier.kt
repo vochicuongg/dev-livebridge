@@ -290,6 +290,7 @@ object LiveUpdateNotifier {
     private val smartAnimationStates = mutableMapOf<String, SmartAnimationState>()
     private val callMirrorStates = mutableMapOf<String, CallMirrorState>()
     private val mirrorKeysByNotificationId = mutableMapOf<Int, String>()
+    private val mirrorNotificationIdsByKey = mutableMapOf<String, MutableSet<Int>>()
     private val sourceSnapshotsByMirrorKey = mutableMapOf<String, StatusBarNotification>()
     private val userDismissedMirrorKeys = mutableSetOf<String>()
     private val programmaticMirrorCancelDeadlines = mutableMapOf<Int, Long>()
@@ -401,6 +402,13 @@ object LiveUpdateNotifier {
 
     private fun buildThreadKey(sourcePackageName: String, conversationTitle: CharSequence?): String {
         return "${sourcePackageName}_${conversationTitle?.toString().orEmpty()}"
+    }
+
+    fun threadKeyForNotification(sbn: StatusBarNotification): String {
+        val conversationTitle = sbn.notification.extras
+            .getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
+            ?: sbn.notification.extras.getCharSequence(Notification.EXTRA_TITLE)
+        return buildThreadKey(sbn.packageName, conversationTitle)
     }
 
     private fun deterministicSenderKey(threadKey: String, senderName: String): String {
@@ -631,6 +639,7 @@ object LiveUpdateNotifier {
             smartAnimationStates.clear()
             callMirrorStates.clear()
             mirrorKeysByNotificationId.clear()
+            mirrorNotificationIdsByKey.clear()
             sourceSnapshotsByMirrorKey.clear()
             userDismissedMirrorKeys.clear()
             programmaticMirrorCancelDeadlines.clear()
@@ -1640,18 +1649,13 @@ object LiveUpdateNotifier {
             }
             val source = sbn.notification
 
-            // ── THE SHIELD: UI Lock – drop state-downgrade updates ──
-            // When the user just replied, the target app often cancels and
-            // replaces the notification with a style-less "Sending…" stub.
-            // If ANY thread for this package is UI-locked, check whether
-            // the incoming notification still carries a MessagingStyle.
-            // If it does NOT, DROP this update entirely so the local-echo
-            // "Me" bubble stays on screen.
+            // During reply lockdown the listener is also cancelling matching
+            // source notifications. Do not mirror any repost from that package;
+            // source apps often repost with a new key before the old source
+            // cancel callback has finished propagating to Wear OS.
             if (ChatHistoryStore.isAnyThreadLockedForPackage(sbn.packageName)) {
-                if (rawNotificationMessages(source).isEmpty()) {
-                    Log.d(TAG, "maybeMirror: UI-LOCK SHIELD – dropped style-less update for ${sbn.key}")
-                    return notMirroredResult()
-                }
+                Log.d(TAG, "maybeMirror: reply lockdown dropped update for ${sbn.key}")
+                return notMirroredResult()
             }
 
             val sourceHasEffectiveProgress = hasEffectiveProgress(sbn.packageName, source)
@@ -2763,7 +2767,7 @@ object LiveUpdateNotifier {
                 sourceSnapshotsByMirrorKey.remove(sbn.key)
                 callMirrorStates.remove(sbn.key)
                 bypassContentHashes.remove(sbn.key)
-                mirrorKeysByNotificationId.remove(directMirrorId)
+                forgetMirrorNotificationIdLocked(directMirrorId)
                 clearAggregateTrackingForSbnKeyLocked(sbn.key)
             }
             staleAggregateIds.forEach { cancelMirroredNotification(manager, it) }
@@ -2785,7 +2789,7 @@ object LiveUpdateNotifier {
             userDismissedMirrorKeys.remove(sbn.key)
             sourceSnapshotsByMirrorKey.remove(sbn.key)
             callMirrorStates.remove(sbn.key)
-            mirrorKeysByNotificationId.remove(directMirrorId)
+            forgetMirrorNotificationIdLocked(directMirrorId)
             clearAggregateTrackingForSbnKeyLocked(sbn.key)
         }
         staleAggregateIds.forEach { cancelMirroredNotification(manager, it) }
@@ -2809,7 +2813,7 @@ object LiveUpdateNotifier {
                 return
             }
 
-            val mirrorKey = mirrorKeysByNotificationId.remove(sbn.id) ?: return
+            val mirrorKey = forgetMirrorNotificationIdLocked(sbn.id) ?: return
             sourceSnapshotsByMirrorKey.remove(mirrorKey)
             callMirrorStates.remove(mirrorKey)
             userDismissedMirrorKeys.add(mirrorKey)
@@ -8176,10 +8180,7 @@ object LiveUpdateNotifier {
         val sourceSbn = synchronized(stateLock) {
             sourceSnapshotsByMirrorKey[mirrorKey]
         } ?: return ""
-        val conversationTitle = sourceSbn.notification.extras
-            .getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
-            ?: sourceSbn.notification.extras.getCharSequence(Notification.EXTRA_TITLE)
-        return buildThreadKey(sourceSbn.packageName, conversationTitle)
+        return threadKeyForNotification(sourceSbn)
     }
 
     private fun createProxyReplyPendingIntent(
@@ -8316,6 +8317,19 @@ object LiveUpdateNotifier {
         return if (value == Int.MIN_VALUE) 0 else abs(value)
     }
 
+    private fun forgetMirrorNotificationIdLocked(notificationId: Int): String? {
+        val mirrorKey = mirrorKeysByNotificationId.remove(notificationId)
+        if (mirrorKey != null) {
+            mirrorNotificationIdsByKey[mirrorKey]?.let { ids ->
+                ids.remove(notificationId)
+                if (ids.isEmpty()) {
+                    mirrorNotificationIdsByKey.remove(mirrorKey)
+                }
+            }
+        }
+        return mirrorKey
+    }
+
     private fun notifyMirroredNotification(
         manager: NotificationManagerCompat,
         notificationId: Int,
@@ -8332,7 +8346,11 @@ object LiveUpdateNotifier {
         )
         synchronized(stateLock) {
             pruneProgrammaticMirrorCancelsLocked(SystemClock.elapsedRealtime())
+            forgetMirrorNotificationIdLocked(notificationId)
             mirrorKeysByNotificationId[notificationId] = mirrorKey
+            mirrorNotificationIdsByKey
+                .getOrPut(mirrorKey) { mutableSetOf() }
+                .add(notificationId)
             sourceSnapshotsByMirrorKey[mirrorKey] = sourceSbn
         }
 
@@ -8357,30 +8375,81 @@ object LiveUpdateNotifier {
             return
         }
 
-        // ── Step 1: Look up the original source sbn.key BEFORE clearing state ──
-        val sourceKey: String? = synchronized(stateLock) {
-            sourceSnapshotsByMirrorKey[mirrorKey]?.key
+        val sourceSnapshot = synchronized(stateLock) {
+            val sourceSbn = sourceSnapshotsByMirrorKey[mirrorKey]
+            val ids = mutableSetOf(mirrorIdForKey(mirrorKey))
+            mirrorNotificationIdsByKey[mirrorKey]?.let(ids::addAll)
+            sourceSbn?.key?.takeIf { it.isNotBlank() }?.let { sourceKey ->
+                ids.add(mirrorIdForKey(sourceKey))
+            }
+            ReplyMirrorCancelTarget(
+                notificationIds = ids,
+                sourceKey = sourceSbn?.key,
+                sourcePackageName = sourceSbn?.packageName,
+                sourceId = sourceSbn?.id,
+                sourceTag = sourceSbn?.tag,
+                sourceGroupKey = sourceSbn?.groupKey,
+                threadKey = sourceSbn?.let(::threadKeyForNotification)
+            )
         }
 
-        // ── Step 2: Cancel the mirrored (LiveBridge) notification ──
         val manager = NotificationManagerCompat.from(context)
-        cancelMirroredNotification(manager, mirrorIdForKey(mirrorKey))
-        Log.d(TAG, "cancelMirroredForReply: cancelled mirrored notification for mirrorKey=$mirrorKey")
+        sourceSnapshot.notificationIds.forEach { notificationId ->
+            cancelMirroredNotification(manager, notificationId)
+        }
+        cancelActiveMirrorNotificationsByIds(context, manager, sourceSnapshot.notificationIds)
+        Log.d(
+            TAG,
+            "cancelMirroredForReply: cancelled mirrorKey=$mirrorKey ids=${sourceSnapshot.notificationIds}"
+        )
 
-        // ── Step 3: "Uproot" the ORIGINAL source notification on the phone ──
-        // This is the critical fix: WearOS mirrors the phone's notification bar.
-        // If the original app notification (Messenger/Zalo/etc.) is still present
-        // on the phone, WearOS will keep showing it and the reply keyboard stays
-        // stuck in the "Sending..." state. By cancelling the source notification
-        // via NotificationListenerService, WearOS sees it disappear and cleanly
-        // exits the reply UI.
-        if (!sourceKey.isNullOrBlank()) {
-            LiveUpdateNotificationListenerService.requestCancelSourceNotification(sourceKey)
-            Log.d(TAG, "cancelMirroredForReply: requested cancel of original source notification sourceKey=$sourceKey")
-        } else {
-            // Fallback: mirrorKey often IS the sbn.key itself
-            LiveUpdateNotificationListenerService.requestCancelSourceNotification(mirrorKey)
-            Log.d(TAG, "cancelMirroredForReply: no source snapshot found, using mirrorKey as sourceKey=$mirrorKey")
+        LiveUpdateNotificationListenerService.requestCancelSourceNotification(
+            context = context.applicationContext,
+            sourceKey = sourceSnapshot.sourceKey?.takeIf { it.isNotBlank() } ?: mirrorKey,
+            sourcePackageName = sourceSnapshot.sourcePackageName,
+            sourceId = sourceSnapshot.sourceId,
+            sourceTag = sourceSnapshot.sourceTag,
+            sourceGroupKey = sourceSnapshot.sourceGroupKey,
+            threadKey = sourceSnapshot.threadKey
+        )
+    }
+
+    private data class ReplyMirrorCancelTarget(
+        val notificationIds: Set<Int>,
+        val sourceKey: String?,
+        val sourcePackageName: String?,
+        val sourceId: Int?,
+        val sourceTag: String?,
+        val sourceGroupKey: String?,
+        val threadKey: String?
+    )
+
+    private fun cancelActiveMirrorNotificationsByIds(
+        context: Context,
+        manager: NotificationManagerCompat,
+        notificationIds: Set<Int>
+    ) {
+        if (notificationIds.isEmpty() || Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            return
+        }
+        val notificationManager =
+            context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+        runCatching {
+            notificationManager.activeNotifications
+                .filter { sbn ->
+                    sbn.id in notificationIds &&
+                        (Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
+                            isMirrorNotificationChannel(sbn.notification.channelId))
+                }
+                .forEach { sbn ->
+                    if (sbn.tag.isNullOrBlank()) {
+                        manager.cancel(sbn.id)
+                    } else {
+                        manager.cancel(sbn.tag, sbn.id)
+                    }
+                }
+        }.onFailure { error ->
+            Log.w(TAG, "cancelMirroredForReply: active mirror scan failed", error)
         }
     }
 
@@ -8391,7 +8460,7 @@ object LiveUpdateNotifier {
         synchronized(stateLock) {
             programmaticMirrorCancelDeadlines[notificationId] =
                 SystemClock.elapsedRealtime() + PROGRAMMATIC_MIRROR_CANCEL_GRACE_MS
-            val mirrorKey = mirrorKeysByNotificationId.remove(notificationId)
+            val mirrorKey = forgetMirrorNotificationIdLocked(notificationId)
             if (mirrorKey != null) {
                 sourceSnapshotsByMirrorKey.remove(mirrorKey)
                 callMirrorStates.remove(mirrorKey)
@@ -8479,7 +8548,7 @@ object LiveUpdateNotifier {
                     smartAnimationStates.remove(smartAggregateKey)
                     userDismissedMirrorKeys.remove(smartAggregateKey)
                     sourceSnapshotsByMirrorKey.remove(smartAggregateKey)
-                    mirrorKeysByNotificationId.remove(mirrorIdForKey(smartAggregateKey))
+                    forgetMirrorNotificationIdLocked(mirrorIdForKey(smartAggregateKey))
                     idsToCancel.add(mirrorIdForKey(smartAggregateKey))
                 }
             } else {
@@ -8487,7 +8556,7 @@ object LiveUpdateNotifier {
                 smartAnimationStates.remove(smartAggregateKey)
                 userDismissedMirrorKeys.remove(smartAggregateKey)
                 sourceSnapshotsByMirrorKey.remove(smartAggregateKey)
-                mirrorKeysByNotificationId.remove(mirrorIdForKey(smartAggregateKey))
+                forgetMirrorNotificationIdLocked(mirrorIdForKey(smartAggregateKey))
                 idsToCancel.add(mirrorIdForKey(smartAggregateKey))
             }
         }
@@ -8539,14 +8608,14 @@ object LiveUpdateNotifier {
                     otpAnimationGenerations.remove(otpAggregateKey)
                     userDismissedMirrorKeys.remove(otpAggregateKey)
                     sourceSnapshotsByMirrorKey.remove(otpAggregateKey)
-                    mirrorKeysByNotificationId.remove(mirrorIdForKey(otpAggregateKey))
+                    forgetMirrorNotificationIdLocked(mirrorIdForKey(otpAggregateKey))
                     idsToCancel.add(mirrorIdForKey(otpAggregateKey))
                 }
             } else {
                 otpAnimationGenerations.remove(otpAggregateKey)
                 userDismissedMirrorKeys.remove(otpAggregateKey)
                 sourceSnapshotsByMirrorKey.remove(otpAggregateKey)
-                mirrorKeysByNotificationId.remove(mirrorIdForKey(otpAggregateKey))
+                forgetMirrorNotificationIdLocked(mirrorIdForKey(otpAggregateKey))
                 idsToCancel.add(mirrorIdForKey(otpAggregateKey))
             }
         }

@@ -85,6 +85,16 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         }
     }
 
+    private data class ReplySourceCancelTarget(
+        val sourceKey: String,
+        val sourcePackageName: String?,
+        val sourceId: Int?,
+        val sourceTag: String?,
+        val sourceGroupKey: String?,
+        val threadKey: String?,
+        val expiresAtMs: Long
+    )
+
     private val torchCallback = object : CameraManager.TorchCallback() {
         override fun onTorchModeChanged(cameraId: String, enabled: Boolean) {
             val flashlightCameraId = flashlightController.getCapability().cameraId ?: return
@@ -139,6 +149,11 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
                 if (sbn.packageName == packageName || isFlashlightSourceNotification(sbn)) {
                     continue
                 }
+                if (isThreadLockedDown(sbn)) {
+                    Log.d(TAG, "Reply lockdown: dismissing snapshot source ${sbn.key}")
+                    dismissReplyLockdownNotification(sbn)
+                    continue
+                }
                 try {
                     processIncomingNotification(sbn)
                 } catch (error: Throwable) {
@@ -171,6 +186,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         syncChargingInfoMonitoring()
         LiveUpdateNotifier.ensureChannel(applicationContext)
         syncNetworkSpeedService()
+        drainPendingReplySourceCancels()
         scheduleSnapshotSync()
     }
 
@@ -199,6 +215,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
 
         syncChargingInfoMonitoring(snapshots)
         syncFlashlightMirror(snapshots)
+        drainPendingReplySourceCancels()
 
         if (!prefs.getConverterEnabled()) {
             LiveUpdateNotifier.cancelAllMirrored(applicationContext)
@@ -214,6 +231,11 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
 
         for (sbn in snapshots) {
             if (sbn.packageName == packageName || isFlashlightSourceNotification(sbn)) {
+                continue
+            }
+            if (isThreadLockedDown(sbn)) {
+                Log.d(TAG, "Reply lockdown: dismissing restored source ${sbn.key}")
+                dismissReplyLockdownNotification(sbn)
                 continue
             }
             try {
@@ -264,10 +286,11 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
                 return
             }
             
-            // ABSOLUTE BLINDFOLD: If this conversation thread is locked down,
-            // ignore ALL notification updates completely.
+            // Reply lockdown must dismiss source reposts before they can be
+            // mirrored back to Wear OS.
             if (isThreadLockedDown(sbn)) {
-                Log.d(TAG, "⛔ BLINDFOLD: Ignoring notification POSTED (thread locked down): ${sbn.key}")
+                Log.d(TAG, "Reply lockdown: dismissing posted source ${sbn.key}")
+                dismissReplyLockdownNotification(sbn)
                 return
             }
             if (isFlashlightSourceNotification(sbn)) {
@@ -377,16 +400,86 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
      * @return true if this thread is locked down and should be completely ignored
      */
     private fun isThreadLockedDown(sbn: StatusBarNotification): Boolean {
-        // Extract conversationTitle from notification extras
-        val conversationTitle = sbn.notification.extras
-            .getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
-            ?: sbn.notification.extras.getCharSequence(Notification.EXTRA_TITLE)
-        
-        // Build threadKey exactly as ChatHistoryStore and LiveUpdateNotifier do
-        val threadKey = "${sbn.packageName}_${conversationTitle?.toString().orEmpty()}"
-        
-        // Check if this thread is currently locked down
-        return ChatHistoryStore.isLockedDown(threadKey)
+        val threadKey = LiveUpdateNotifier.threadKeyForNotification(sbn)
+        if (ChatHistoryStore.isLockedDown(threadKey)) {
+            return true
+        }
+        return ChatHistoryStore.isAnyThreadLockedForPackage(sbn.packageName)
+    }
+
+    private fun dismissReplyLockdownNotification(sbn: StatusBarNotification) {
+        if (sbn.packageName == packageName) {
+            return
+        }
+        requestDismissOrSnoozeSourceNotification(
+            sourceKey = sbn.key,
+            label = "reply lockdown source notification"
+        )
+    }
+
+    private fun drainPendingReplySourceCancels() {
+        val targets = takePendingReplySourceCancels()
+        targets.forEach { target ->
+            if (!cancelReplySourceNotifications(target)) {
+                rememberPendingReplySourceCancel(target)
+            }
+        }
+    }
+
+    private fun cancelReplySourceNotifications(target: ReplySourceCancelTarget): Boolean {
+        val keysToCancel = linkedSetOf<String>()
+        target.sourceKey.trim().takeIf { it.isNotEmpty() }?.let(keysToCancel::add)
+
+        val snapshots = try {
+            activeNotifications?.toList().orEmpty()
+        } catch (error: Throwable) {
+            Log.w(TAG, "Unable to inspect active notifications for reply source cancel", error)
+            emptyList()
+        }
+
+        snapshots
+            .filter { sbn -> matchesReplySourceCancelTarget(sbn, target) }
+            .mapTo(keysToCancel) { sbn -> sbn.key }
+
+        var requested = false
+        keysToCancel.forEach { sourceKey ->
+            requested = requestDismissOrSnoozeSourceNotification(
+                sourceKey = sourceKey,
+                label = "reply source notification"
+            ) || requested
+        }
+        if (!requested) {
+            Log.w(TAG, "No source notification matched reply cancel target: ${target.sourceKey}")
+        }
+        return requested
+    }
+
+    private fun matchesReplySourceCancelTarget(
+        sbn: StatusBarNotification,
+        target: ReplySourceCancelTarget
+    ): Boolean {
+        if (sbn.key == target.sourceKey) {
+            return true
+        }
+        val sourcePackageName = target.sourcePackageName?.takeIf { it.isNotBlank() } ?: return false
+        if (sbn.packageName != sourcePackageName) {
+            return false
+        }
+        if (target.sourceId != null &&
+            sbn.id == target.sourceId &&
+            sbn.tag == target.sourceTag
+        ) {
+            return true
+        }
+        if (!target.sourceGroupKey.isNullOrBlank() && sbn.groupKey == target.sourceGroupKey) {
+            return true
+        }
+        if (!target.threadKey.isNullOrBlank() &&
+            LiveUpdateNotifier.threadKeyForNotification(sbn) == target.threadKey
+        ) {
+            return true
+        }
+        return ChatHistoryStore.isAnyThreadLockedForPackage(sbn.packageName)
     }
 
     private fun syncNetworkSpeedService() {
@@ -1352,9 +1445,12 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         private const val FLASHLIGHT_SOURCE_PACKAGE = "com.android.systemui"
         private const val FLASHLIGHT_SOURCE_CHANNEL_ID = "FLASHLIGHT_ONGOING"
         private const val FLASHLIGHT_SOURCE_TAG = "Flashlight"
+        private const val REPLY_SOURCE_CANCEL_TTL_MS = 15_000L
 
         @Volatile
         private var activeInstance: LiveUpdateNotificationListenerService? = null
+        private val pendingReplySourceCancelLock = Any()
+        private val pendingReplySourceCancels = mutableMapOf<String, ReplySourceCancelTarget>()
 
         /**
          * Heartbeat timestamp updated every time the listener successfully
@@ -1443,18 +1539,80 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
          * phone after a Wear OS reply. This ensures WearOS sees the notification
          * disappear and exits the "Sending..." state.
          */
-        fun requestCancelSourceNotification(sourceKey: String) {
+        fun requestCancelSourceNotification(
+            context: Context,
+            sourceKey: String,
+            sourcePackageName: String? = null,
+            sourceId: Int? = null,
+            sourceTag: String? = null,
+            sourceGroupKey: String? = null,
+            threadKey: String? = null
+        ) {
+            val normalizedSourceKey = sourceKey.trim()
+            if (normalizedSourceKey.isBlank()) {
+                return
+            }
+            val target = ReplySourceCancelTarget(
+                sourceKey = normalizedSourceKey,
+                sourcePackageName = sourcePackageName?.takeIf { it.isNotBlank() },
+                sourceId = sourceId,
+                sourceTag = sourceTag,
+                sourceGroupKey = sourceGroupKey?.takeIf { it.isNotBlank() },
+                threadKey = threadKey?.takeIf { it.isNotBlank() },
+                expiresAtMs = SystemClock.elapsedRealtime() + REPLY_SOURCE_CANCEL_TTL_MS
+            )
             val listener = activeInstance
             if (listener == null) {
-                Log.w(TAG, "Skip source cancel after reply: listener is not active")
+                rememberPendingReplySourceCancel(target)
+                Log.w(TAG, "Queued source cancel after reply: listener is not active")
+                requestRebindIfEnabled(context.applicationContext, "reply_source_cancel")
                 return
             }
             try {
-                listener.cancelNotification(sourceKey)
-                Log.i(TAG, "Cancelled original source notification after reply: $sourceKey")
+                val requested = listener.cancelReplySourceNotifications(target)
+                if (requested) {
+                    Log.i(TAG, "Requested original source notification cancel after reply: $normalizedSourceKey")
+                } else {
+                    rememberPendingReplySourceCancel(target)
+                    Log.w(TAG, "Queued source cancel after reply: source not active yet $normalizedSourceKey")
+                    listener.mainHandler.postDelayed(
+                        { listener.drainPendingReplySourceCancels() },
+                        ORIGINAL_DISMISS_RETRY_DELAY_MS
+                    )
+                }
             } catch (error: Throwable) {
-                Log.w(TAG, "Failed to cancel original source notification: $sourceKey", error)
+                rememberPendingReplySourceCancel(target)
+                Log.w(TAG, "Failed to cancel original source notification: $normalizedSourceKey", error)
             }
+        }
+
+        private fun rememberPendingReplySourceCancel(target: ReplySourceCancelTarget) {
+            val now = SystemClock.elapsedRealtime()
+            if (target.expiresAtMs < now) {
+                return
+            }
+            synchronized(pendingReplySourceCancelLock) {
+                prunePendingReplySourceCancelsLocked(now)
+                pendingReplySourceCancels[target.sourceKey] = target
+            }
+        }
+
+        private fun takePendingReplySourceCancels(): List<ReplySourceCancelTarget> {
+            val now = SystemClock.elapsedRealtime()
+            return synchronized(pendingReplySourceCancelLock) {
+                prunePendingReplySourceCancelsLocked(now)
+                val targets = pendingReplySourceCancels.values.toList()
+                pendingReplySourceCancels.clear()
+                targets
+            }
+        }
+
+        private fun prunePendingReplySourceCancelsLocked(now: Long) {
+            val expiredKeys = pendingReplySourceCancels
+                .filterValues { target -> target.expiresAtMs < now }
+                .keys
+                .toList()
+            expiredKeys.forEach(pendingReplySourceCancels::remove)
         }
 
         private fun isListenerEnabled(context: Context): Boolean {
