@@ -1348,7 +1348,8 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         private const val REPLY_SOURCE_CANCEL_TTL_MS = 15_000L
 
         @Volatile
-        private var activeInstance: LiveUpdateNotificationListenerService? = null
+        internal var activeInstance: LiveUpdateNotificationListenerService? = null
+            private set
         private val pendingReplySourceCancelLock = Any()
         private val pendingReplySourceCancels = mutableMapOf<String, ReplySourceCancelTarget>()
 

@@ -4454,7 +4454,7 @@ object LiveUpdateNotifier {
             .setSilent(true)
             .setDefaults(0)
             .setOngoing(true)
-            .setAutoCancel(false)
+            .setAutoCancel(true)
             .setWhen(callChronometerStart ?: resolveStableWhen(source, sbn.postTime))
             .setShowWhen(callChronometerStart != null)
             .setColor(builderAccentColor)
@@ -4486,7 +4486,7 @@ object LiveUpdateNotifier {
                 .setSilent(true)
                 .setDefaults(0)
                 .setOngoing(true)
-                .setAutoCancel(false)
+                .setAutoCancel(true)
                 .setWhen(resolveStableWhen(source, sbn.postTime))
                 .setShowWhen(false)
                 .setColor(builderAccentColor)
@@ -4656,7 +4656,6 @@ object LiveUpdateNotifier {
                 addReplyActionIfNotAlreadyCopied(
                     source = source,
                     builder = builder,
-                    copiedActionLimit = MAX_MIRRORED_ACTIONS,
                     mirrorKey = sbn.key,
                     context = context
                 )
@@ -7634,7 +7633,9 @@ object LiveUpdateNotifier {
         mediaPlaybackIsPlaying: Boolean? = null,
         useMediaActionSymbols: Boolean = false
     ) {
-        val actions = source.actions ?: return
+        val actions = source.actions
+            ?.filter { action -> action.remoteInputs.isNullOrEmpty() }
+            ?: return
         if (actions.isEmpty()) {
             return
         }
@@ -7673,14 +7674,11 @@ object LiveUpdateNotifier {
     private fun addReplyActionIfNotAlreadyCopied(
         source: Notification,
         builder: NotificationCompat.Builder,
-        copiedActionLimit: Int,
         mirrorKey: String? = null,
         context: Context? = null
     ) {
         val actions = source.actions ?: return
-        val safeCopiedLimit = copiedActionLimit.coerceAtLeast(0)
         val replyAction = actions
-            .drop(safeCopiedLimit)
             .firstOrNull { action ->
                 !action.remoteInputs.isNullOrEmpty() && action.actionIntent != null
             }
@@ -8361,6 +8359,12 @@ object LiveUpdateNotifier {
     ): PendingIntent? {
         return try {
             val threadKey = resolveThreadKeyForMirror(mirrorKey)
+            val sourceKey = synchronized(stateLock) {
+                sourceSnapshotsByMirrorKey[mirrorKey]?.key
+            }?.takeIf { it.isNotBlank() } ?: mirrorKey
+            val mirrorNotificationId = synchronized(stateLock) {
+                mirrorNotificationIdsByKey[mirrorKey]?.firstOrNull()
+            } ?: mirrorIdForKey(mirrorKey)
             val proxyIntent = Intent(ReplyInterceptReceiver.ACTION_PROXY_REPLY).apply {
                 setClassName(
                     context.packageName,
@@ -8370,6 +8374,8 @@ object LiveUpdateNotifier {
                 putExtra(ReplyInterceptReceiver.EXTRA_MIRROR_KEY, mirrorKey)
                 putExtra(ReplyInterceptReceiver.EXTRA_RESULT_KEY, resultKey)
                 putExtra(ReplyInterceptReceiver.EXTRA_THREAD_KEY, threadKey)
+                putExtra(ReplyInterceptReceiver.EXTRA_MIRROR_NOTIFICATION_ID, mirrorNotificationId)
+                putExtra(ReplyInterceptReceiver.EXTRA_SOURCE_KEY, sourceKey)
             }
             PendingIntent.getBroadcast(
                 context,
@@ -8442,7 +8448,7 @@ object LiveUpdateNotifier {
             .setSilent(true)
             .setDefaults(0)
             .setOngoing(false)
-            .setAutoCancel(false)
+            .setAutoCancel(true)
             .setWhen(System.currentTimeMillis())
             .setShowWhen(false)
             .setLocalOnly(false)
@@ -8457,7 +8463,6 @@ object LiveUpdateNotifier {
         addReplyActionIfNotAlreadyCopied(
             source = source,
             builder = builder,
-            copiedActionLimit = MAX_MIRRORED_ACTIONS,
             mirrorKey = mirrorKey,
             context = context
         )

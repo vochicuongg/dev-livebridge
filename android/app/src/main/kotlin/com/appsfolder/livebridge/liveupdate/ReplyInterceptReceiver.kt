@@ -1,5 +1,6 @@
 package com.kakao.taxi.liveupdate
 
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -33,8 +34,11 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
         const val EXTRA_MIRROR_KEY = "mirror_key"
         const val EXTRA_RESULT_KEY = "result_key"
         const val EXTRA_THREAD_KEY = "thread_key"
+        const val EXTRA_MIRROR_NOTIFICATION_ID = "mirror_notification_id"
+        const val EXTRA_SOURCE_KEY = "source_key"
 
         private const val INTENT_DELAY_MS = 500L
+        private const val INVALID_NOTIFICATION_ID = Int.MIN_VALUE
     }
 
     override fun onReceive(context: Context, intent: Intent?) {
@@ -57,6 +61,11 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
 
         val mirrorKey = intent.getStringExtra(EXTRA_MIRROR_KEY).orEmpty()
         val threadKey = intent.getStringExtra(EXTRA_THREAD_KEY).orEmpty()
+        val mirrorNotificationId = intent.getIntExtra(
+            EXTRA_MIRROR_NOTIFICATION_ID,
+            INVALID_NOTIFICATION_ID
+        )
+        val sourceKey = intent.getStringExtra(EXTRA_SOURCE_KEY).orEmpty()
 
         Log.d(TAG, "Intercepted reply for threadKey=$threadKey, mirrorKey=$mirrorKey")
 
@@ -98,9 +107,12 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
                 )
                 originalPendingIntent.send(context, 0, forwardIntent)
                 Log.d(TAG, "Intent forwarded after ${INTENT_DELAY_MS}ms")
-                if (mirrorKey.isNotBlank()) {
-                    LiveUpdateNotifier.cancelMirroredForReply(context, mirrorKey)
-                }
+                dismissAfterSuccessfulReply(
+                    context = context.applicationContext,
+                    mirrorKey = mirrorKey,
+                    mirrorNotificationId = mirrorNotificationId,
+                    sourceKey = sourceKey.ifBlank { mirrorKey }
+                )
             } catch (e: PendingIntent.CanceledException) {
                 Log.e(TAG, "Original PendingIntent was cancelled.", e)
             } catch (e: Exception) {
@@ -109,5 +121,56 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
                 pendingResult.finish()
             }
         }, INTENT_DELAY_MS)
+    }
+
+    private fun dismissAfterSuccessfulReply(
+        context: Context,
+        mirrorKey: String,
+        mirrorNotificationId: Int,
+        sourceKey: String
+    ) {
+        dismissMirrorNotification(context, mirrorKey, mirrorNotificationId)
+        dismissSourceNotification(context, sourceKey)
+    }
+
+    private fun dismissMirrorNotification(
+        context: Context,
+        mirrorKey: String,
+        mirrorNotificationId: Int
+    ) {
+        try {
+            if (mirrorKey.isNotBlank()) {
+                LiveUpdateNotifier.cancelMirroredForReply(context, mirrorKey)
+            }
+            if (mirrorNotificationId != INVALID_NOTIFICATION_ID) {
+                val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+                manager?.cancel(mirrorNotificationId)
+                Log.d(TAG, "Mirror notification cancelled directly: id=$mirrorNotificationId")
+            }
+        } catch (error: Throwable) {
+            Log.e(TAG, "Failed to cancel mirror notification after reply.", error)
+        }
+    }
+
+    private fun dismissSourceNotification(context: Context, sourceKey: String) {
+        val normalizedSourceKey = sourceKey.trim()
+        if (normalizedSourceKey.isBlank()) {
+            return
+        }
+
+        try {
+            val listener = LiveUpdateNotificationListenerService.activeInstance
+            if (listener != null) {
+                listener.cancelNotification(normalizedSourceKey)
+                Log.d(TAG, "Source notification cancelled directly: $normalizedSourceKey")
+            } else {
+                LiveUpdateNotificationListenerService.requestCancelSourceNotification(
+                    context = context.applicationContext,
+                    sourceKey = normalizedSourceKey
+                )
+            }
+        } catch (error: Throwable) {
+            Log.e(TAG, "Failed to cancel source notification after reply: $normalizedSourceKey", error)
+        }
     }
 }
