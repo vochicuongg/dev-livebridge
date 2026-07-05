@@ -290,7 +290,6 @@ object LiveUpdateNotifier {
     private val mirrorNotificationIdsByKey = mutableMapOf<String, MutableSet<Int>>()
     private val sourceSnapshotsByMirrorKey = mutableMapOf<String, StatusBarNotification>()
     private val threadKeysByMirrorKey = mutableMapOf<String, String>()
-    private val userDismissedMirrorKeys = mutableSetOf<String>()
     private val programmaticMirrorCancelDeadlines = mutableMapOf<Int, Long>()
     private val bypassContentHashes = java.util.concurrent.ConcurrentHashMap<String, Int>()
 
@@ -844,7 +843,6 @@ object LiveUpdateNotifier {
             mirrorNotificationIdsByKey.clear()
             sourceSnapshotsByMirrorKey.clear()
             threadKeysByMirrorKey.clear()
-            userDismissedMirrorKeys.clear()
             programmaticMirrorCancelDeadlines.clear()
             bypassContentHashes.clear()
             notificationCapsuleIds.clear()
@@ -911,7 +909,6 @@ object LiveUpdateNotifier {
                 }
                 smartAnimationGenerations.remove(aggregateKey)
                 smartAnimationStates.remove(aggregateKey)
-                userDismissedMirrorKeys.remove(aggregateKey)
                 sourceSnapshotsByMirrorKey.remove(aggregateKey)
                 threadKeysByMirrorKey.remove(aggregateKey)
                 mirrorIdForKey(aggregateKey)
@@ -1839,18 +1836,6 @@ object LiveUpdateNotifier {
             val appPresentationOverride = AppPresentationOverridesLoader
                 .get(prefs)
                 .resolve(sbn.packageName.lowercase(Locale.ROOT))
-            // Standard deduplication check: prevents ghost loops by filtering
-            // notifications that have already been dismissed by the user.
-            // This now applies to ALL apps including Zalo to prevent repeated
-            // mirroring of background sync pings.
-            if (isUserDismissedMirror(sbn.key)) {
-                val staleAggregateIds = synchronized(stateLock) {
-                    clearAggregateTrackingForSbnKeyLocked(sbn.key)
-                }
-                staleAggregateIds.forEach { cancelMirroredNotification(manager, it) }
-                cancelMirroredNotification(manager, mirrorIdForKey(sbn.key))
-                return notMirroredResult()
-            }
             val source = sbn.notification
 
             val sourceHasEffectiveProgress = hasEffectiveProgress(sbn.packageName, source)
@@ -2148,9 +2133,6 @@ object LiveUpdateNotifier {
                 }
 
                 otpMatch != null -> {
-                    if (isUserDismissedMirror(otpMatch.aggregateKey)) {
-                        return notMirroredResult()
-                    }
                     val routeState = synchronized(stateLock) {
                         val staleAggregateIds = mutableListOf<Int>()
                         staleAggregateIds.addAll(clearSmartTrackingForSbnKeyLocked(sbn.key))
@@ -2301,9 +2283,6 @@ object LiveUpdateNotifier {
                 }
 
                 smartMatch != null -> {
-                    if (isUserDismissedMirror(smartMatch.aggregateKey)) {
-                        return notMirroredResult()
-                    }
                     val routeState = synchronized(stateLock) {
                         val staleAggregateIds = mutableListOf<Int>()
                         staleAggregateIds.addAll(clearOtpTrackingForSbnKeyLocked(sbn.key))
@@ -2728,7 +2707,7 @@ object LiveUpdateNotifier {
         mainHandler.postDelayed({
             val frame = synchronized(stateLock) {
                 val state = callMirrorStates[mirrorKey] ?: return@synchronized null
-                if (state.generation != generation || isUserDismissedMirrorLocked(mirrorKey)) {
+                if (state.generation != generation) {
                     if (state.generation == generation) {
                         callMirrorStates.remove(mirrorKey)
                     }
@@ -2792,7 +2771,7 @@ object LiveUpdateNotifier {
     private fun isCallMirrorGenerationCurrent(mirrorKey: String, generation: Long): Boolean {
         return synchronized(stateLock) {
             val state = callMirrorStates[mirrorKey] ?: return@synchronized false
-            state.generation == generation && !isUserDismissedMirrorLocked(mirrorKey)
+            state.generation == generation
         }
     }
 
@@ -2947,7 +2926,6 @@ object LiveUpdateNotifier {
                 mirrorKeysByNotificationId.remove(notificationId)
             }
         }
-        userDismissedMirrorKeys.remove(mirrorKey)
         sourceSnapshotsByMirrorKey.remove(mirrorKey)
         threadKeysByMirrorKey.remove(mirrorKey)
         callMirrorStates.remove(mirrorKey)
@@ -2990,7 +2968,6 @@ object LiveUpdateNotifier {
     ) {
         val directMirrorId = mirrorIdForKey(sbn.key)
         val staleAggregateIds = synchronized(stateLock) {
-            userDismissedMirrorKeys.remove(sbn.key)
             sourceSnapshotsByMirrorKey.remove(sbn.key)
             threadKeysByMirrorKey.remove(sbn.key)
             callMirrorStates.remove(sbn.key)
@@ -3022,7 +2999,6 @@ object LiveUpdateNotifier {
             sourceSnapshotsByMirrorKey.remove(mirrorKey)
             threadKeysByMirrorKey.remove(mirrorKey)
             callMirrorStates.remove(mirrorKey)
-            userDismissedMirrorKeys.add(mirrorKey)
             callMirrorStates.remove(mirrorKey)
             smartAnimationGenerations.remove(mirrorKey)
             smartAnimationStates.remove(mirrorKey)
@@ -4964,6 +4940,8 @@ object LiveUpdateNotifier {
             builder.setSortKey(threadKey)
             builder.setOnlyAlertOnce(true)
         }
+
+        source.contentIntent?.let(builder::setContentIntent)
 
         val notification = builder.build()
         return if (requestPromoted || samsungBridge.enabled) {
@@ -8648,16 +8626,6 @@ object LiveUpdateNotifier {
         expiredIds.forEach(programmaticMirrorCancelDeadlines::remove)
     }
 
-    private fun isUserDismissedMirrorLocked(mirrorKey: String): Boolean {
-        return userDismissedMirrorKeys.contains(mirrorKey)
-    }
-
-    private fun isUserDismissedMirror(mirrorKey: String): Boolean {
-        return synchronized(stateLock) {
-            isUserDismissedMirrorLocked(mirrorKey)
-        }
-    }
-
     private fun limitIslandText(value: String?, enabled: Boolean, maxLength: Int): String {
         val normalized = value.orEmpty()
         if (!enabled) {
@@ -8706,7 +8674,6 @@ object LiveUpdateNotifier {
                     aggregateStates.remove(smartAggregateKey)
                     smartAnimationGenerations.remove(smartAggregateKey)
                     smartAnimationStates.remove(smartAggregateKey)
-                    userDismissedMirrorKeys.remove(smartAggregateKey)
                     sourceSnapshotsByMirrorKey.remove(smartAggregateKey)
                     threadKeysByMirrorKey.remove(smartAggregateKey)
                     forgetMirrorNotificationIdLocked(mirrorIdForKey(smartAggregateKey))
@@ -8715,7 +8682,6 @@ object LiveUpdateNotifier {
             } else {
                 smartAnimationGenerations.remove(smartAggregateKey)
                 smartAnimationStates.remove(smartAggregateKey)
-                userDismissedMirrorKeys.remove(smartAggregateKey)
                 sourceSnapshotsByMirrorKey.remove(smartAggregateKey)
                 threadKeysByMirrorKey.remove(smartAggregateKey)
                 forgetMirrorNotificationIdLocked(mirrorIdForKey(smartAggregateKey))
@@ -8768,7 +8734,6 @@ object LiveUpdateNotifier {
                 if (state.activeSbnKeys.isEmpty()) {
                     otpAggregateStates.remove(otpAggregateKey)
                     otpAnimationGenerations.remove(otpAggregateKey)
-                    userDismissedMirrorKeys.remove(otpAggregateKey)
                     sourceSnapshotsByMirrorKey.remove(otpAggregateKey)
                     threadKeysByMirrorKey.remove(otpAggregateKey)
                     forgetMirrorNotificationIdLocked(mirrorIdForKey(otpAggregateKey))
@@ -8776,7 +8741,6 @@ object LiveUpdateNotifier {
                 }
             } else {
                 otpAnimationGenerations.remove(otpAggregateKey)
-                userDismissedMirrorKeys.remove(otpAggregateKey)
                 sourceSnapshotsByMirrorKey.remove(otpAggregateKey)
                 threadKeysByMirrorKey.remove(otpAggregateKey)
                 forgetMirrorNotificationIdLocked(mirrorIdForKey(otpAggregateKey))
