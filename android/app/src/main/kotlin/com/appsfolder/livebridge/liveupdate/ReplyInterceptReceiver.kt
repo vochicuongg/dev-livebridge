@@ -16,10 +16,13 @@ import androidx.core.app.RemoteInput
  *
  * Flow:
  * 1. Extract typed RemoteInput text.
- * 2. Store it as a local reply in ChatHistoryStore.
- * 3. Immediately force a deterministic synthetic MessagingStyle rebuild.
- * 4. Lock the thread for 10 seconds.
- * 5. Forward the original PendingIntent after 500 ms.
+ * 2. Store it as a local reply in ChatHistoryStore (it will be merged into
+ *    the mirrored chat history when the other party replies later).
+ * 3. Lock the thread for 10 seconds so source-app churn is ignored.
+ * 4. Immediately cancel the currently-displayed mirrored notification so the
+ *    Wear OS keyboard exits the "Sending..." state (NO UI rebuild here).
+ * 5. Forward the original PendingIntent after 500 ms so the source app
+ *    actually sends the message.
  */
 class ReplyInterceptReceiver : BroadcastReceiver() {
 
@@ -62,13 +65,21 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
         if (threadKey.isNotBlank()) {
             ChatHistoryStore.setPendingReply(threadKey, replyText)
             ChatHistoryStore.appendLocalReply(threadKey, replyText)
-            LiveUpdateNotifier.forceUpdateChatUi(context, threadKey)
+            // NOTE: Deliberately NO UI rebuild here (no forceUpdateChatUi /
+            // notify). Re-posting the notification while the watch is in the
+            // "Sending..." state keeps the reply UI stuck in a loading loop.
+            // The cached history above is picked up automatically by the
+            // mirrored-notification builder when the next incoming message
+            // arrives from the other party.
             ChatHistoryStore.setLockdown(threadKey, LOCKDOWN_DURATION_MS)
-            Log.d(TAG, "Local echo rendered and lockdown activated for threadKey=$threadKey")
+            Log.d(TAG, "Reply cached and lockdown activated for threadKey=$threadKey")
         }
 
         if (mirrorKey.isNotBlank()) {
             LiveUpdateNotifier.recordReplyDebounce(mirrorKey)
+            // Immediately dismiss the current mirrored notification so the
+            // Wear OS reply UI closes cleanly instead of waiting for an update.
+            LiveUpdateNotifier.cancelMirroredForReply(context, mirrorKey)
         }
 
         val originalPendingIntent: PendingIntent? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

@@ -4422,14 +4422,53 @@ object LiveUpdateNotifier {
                     ?: displayText.trim().takeIf { it.isNotBlank() }
                     ?: source.tickerText?.toString()?.trim()?.takeIf { it.isNotBlank() }
                     ?: "New message"
-                val nativeMessagingStyle = buildDeterministicMessagingStyle(
-                    threadKey = threadKey,
-                    conversationTitle = conversationTitle,
-                    selfDisplayName = selfDisplayName,
-                    messages = renderedMessages,
-                    fallbackText = fallback
-                )
-                builder.setStyle(nativeMessagingStyle)
+                // === WearOS chat-history rebuild (threadKey-based, survives Notification ID refresh) ===
+                // 1) Extract the original MessagingStyle from the source notification (null-safe).
+                val extractedStyle = NotificationCompat.MessagingStyle
+                    .extractMessagingStyleFromNotification(source)
+                if (extractedStyle != null) {
+                    // 2) Remote messages carried by the source notification.
+                    val remoteMessages = extractedStyle.messages
+                        .orEmpty()
+                        .filter { msg -> !msg.text.isNullOrBlank() }
+                    // 3) Local-echo messages (isMe = true) from the immutable threadKey cache,
+                    //    with Person FORCED to null so Wear OS renders them as the owner's own bubbles.
+                    val localEchoMessages = ChatHistoryStore.getMessages(threadKey)
+                        .filter { snapshot -> snapshot.isMe }
+                        .map { snapshot ->
+                            NotificationCompat.MessagingStyle.Message(
+                                snapshot.text,
+                                snapshot.timestampMs,
+                                null as Person?
+                            )
+                        }
+                    // 4) Merge remote + local, dedup by (text, timestamp), sort ascending by time.
+                    val mergedMessages = (remoteMessages + localEchoMessages)
+                        .distinctBy { msg -> msg.text?.toString()?.trim().orEmpty() to msg.timestamp }
+                        .sortedBy { msg -> msg.timestamp }
+                    // 5) Build a fresh MessagingStyle and push the full merged list into it.
+                    val mergedStyle = NotificationCompat.MessagingStyle(extractedStyle.user)
+                    extractedStyle.conversationTitle
+                        ?.toString()
+                        ?.trim()
+                        ?.takeIf { it.isNotEmpty() }
+                        ?.let { title ->
+                            mergedStyle.conversationTitle = title
+                            mergedStyle.isGroupConversation = extractedStyle.isGroupConversation
+                        }
+                    mergedMessages.forEach { msg -> mergedStyle.addMessage(msg) }
+                    builder.setStyle(mergedStyle)
+                } else {
+                    // Extraction returned null -> skip the merge and keep the legacy deterministic path.
+                    val nativeMessagingStyle = buildDeterministicMessagingStyle(
+                        threadKey = threadKey,
+                        conversationTitle = conversationTitle,
+                        selfDisplayName = selfDisplayName,
+                        messages = renderedMessages,
+                        fallbackText = fallback
+                    )
+                    builder.setStyle(nativeMessagingStyle)
+                }
                 builder.setGroup(threadKey)
                 builder.setSortKey(threadKey)
                 builder.setOnlyAlertOnce(true)
@@ -8303,6 +8342,45 @@ object LiveUpdateNotifier {
                 ?: sourceSbn.notification.extras.getCharSequence(Notification.EXTRA_TITLE)
             val threadKey = buildThreadKey(sourceSbn.packageName, conversationTitle)
             ChatHistoryStore.setActiveNotification(threadKey, notification)
+        }
+    }
+
+    /**
+     * Cancels the currently-displayed mirrored notification for [mirrorKey]
+     * immediately. Used by [ReplyInterceptReceiver] right after a Wear OS
+     * inline reply is sent, so the watch exits the "Sending..." state instead
+     * of waiting for a UI rebuild. The programmatic-cancel grace period is
+     * recorded so the removal is not mistaken for a user dismissal.
+     */
+    fun cancelMirroredForReply(context: Context, mirrorKey: String) {
+        if (mirrorKey.isBlank()) {
+            return
+        }
+
+        // ── Step 1: Look up the original source sbn.key BEFORE clearing state ──
+        val sourceKey: String? = synchronized(stateLock) {
+            sourceSnapshotsByMirrorKey[mirrorKey]?.key
+        }
+
+        // ── Step 2: Cancel the mirrored (LiveBridge) notification ──
+        val manager = NotificationManagerCompat.from(context)
+        cancelMirroredNotification(manager, mirrorIdForKey(mirrorKey))
+        Log.d(TAG, "cancelMirroredForReply: cancelled mirrored notification for mirrorKey=$mirrorKey")
+
+        // ── Step 3: "Uproot" the ORIGINAL source notification on the phone ──
+        // This is the critical fix: WearOS mirrors the phone's notification bar.
+        // If the original app notification (Messenger/Zalo/etc.) is still present
+        // on the phone, WearOS will keep showing it and the reply keyboard stays
+        // stuck in the "Sending..." state. By cancelling the source notification
+        // via NotificationListenerService, WearOS sees it disappear and cleanly
+        // exits the reply UI.
+        if (!sourceKey.isNullOrBlank()) {
+            LiveUpdateNotificationListenerService.requestCancelSourceNotification(sourceKey)
+            Log.d(TAG, "cancelMirroredForReply: requested cancel of original source notification sourceKey=$sourceKey")
+        } else {
+            // Fallback: mirrorKey often IS the sbn.key itself
+            LiveUpdateNotificationListenerService.requestCancelSourceNotification(mirrorKey)
+            Log.d(TAG, "cancelMirroredForReply: no source snapshot found, using mirrorKey as sourceKey=$mirrorKey")
         }
     }
 

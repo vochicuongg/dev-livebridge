@@ -1438,6 +1438,25 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
             }
         }
 
+        /**
+         * Cancels the original source notification (e.g. Messenger/Zalo) on the
+         * phone after a Wear OS reply. This ensures WearOS sees the notification
+         * disappear and exits the "Sending..." state.
+         */
+        fun requestCancelSourceNotification(sourceKey: String) {
+            val listener = activeInstance
+            if (listener == null) {
+                Log.w(TAG, "Skip source cancel after reply: listener is not active")
+                return
+            }
+            try {
+                listener.cancelNotification(sourceKey)
+                Log.i(TAG, "Cancelled original source notification after reply: $sourceKey")
+            } catch (error: Throwable) {
+                Log.w(TAG, "Failed to cancel original source notification: $sourceKey", error)
+            }
+        }
+
         private fun isListenerEnabled(context: Context): Boolean {
             val enabled = Settings.Secure.getString(
                 context.contentResolver,
