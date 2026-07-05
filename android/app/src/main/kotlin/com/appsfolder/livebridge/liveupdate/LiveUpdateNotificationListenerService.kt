@@ -326,6 +326,11 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
             if (isUnsupportedDevice()) {
                 return
             }
+            if (consumeProgrammaticCancel(sbn)) {
+                Log.v(TAG, "Ignoring programmatic notification removal: ${sbn.key}")
+                refreshNotificationCapsuleFromActiveNotifications()
+                return
+            }
             if (sbn.packageName == packageName) {
                 if (handleProtectedMirrorRemoval(sbn, reason)) {
                     return
@@ -376,10 +381,22 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         if (sourceKey.isBlank()) {
             return false
         }
+        rememberProgrammaticCancelKeys(sourceKey)
         return requestDismissOrSnoozeSourceNotification(
             sourceKey = sourceKey,
             label = "reply source notification"
         )
+    }
+
+    private fun consumeProgrammaticCancel(sbn: StatusBarNotification): Boolean {
+        val keys = buildList {
+            add(sbn.key)
+            add(notificationIdentityKey(sbn.packageName, sbn.id, sbn.tag))
+            if (sbn.packageName == packageName) {
+                add(mirrorNotificationIdKey(sbn.id))
+            }
+        }
+        return consumeProgrammaticCancelKeys(keys)
     }
 
     private fun syncNetworkSpeedService() {
@@ -1346,12 +1363,15 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         private const val FLASHLIGHT_SOURCE_CHANNEL_ID = "FLASHLIGHT_ONGOING"
         private const val FLASHLIGHT_SOURCE_TAG = "Flashlight"
         private const val REPLY_SOURCE_CANCEL_TTL_MS = 15_000L
+        private const val PROGRAMMATIC_CANCEL_TTL_MS = 15_000L
 
         @Volatile
         internal var activeInstance: LiveUpdateNotificationListenerService? = null
             private set
         private val pendingReplySourceCancelLock = Any()
         private val pendingReplySourceCancels = mutableMapOf<String, ReplySourceCancelTarget>()
+        private val programmaticCancelDeadlines =
+            java.util.concurrent.ConcurrentHashMap<String, Long>()
 
         /**
          * Heartbeat timestamp updated every time the listener successfully
@@ -1375,6 +1395,65 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
 
         private fun recordHeartbeat() {
             lastHeartbeatMs = android.os.SystemClock.elapsedRealtime()
+        }
+
+        internal fun rememberProgrammaticReplyCancel(
+            sourceKey: String,
+            mirrorKey: String,
+            mirrorNotificationId: Int
+        ) {
+            rememberProgrammaticCancelKeys(
+                sourceKey,
+                mirrorKey,
+                mirrorNotificationIdKey(mirrorNotificationId)
+            )
+        }
+
+        internal fun rememberProgrammaticCancelKeys(vararg keys: String) {
+            val now = SystemClock.elapsedRealtime()
+            pruneProgrammaticCancelKeys(now)
+            val expiresAtMs = now + PROGRAMMATIC_CANCEL_TTL_MS
+            keys
+                .map { key -> key.trim() }
+                .filter { key -> key.isNotBlank() }
+                .forEach { key ->
+                    programmaticCancelDeadlines[key] = expiresAtMs
+                }
+        }
+
+        private fun consumeProgrammaticCancelKeys(keys: Collection<String>): Boolean {
+            val now = SystemClock.elapsedRealtime()
+            pruneProgrammaticCancelKeys(now)
+            keys
+                .map { key -> key.trim() }
+                .filter { key -> key.isNotBlank() }
+                .forEach { key ->
+                    val expiresAtMs = programmaticCancelDeadlines.remove(key)
+                    if (expiresAtMs != null && expiresAtMs >= now) {
+                        return true
+                    }
+                }
+            return false
+        }
+
+        private fun pruneProgrammaticCancelKeys(now: Long) {
+            programmaticCancelDeadlines
+                .filterValues { expiresAtMs -> expiresAtMs < now }
+                .keys
+                .toList()
+                .forEach(programmaticCancelDeadlines::remove)
+        }
+
+        private fun mirrorNotificationIdKey(notificationId: Int): String {
+            return "mirror_id:$notificationId"
+        }
+
+        private fun notificationIdentityKey(
+            packageName: String,
+            notificationId: Int,
+            tag: String?
+        ): String {
+            return "identity:$packageName:$notificationId:${tag.orEmpty()}"
         }
 
         fun requestFlashlightSnapshotSync() {

@@ -129,6 +129,11 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
         mirrorNotificationId: Int,
         sourceKey: String
     ) {
+        LiveUpdateNotificationListenerService.rememberProgrammaticReplyCancel(
+            sourceKey = sourceKey,
+            mirrorKey = mirrorKey,
+            mirrorNotificationId = mirrorNotificationId
+        )
         dismissMirrorNotification(context, mirrorKey, mirrorNotificationId)
         dismissSourceNotification(context, sourceKey)
     }
