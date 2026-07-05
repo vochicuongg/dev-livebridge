@@ -85,6 +85,10 @@ class LiveBridgePlatform {
       _askBool('getPreventMirrorDismissEnabled');
   static Future<bool> setPreventMirrorDismissEnabled(bool value) =>
       _askBool('setPreventMirrorDismissEnabled', {'value': value});
+  static Future<bool> getAutoDismissNowBarEnabled() =>
+      _askBool('getAutoDismissNowBarEnabled');
+  static Future<bool> setAutoDismissNowBarEnabled(bool value) =>
+      _askBool('setAutoDismissNowBarEnabled', {'value': value});
   static Future<bool> getHideLockscreenContentEnabled() =>
       _askBool('getHideLockscreenContentEnabled');
   static Future<bool> setHideLockscreenContentEnabled(bool value) =>

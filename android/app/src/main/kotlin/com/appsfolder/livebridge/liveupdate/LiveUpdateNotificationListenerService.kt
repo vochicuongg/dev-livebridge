@@ -349,7 +349,9 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
                 refreshNotificationCapsuleFromActiveNotifications()
                 return
             }
-            LiveUpdateNotifier.cancelMirrored(applicationContext, sbn)
+            if (prefs.getAutoDismissNowBarEnabled()) {
+                LiveUpdateNotifier.cancelMirroredForSourceRemoval(applicationContext, sbn)
+            }
             refreshNotificationCapsuleFromActiveNotifications()
         } catch (e: Exception) {
             Log.e(TAG, "handleNotificationRemoved: unhandled exception for ${sbn.key}", e)

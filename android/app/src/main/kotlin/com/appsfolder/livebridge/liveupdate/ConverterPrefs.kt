@@ -78,6 +78,14 @@ class ConverterPrefs(context: Context) {
         prefs.edit().putBoolean(KEY_PREVENT_MIRROR_DISMISS_ENABLED, value).apply()
     }
 
+    fun getAutoDismissNowBarEnabled(): Boolean {
+        return prefs.getBoolean(KEY_AUTO_DISMISS_NOW_BAR_ENABLED, true)
+    }
+
+    fun setAutoDismissNowBarEnabled(value: Boolean) {
+        prefs.edit().putBoolean(KEY_AUTO_DISMISS_NOW_BAR_ENABLED, value).apply()
+    }
+
     fun getHideLockscreenContentEnabled(): Boolean {
         return prefs.getBoolean(KEY_HIDE_LOCKSCREEN_CONTENT_ENABLED, false)
     }
@@ -940,6 +948,7 @@ class ConverterPrefs(context: Context) {
             .put("keep_alive_foreground_enabled", getKeepAliveForegroundEnabled())
             .put("spring_transitions_enabled", getSpringTransitionsEnabled())
             .put("prevent_mirror_dismiss_enabled", getPreventMirrorDismissEnabled())
+            .put("auto_dismiss_now_bar_enabled", getAutoDismissNowBarEnabled())
             .put("hide_lockscreen_content_enabled", getHideLockscreenContentEnabled())
             .put("hints_disabled", getHintsDisabled())
             .put("conversion_log_enabled", getConversionLogEnabled())
@@ -1088,6 +1097,7 @@ class ConverterPrefs(context: Context) {
         bool(settings, "keep_alive_foreground_enabled")?.let(::setKeepAliveForegroundEnabled)
         bool(settings, "spring_transitions_enabled")?.let(::setSpringTransitionsEnabled)
         bool(settings, "prevent_mirror_dismiss_enabled")?.let(::setPreventMirrorDismissEnabled)
+        bool(settings, "auto_dismiss_now_bar_enabled")?.let(::setAutoDismissNowBarEnabled)
         bool(settings, "hide_lockscreen_content_enabled")?.let(::setHideLockscreenContentEnabled)
         bool(settings, "hints_disabled")?.let(::setHintsDisabled)
         bool(settings, "conversion_log_enabled")?.let(::setConversionLogEnabled)
@@ -1413,6 +1423,8 @@ class ConverterPrefs(context: Context) {
         private const val KEY_SPRING_TRANSITIONS_ENABLED = "spring_transitions_enabled"
         private const val KEY_PREVENT_MIRROR_DISMISS_ENABLED =
             "prevent_mirror_dismiss_enabled"
+        private const val KEY_AUTO_DISMISS_NOW_BAR_ENABLED =
+            "auto_dismiss_now_bar_enabled"
         private const val KEY_HIDE_LOCKSCREEN_CONTENT_ENABLED =
             "hide_lockscreen_content_enabled"
         private const val KEY_HINTS_DISABLED = "hints_disabled"

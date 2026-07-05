@@ -402,6 +402,12 @@ class MainActivity : FlutterActivity() {
                 res.success(true)
             }
 
+            "getAutoDismissNowBarEnabled" -> res.success(prefs.getAutoDismissNowBarEnabled())
+            "setAutoDismissNowBarEnabled" -> {
+                prefs.setAutoDismissNowBarEnabled(call.argument<Boolean>("value") ?: true)
+                res.success(true)
+            }
+
             "getHideLockscreenContentEnabled" -> res.success(prefs.getHideLockscreenContentEnabled())
             "setHideLockscreenContentEnabled" -> {
                 prefs.setHideLockscreenContentEnabled(call.argument<Boolean>("value") ?: false)

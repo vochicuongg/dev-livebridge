@@ -1825,6 +1825,17 @@ class AppStrings {
     vi: 'Ngăn chặn đóng ứng dụng',
   );
 
+  String get autoDismissNowBarTitle => tr(
+    en: 'Auto-dismiss Now Bar',
+    ru: 'Автоскрытие Now Bar',
+    tr: 'Now Bar otomatik kapansın',
+    ptBr: 'Dispensar Now Bar automaticamente',
+    zhHans: '自动关闭 Now Bar',
+    zhHant: '自動關閉 Now Bar',
+    ko: 'Now Bar 자동 지우기',
+    vi: 'Tự động xóa Now Bar',
+  );
+
   String get hideLockscreenContentTitle => tr(
     en: 'Hide lockscreen content',
     ru: 'Скрывать на локскрине',
@@ -3019,6 +3030,18 @@ class AppStrings {
     zhHant: '在 LiveBridge 通知被滑掉後恢復它',
     ko: 'LiveBridge 알림을 지웠을 때 복구합니다.',
     vi: 'khôi phục thông báo LiveBridge sau khi bị vuốt tắt',
+  );
+
+  String get autoDismissNowBarDescription => tr(
+    en: 'removes the LiveBridge Now Bar when the original notification is cleared',
+    ru: 'убирает Now Bar LiveBridge после удаления исходного уведомления',
+    tr: 'asıl bildirim silindiğinde LiveBridge Now Bar bildirimini kaldırır',
+    ptBr:
+        'remove a Now Bar do LiveBridge quando a notificação original é limpa',
+    zhHans: '原始通知被清除时移除 LiveBridge Now Bar',
+    zhHant: '原始通知被清除時移除 LiveBridge Now Bar',
+    ko: '원본 알림이 지워지면 LiveBridge Now Bar를 제거합니다.',
+    vi: 'xóa Now Bar LiveBridge khi thông báo gốc được xóa',
   );
 
   String get hideLockscreenContentDescription => tr(

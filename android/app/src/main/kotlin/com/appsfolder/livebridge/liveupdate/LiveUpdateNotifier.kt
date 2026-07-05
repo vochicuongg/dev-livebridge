@@ -289,6 +289,7 @@ object LiveUpdateNotifier {
     private val mirrorKeysByNotificationId = mutableMapOf<Int, String>()
     private val mirrorNotificationIdsByKey = mutableMapOf<String, MutableSet<Int>>()
     private val sourceSnapshotsByMirrorKey = mutableMapOf<String, StatusBarNotification>()
+    private val threadKeysByMirrorKey = mutableMapOf<String, String>()
     private val userDismissedMirrorKeys = mutableSetOf<String>()
     private val programmaticMirrorCancelDeadlines = mutableMapOf<Int, Long>()
     private val bypassContentHashes = java.util.concurrent.ConcurrentHashMap<String, Int>()
@@ -388,6 +389,7 @@ object LiveUpdateNotifier {
      * Maximum number of messages to keep in chat history cache
      */
     private const val MAX_CHAT_HISTORY_MESSAGES = 7
+    private const val LOCAL_ECHO_DUPLICATE_WINDOW_MS = 15_000L
 
     private fun buildThreadKey(sourcePackageName: String, conversationTitle: CharSequence?): String {
         return "${sourcePackageName}_${conversationTitle?.toString().orEmpty()}"
@@ -533,6 +535,217 @@ object LiveUpdateNotifier {
         return style
     }
 
+    private enum class MergedMessagingOrigin {
+        SOURCE,
+        HISTORY,
+        PENDING
+    }
+
+    private data class MergedMessagingCandidate(
+        val message: NotificationCompat.MessagingStyle.Message,
+        val isLocalEcho: Boolean,
+        val origin: MergedMessagingOrigin
+    )
+
+    private fun isExtractedLocalMessage(
+        message: NotificationCompat.MessagingStyle.Message,
+        styleUser: Person?,
+        selfDisplayName: String
+    ): Boolean {
+        val senderPerson = message.person ?: return true
+        val senderKey = senderPerson.key?.trim()?.takeIf { it.isNotEmpty() }
+        val styleUserKey = styleUser?.key?.trim()?.takeIf { it.isNotEmpty() }
+        if (senderKey != null && (senderKey == LOCAL_USER_PERSON_KEY || senderKey == styleUserKey)) {
+            return true
+        }
+
+        val senderName = NotificationTextNormalizer.normalize(senderPerson.name) ?: return false
+        return isSelfSender(senderName, selfDisplayName)
+    }
+
+    private fun historySnapshotToMessagingCandidate(
+        threadKey: String,
+        snapshot: ChatHistoryStore.ChatMessageSnapshot
+    ): MergedMessagingCandidate {
+        if (snapshot.isMe) {
+            return MergedMessagingCandidate(
+                NotificationCompat.MessagingStyle.Message(
+                    snapshot.text,
+                    snapshot.timestampMs,
+                    null as Person?
+                ),
+                isLocalEcho = true,
+                origin = MergedMessagingOrigin.HISTORY
+            )
+        }
+
+        val senderName = snapshot.senderName
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?: "Unknown"
+        val senderPerson = Person.Builder()
+            .setName(senderName)
+            .setKey(snapshot.senderKey ?: deterministicSenderKey(threadKey, senderName))
+            .build()
+        return MergedMessagingCandidate(
+            NotificationCompat.MessagingStyle.Message(
+                snapshot.text,
+                snapshot.timestampMs,
+                senderPerson
+            ),
+            isLocalEcho = false,
+            origin = MergedMessagingOrigin.HISTORY
+        )
+    }
+
+    private fun buildMergedWearMessagingStyle(
+        threadKey: String,
+        extractedStyle: NotificationCompat.MessagingStyle?,
+        conversationTitle: CharSequence?,
+        selfDisplayName: String,
+        fallbackMessages: List<ChatHistoryStore.ChatMessageSnapshot>,
+        fallbackText: CharSequence
+    ): NotificationCompat.MessagingStyle {
+        val style = NotificationCompat.MessagingStyle(
+            extractedStyle?.user ?: Person.Builder()
+                .setName(selfDisplayName.ifBlank { DEFAULT_LOCAL_USER_NAME })
+                .setKey(LOCAL_USER_PERSON_KEY)
+                .build()
+        )
+
+        val resolvedConversationTitle = extractedStyle?.conversationTitle ?: conversationTitle
+        resolvedConversationTitle
+            ?.toString()
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { title ->
+                style.conversationTitle = title
+                style.isGroupConversation = extractedStyle?.isGroupConversation ?: false
+            }
+
+        val sourceStyleCandidates = extractedStyle
+            ?.messages
+            .orEmpty()
+            .filter { message -> !message.text.isNullOrBlank() }
+            .map { message ->
+                val isLocal = extractedStyle?.let { style ->
+                    isExtractedLocalMessage(message, style.user, selfDisplayName)
+                } ?: false
+                val renderedMessage = if (isLocal) {
+                    NotificationCompat.MessagingStyle.Message(
+                        message.text,
+                        message.timestamp,
+                        null as Person?
+                    )
+                } else {
+                    message
+                }
+                MergedMessagingCandidate(
+                    renderedMessage,
+                    isLocalEcho = isLocal,
+                    origin = MergedMessagingOrigin.SOURCE
+                )
+            }
+
+        val storedHistoryCandidates = ChatHistoryStore.getMessages(threadKey)
+            .ifEmpty { fallbackMessages }
+            .asSequence()
+            .filter { snapshot -> snapshot.text.toString().trim().isNotEmpty() }
+            .map { snapshot -> historySnapshotToMessagingCandidate(threadKey, snapshot) }
+            .toList()
+
+        val pendingReplyCandidate = ChatHistoryStore.getPendingReplyText(threadKey)
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { pendingText ->
+                if (storedHistoryCandidates.any { candidate ->
+                        candidate.isLocalEcho &&
+                        candidate.message.text?.toString()?.trim() == pendingText
+                    }
+                ) {
+                    null
+                } else {
+                    MergedMessagingCandidate(
+                        NotificationCompat.MessagingStyle.Message(
+                            pendingText,
+                            System.currentTimeMillis(),
+                            null as Person?
+                        ),
+                        isLocalEcho = true,
+                        origin = MergedMessagingOrigin.PENDING
+                    )
+                }
+            }
+
+        val mergedCandidates = mergeMessagingCandidates(
+            sourceStyleCandidates + storedHistoryCandidates + listOfNotNull(pendingReplyCandidate)
+        )
+
+        if (mergedCandidates.isEmpty()) {
+            buildDeterministicMessagingStyle(
+                threadKey = threadKey,
+                conversationTitle = conversationTitle,
+                selfDisplayName = selfDisplayName,
+                messages = fallbackMessages,
+                fallbackText = fallbackText
+            ).messages.forEach(style::addMessage)
+            return style
+        }
+
+        mergedCandidates
+            .takeLast(MAX_CHAT_HISTORY_MESSAGES)
+            .forEach { candidate -> style.addMessage(candidate.message) }
+        return style
+    }
+
+    private fun mergeMessagingCandidates(
+        candidates: List<MergedMessagingCandidate>
+    ): List<MergedMessagingCandidate> {
+        val merged = mutableListOf<MergedMessagingCandidate>()
+        candidates
+            .filter { candidate -> !candidate.message.text.isNullOrBlank() }
+            .sortedWith(
+                compareBy<MergedMessagingCandidate> { candidate ->
+                    candidate.message.timestamp.takeIf { it > 0L } ?: Long.MAX_VALUE
+                }.thenBy { candidate ->
+                    candidate.message.text?.toString()?.trim().orEmpty()
+                }
+            )
+            .forEach { candidate ->
+                val normalizedText = normalizeMergeText(candidate.message.text)
+                val timestamp = candidate.message.timestamp.takeIf { it > 0L } ?: 0L
+                val duplicateIndex = merged.indexOfFirst { existing ->
+                    val existingTimestamp = existing.message.timestamp.takeIf { it > 0L } ?: 0L
+                    val exactTimestampDuplicate = existingTimestamp > 0L &&
+                        timestamp > 0L &&
+                        existingTimestamp == timestamp
+                    val localEchoDuplicate = existing.isLocalEcho &&
+                        candidate.isLocalEcho &&
+                        existing.origin != candidate.origin &&
+                        kotlin.math.abs(existingTimestamp - timestamp) <= LOCAL_ECHO_DUPLICATE_WINDOW_MS
+                    normalizeMergeText(existing.message.text) == normalizedText &&
+                        (exactTimestampDuplicate || localEchoDuplicate)
+                }
+
+                if (duplicateIndex < 0) {
+                    merged += candidate
+                } else if (candidate.isLocalEcho && !merged[duplicateIndex].isLocalEcho) {
+                    merged[duplicateIndex] = candidate
+                }
+            }
+        return merged.sortedBy { candidate ->
+            candidate.message.timestamp.takeIf { it > 0L } ?: Long.MAX_VALUE
+        }
+    }
+
+    private fun normalizeMergeText(value: CharSequence?): String {
+        return value
+            ?.toString()
+            ?.trim()
+            ?.replace(Regex("\\s+"), " ")
+            .orEmpty()
+    }
+
     fun ensureChannel(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             return
@@ -630,6 +843,7 @@ object LiveUpdateNotifier {
             mirrorKeysByNotificationId.clear()
             mirrorNotificationIdsByKey.clear()
             sourceSnapshotsByMirrorKey.clear()
+            threadKeysByMirrorKey.clear()
             userDismissedMirrorKeys.clear()
             programmaticMirrorCancelDeadlines.clear()
             bypassContentHashes.clear()
@@ -699,6 +913,7 @@ object LiveUpdateNotifier {
                 smartAnimationStates.remove(aggregateKey)
                 userDismissedMirrorKeys.remove(aggregateKey)
                 sourceSnapshotsByMirrorKey.remove(aggregateKey)
+                threadKeysByMirrorKey.remove(aggregateKey)
                 mirrorIdForKey(aggregateKey)
             }
         }
@@ -2719,19 +2934,51 @@ object LiveUpdateNotifier {
     }
 
     fun cancelMirrored(context: Context, sbn: StatusBarNotification) {
+        cancelMirroredForSourceRemoval(context, sbn)
+    }
+
+    private fun collectMirrorIdsAndForgetStateLocked(mirrorKey: String): Set<Int> {
+        val ids = linkedSetOf(mirrorIdForKey(mirrorKey))
+        mirrorNotificationIdsByKey.remove(mirrorKey)?.forEach { notificationId ->
+            ids.add(notificationId)
+        }
+        ids.forEach { notificationId ->
+            if (mirrorKeysByNotificationId[notificationId] == mirrorKey) {
+                mirrorKeysByNotificationId.remove(notificationId)
+            }
+        }
+        userDismissedMirrorKeys.remove(mirrorKey)
+        sourceSnapshotsByMirrorKey.remove(mirrorKey)
+        threadKeysByMirrorKey.remove(mirrorKey)
+        callMirrorStates.remove(mirrorKey)
+        smartAnimationGenerations.remove(mirrorKey)
+        smartAnimationStates.remove(mirrorKey)
+        otpAnimationGenerations.remove(mirrorKey)
+        bypassContentHashes.remove(mirrorKey)
+        return ids
+    }
+
+    fun cancelMirroredForSourceRemoval(context: Context, sbn: StatusBarNotification) {
         try {
             val manager = NotificationManagerCompat.from(context)
-            val staleAggregateIds = synchronized(stateLock) {
-                val directMirrorId = mirrorIdForKey(sbn.key)
-                userDismissedMirrorKeys.remove(sbn.key)
-                sourceSnapshotsByMirrorKey.remove(sbn.key)
-                callMirrorStates.remove(sbn.key)
+            val idsToCancel = synchronized(stateLock) {
+                val ids = linkedSetOf<Int>()
                 bypassContentHashes.remove(sbn.key)
-                forgetMirrorNotificationIdLocked(directMirrorId)
-                clearAggregateTrackingForSbnKeyLocked(sbn.key)
+                val mirrorKeysForSource = sourceSnapshotsByMirrorKey
+                    .filterValues { sourceSnapshot -> sourceSnapshot.key == sbn.key }
+                    .keys
+                    .toList()
+                ids.addAll(collectMirrorIdsAndForgetStateLocked(sbn.key))
+                mirrorKeysForSource.forEach { mirrorKey ->
+                    ids.addAll(collectMirrorIdsAndForgetStateLocked(mirrorKey))
+                }
+
+                ids.addAll(clearAggregateTrackingForSbnKeyLocked(sbn.key))
+                ids
             }
-            staleAggregateIds.forEach { cancelMirroredNotification(manager, it) }
-            cancelMirroredNotification(manager, mirrorIdForKey(sbn.key))
+            idsToCancel.forEach { notificationId ->
+                cancelMirroredNotification(manager, notificationId)
+            }
         } catch (error: Throwable) {
             Log.e(TAG, "Failed to cancel mirrored notification: ${sbn.key}", error)
         }
@@ -2745,6 +2992,7 @@ object LiveUpdateNotifier {
         val staleAggregateIds = synchronized(stateLock) {
             userDismissedMirrorKeys.remove(sbn.key)
             sourceSnapshotsByMirrorKey.remove(sbn.key)
+            threadKeysByMirrorKey.remove(sbn.key)
             callMirrorStates.remove(sbn.key)
             forgetMirrorNotificationIdLocked(directMirrorId)
             clearAggregateTrackingForSbnKeyLocked(sbn.key)
@@ -2772,6 +3020,7 @@ object LiveUpdateNotifier {
 
             val mirrorKey = forgetMirrorNotificationIdLocked(sbn.id) ?: return
             sourceSnapshotsByMirrorKey.remove(mirrorKey)
+            threadKeysByMirrorKey.remove(mirrorKey)
             callMirrorStates.remove(mirrorKey)
             userDismissedMirrorKeys.add(mirrorKey)
             callMirrorStates.remove(mirrorKey)
@@ -4383,59 +4632,25 @@ object LiveUpdateNotifier {
                     ?: displayText.trim().takeIf { it.isNotBlank() }
                     ?: source.tickerText?.toString()?.trim()?.takeIf { it.isNotBlank() }
                     ?: "New message"
-                // === WearOS chat-history rebuild (threadKey-based, survives Notification ID refresh) ===
-                // 1) Extract the original MessagingStyle from the source notification (null-safe).
                 val extractedStyle = NotificationCompat.MessagingStyle
                     .extractMessagingStyleFromNotification(source)
-                if (extractedStyle != null) {
-                    // 2) Remote messages carried by the source notification.
-                    val remoteMessages = extractedStyle.messages
-                        .orEmpty()
-                        .filter { msg -> !msg.text.isNullOrBlank() }
-                    // 3) Local-echo messages (isMe = true) from the immutable threadKey cache,
-                    //    with Person FORCED to null so Wear OS renders them as the owner's own bubbles.
-                    val localEchoMessages = ChatHistoryStore.getMessages(threadKey)
-                        .filter { snapshot -> snapshot.isMe }
-                        .map { snapshot ->
-                            NotificationCompat.MessagingStyle.Message(
-                                snapshot.text,
-                                snapshot.timestampMs,
-                                null as Person?
-                            )
-                        }
-                    // 4) Merge remote + local, dedup by (text, timestamp), sort ascending by time.
-                    val mergedMessages = (remoteMessages + localEchoMessages)
-                        .distinctBy { msg -> msg.text?.toString()?.trim().orEmpty() to msg.timestamp }
-                        .sortedBy { msg -> msg.timestamp }
-                    // 5) Build a fresh MessagingStyle and push the full merged list into it.
-                    val mergedStyle = NotificationCompat.MessagingStyle(extractedStyle.user)
-                    extractedStyle.conversationTitle
-                        ?.toString()
-                        ?.trim()
-                        ?.takeIf { it.isNotEmpty() }
-                        ?.let { title ->
-                            mergedStyle.conversationTitle = title
-                            mergedStyle.isGroupConversation = extractedStyle.isGroupConversation
-                        }
-                    mergedMessages.forEach { msg -> mergedStyle.addMessage(msg) }
-                    builder.setStyle(mergedStyle)
-                } else {
-                    // Extraction returned null -> skip the merge and keep the legacy deterministic path.
-                    val nativeMessagingStyle = buildDeterministicMessagingStyle(
+                builder.setStyle(
+                    buildMergedWearMessagingStyle(
                         threadKey = threadKey,
+                        extractedStyle = extractedStyle,
                         conversationTitle = conversationTitle,
                         selfDisplayName = selfDisplayName,
-                        messages = renderedMessages,
+                        fallbackMessages = renderedMessages,
                         fallbackText = fallback
                     )
-                    builder.setStyle(nativeMessagingStyle)
-                }
+                )
                 builder.setGroup(threadKey)
                 builder.setSortKey(threadKey)
                 builder.setOnlyAlertOnce(true)
 
                 synchronized(stateLock) {
                     sourceSnapshotsByMirrorKey[sbn.key] = sbn
+                    threadKeysByMirrorKey[sbn.key] = threadKey
                 }
 
                 addReplyActionIfNotAlreadyCopied(
@@ -8125,6 +8340,13 @@ object LiveUpdateNotifier {
      * the threadKey to [ReplyInterceptReceiver].
      */
     private fun resolveThreadKeyForMirror(mirrorKey: String): String {
+        val cachedThreadKey = synchronized(stateLock) {
+            threadKeysByMirrorKey[mirrorKey]
+        }
+        if (!cachedThreadKey.isNullOrBlank()) {
+            return cachedThreadKey
+        }
+
         val sourceSbn = synchronized(stateLock) {
             sourceSnapshotsByMirrorKey[mirrorKey]
         } ?: return ""
@@ -8167,12 +8389,9 @@ object LiveUpdateNotifier {
         }
 
         val sourceEntry = synchronized(stateLock) {
-            sourceSnapshotsByMirrorKey.entries.firstOrNull { (_, sbn) ->
-                buildThreadKey(
-                    sbn.packageName,
-                    sbn.notification.extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
-                        ?: sbn.notification.extras.getCharSequence(Notification.EXTRA_TITLE)
-                ) == threadKey
+            sourceSnapshotsByMirrorKey.entries.firstOrNull { (mirrorKey, sbn) ->
+                threadKeysByMirrorKey[mirrorKey] == threadKey ||
+                    threadKeyForNotification(sbn) == threadKey
             }
         } ?: run {
             Log.w(TAG, "forceUpdateChatUi: no source snapshot for threadKey=$threadKey")
@@ -8298,13 +8517,17 @@ object LiveUpdateNotifier {
                 .getOrPut(mirrorKey) { mutableSetOf() }
                 .add(notificationId)
             sourceSnapshotsByMirrorKey[mirrorKey] = sourceSbn
+            if (rawNotificationMessages(sourceSbn.notification).isNotEmpty() &&
+                !threadKeysByMirrorKey.containsKey(mirrorKey)
+            ) {
+                threadKeysByMirrorKey[mirrorKey] = threadKeyForNotification(sourceSbn)
+            }
         }
 
         if (rawNotificationMessages(sourceSbn.notification).isNotEmpty()) {
-            val conversationTitle = sourceSbn.notification.extras
-                .getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
-                ?: sourceSbn.notification.extras.getCharSequence(Notification.EXTRA_TITLE)
-            val threadKey = buildThreadKey(sourceSbn.packageName, conversationTitle)
+            val threadKey = synchronized(stateLock) {
+                threadKeysByMirrorKey[mirrorKey]
+            } ?: threadKeyForNotification(sourceSbn)
             ChatHistoryStore.setActiveNotification(threadKey, notification)
         }
     }
@@ -8394,6 +8617,7 @@ object LiveUpdateNotifier {
             val mirrorKey = forgetMirrorNotificationIdLocked(notificationId)
             if (mirrorKey != null) {
                 sourceSnapshotsByMirrorKey.remove(mirrorKey)
+                threadKeysByMirrorKey.remove(mirrorKey)
                 callMirrorStates.remove(mirrorKey)
                 smartAnimationGenerations.remove(mirrorKey)
                 smartAnimationStates.remove(mirrorKey)
@@ -8479,6 +8703,7 @@ object LiveUpdateNotifier {
                     smartAnimationStates.remove(smartAggregateKey)
                     userDismissedMirrorKeys.remove(smartAggregateKey)
                     sourceSnapshotsByMirrorKey.remove(smartAggregateKey)
+                    threadKeysByMirrorKey.remove(smartAggregateKey)
                     forgetMirrorNotificationIdLocked(mirrorIdForKey(smartAggregateKey))
                     idsToCancel.add(mirrorIdForKey(smartAggregateKey))
                 }
@@ -8487,6 +8712,7 @@ object LiveUpdateNotifier {
                 smartAnimationStates.remove(smartAggregateKey)
                 userDismissedMirrorKeys.remove(smartAggregateKey)
                 sourceSnapshotsByMirrorKey.remove(smartAggregateKey)
+                threadKeysByMirrorKey.remove(smartAggregateKey)
                 forgetMirrorNotificationIdLocked(mirrorIdForKey(smartAggregateKey))
                 idsToCancel.add(mirrorIdForKey(smartAggregateKey))
             }
@@ -8539,6 +8765,7 @@ object LiveUpdateNotifier {
                     otpAnimationGenerations.remove(otpAggregateKey)
                     userDismissedMirrorKeys.remove(otpAggregateKey)
                     sourceSnapshotsByMirrorKey.remove(otpAggregateKey)
+                    threadKeysByMirrorKey.remove(otpAggregateKey)
                     forgetMirrorNotificationIdLocked(mirrorIdForKey(otpAggregateKey))
                     idsToCancel.add(mirrorIdForKey(otpAggregateKey))
                 }
@@ -8546,6 +8773,7 @@ object LiveUpdateNotifier {
                 otpAnimationGenerations.remove(otpAggregateKey)
                 userDismissedMirrorKeys.remove(otpAggregateKey)
                 sourceSnapshotsByMirrorKey.remove(otpAggregateKey)
+                threadKeysByMirrorKey.remove(otpAggregateKey)
                 forgetMirrorNotificationIdLocked(mirrorIdForKey(otpAggregateKey))
                 idsToCancel.add(mirrorIdForKey(otpAggregateKey))
             }
