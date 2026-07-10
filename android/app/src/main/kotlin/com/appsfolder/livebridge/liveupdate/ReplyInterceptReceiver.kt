@@ -13,6 +13,8 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.Person
 import androidx.core.app.RemoteInput
+import androidx.core.graphics.drawable.IconCompat
+import com.kakao.taxi.R
 
 /**
  * Proxy BroadcastReceiver that intercepts Wear OS inline replies.
@@ -211,7 +213,7 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
             // 2. Find the active notification with matching ID on the watch
             val activeNotifications = notificationManager.activeNotifications
             val activeSbn = activeNotifications.firstOrNull { it.id == mirrorNotificationId }
-            
+
             if (activeSbn == null) {
                 Log.w(TAG, "No active notification found with id=$mirrorNotificationId; skipping local echo.")
                 return false
@@ -230,19 +232,56 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
             // null Person renders as right-aligned bubble on Wear OS
             style.addMessage(replyText, System.currentTimeMillis(), null as Person?)
 
-            // 5. Recover the builder and rebuild with updated style
-            val builder = NotificationCompat.Builder.recoverBuilder(context, activeNotif)
+            // 5. Build a new NotificationCompat.Builder from the channel ID
+            //    of the active notification (no recoverBuilder needed).
+            val channelId = activeNotif.channelId ?: LiveUpdateNotifier.CHANNEL_ID
+            val smallIcon = activeNotif.smallIcon
+            val builder = NotificationCompat.Builder(context, channelId)
                 .setStyle(style)
+                .apply {
+                    if (smallIcon != null) {
+                        setSmallIcon(IconCompat.createFromIcon(context, smallIcon))
+                    } else {
+                        setSmallIcon(R.drawable.ic_stat_liveupdate)
+                    }
+                }
                 .setOnlyAlertOnce(true)
+                .setAutoCancel(false)
+                .setOngoing(false)
+
+            // Preserve existing actions (e.g. reply action) from the original
+            activeNotif.actions?.forEach { action ->
+                val actionIcon = action.getIcon()?.let { icon ->
+                    try { IconCompat.createFromIcon(context, icon) } catch (_: Throwable) { null }
+                }
+                val compatAction = NotificationCompat.Action.Builder(
+                    actionIcon,
+                    action.title,
+                    action.actionIntent
+                ).apply {
+                    action.remoteInputs?.forEach { ri ->
+                        addRemoteInput(
+                            RemoteInput.Builder(ri.resultKey)
+                                .setLabel(ri.label)
+                                .build()
+                        )
+                    }
+                }.build()
+                builder.addAction(compatAction)
+            }
+
+            // Preserve group and sort keys
+            activeNotif.group?.let { builder.setGroup(it) }
+            activeNotif.sortKey?.let { builder.setSortKey(it) }
 
             // 6. Build and post the updated notification with the same ID
             val updatedNotification = builder.build()
             notificationManager.notify(mirrorNotificationId, updatedNotification)
-            
+
             // Keep the cache in sync so any later clone-and-inject pass
             // starts from the notification that is actually on screen.
             ChatHistoryStore.setActiveNotification(threadKey, updatedNotification)
-            
+
             Log.d(TAG, "Successfully posted local echo for notification id=$mirrorNotificationId")
             true
         } catch (error: Throwable) {
