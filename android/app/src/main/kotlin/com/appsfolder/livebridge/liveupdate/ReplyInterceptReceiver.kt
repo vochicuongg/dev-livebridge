@@ -1,6 +1,5 @@
 package com.kakao.taxi.liveupdate
 
-import android.app.Notification
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
@@ -11,6 +10,8 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import androidx.core.app.NotificationCompat
+import androidx.core.app.Person
 import androidx.core.app.RemoteInput
 
 /**
@@ -207,7 +208,7 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
                 return false
             }
 
-            // 2. Find the active notification with matching ID
+            // 2. Find the active notification with matching ID on the watch
             val activeNotifications = notificationManager.activeNotifications
             val activeSbn = activeNotifications.firstOrNull { it.id == mirrorNotificationId }
             
@@ -216,28 +217,25 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
                 return false
             }
 
-            // 3. Get the original Notification and rebuild it
+            // 3. Get the original Notification and extract its MessagingStyle
             val activeNotif = activeSbn.notification
-            
-            // 4. Use standard Android platform API to recover the builder
-            val builder = Notification.Builder.recoverBuilder(context, activeNotif)
-            
-            // 5. Extract MessagingStyle using platform API
-            val style = Notification.MessagingStyle.extractMessagingStyleFromNotification(activeNotif)
+            val style = NotificationCompat.MessagingStyle
+                .extractMessagingStyleFromNotification(activeNotif)
             if (style == null) {
                 Log.w(TAG, "Active notification has no MessagingStyle; skipping local echo notify.")
                 return false
             }
 
-            // 6. Add the reply message as "Me" (null Person = current user)
+            // 4. Add the reply message as "Me" (null Person = current user)
             // null Person renders as right-aligned bubble on Wear OS
-            style.addMessage(replyText, System.currentTimeMillis(), null as android.app.Person?)
+            style.addMessage(replyText, System.currentTimeMillis(), null as Person?)
 
-            // 7. Set the updated style back to the builder
-            builder.setStyle(style)
-            builder.setOnlyAlertOnce(true)
+            // 5. Recover the builder and rebuild with updated style
+            val builder = NotificationCompat.Builder.recoverBuilder(context, activeNotif)
+                .setStyle(style)
+                .setOnlyAlertOnce(true)
 
-            // 8. Build and post the updated notification with the same ID
+            // 6. Build and post the updated notification with the same ID
             val updatedNotification = builder.build()
             notificationManager.notify(mirrorNotificationId, updatedNotification)
             
