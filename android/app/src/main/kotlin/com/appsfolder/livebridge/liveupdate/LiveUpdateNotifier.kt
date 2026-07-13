@@ -395,10 +395,99 @@ object LiveUpdateNotifier {
     }
 
     fun threadKeyForNotification(sbn: StatusBarNotification): String {
-        val conversationTitle = sbn.notification.extras
-            .getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
+        // Use the same robust title resolution as the mirror-build paths so
+        // cached ChatHistoryStore threads keep matching. No app label is
+        // available here (no Context), so pass null — behavior stays identical
+        // for well-formed notifications.
+        val conversationTitle = resolveRobustConversationTitle(
+            source = sbn.notification,
+            appName = null
+        )
+            ?: sbn.notification.extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
             ?: sbn.notification.extras.getCharSequence(Notification.EXTRA_TITLE)
         return buildThreadKey(sbn.packageName, conversationTitle)
+    }
+
+    /**
+     * Robust Title Extraction — fixes the regression where the app label
+     * ("Messenger", "Zalo") leaked into the conversation title, corrupting
+     * both the Wear OS chat header and the [buildThreadKey] cache key
+     * (e.g. "com.facebook.orca_Messenger" collided across ALL conversations).
+     *
+     * Priority order:
+     * 1. [Notification.EXTRA_CONVERSATION_TITLE] (group chats)
+     * 2. [Notification.EXTRA_TITLE] (1:1 chats)
+     * 3. If both are blank or equal to the app label, infer the sender name
+     *    from the Person objects inside [Notification.EXTRA_MESSAGES].
+     *
+     * Fully null-safe: returns null when no trustworthy title can be resolved
+     * so callers decide their own fallback (never silently the app label).
+     */
+    /**
+     * Strips a leading "$appName: " or "$appName : " prefix from [title].
+     * Many apps (Messenger, Telegram, etc.) prepend their name to EXTRA_TITLE.
+     * Returns the cleaned title, or [title] unchanged if no prefix is found.
+     */
+    private fun stripAppNamePrefix(title: String, appName: String?): String {
+        if (appName.isNullOrBlank()) return title
+        // Check patterns: "AppName: text", "AppName : text", "AppName:text"
+        val prefixColon = "$appName:"
+        val prefixSpaceColon = "$appName :"
+        val stripped = when {
+            title.startsWith(prefixSpaceColon, ignoreCase = true) ->
+                title.removeRange(0, prefixSpaceColon.length).trimStart()
+            title.startsWith(prefixColon, ignoreCase = true) ->
+                title.removeRange(0, prefixColon.length).trimStart()
+            else -> null
+        }
+        // Only accept the stripped result if it's non-empty; otherwise keep original.
+        return stripped?.takeIf { it.isNotEmpty() } ?: title
+    }
+
+    private fun resolveRobustConversationTitle(
+        source: Notification?,
+        appName: String?
+    ): String? {
+        val extras = source?.extras ?: return null
+        val normalizedAppName = appName?.trim()?.takeIf { it.isNotEmpty() }
+
+        fun sanitize(value: CharSequence?): String? {
+            var candidate = value?.toString()?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+            // Strip "$appName: " prefix if present (e.g. "Messenger: little mom" → "little mom")
+            if (normalizedAppName != null) {
+                candidate = stripAppNamePrefix(candidate, normalizedAppName)
+            }
+            if (normalizedAppName != null &&
+                candidate.equals(normalizedAppName, ignoreCase = true)
+            ) {
+                return null
+            }
+            return candidate
+        }
+
+        // Priority 1: EXTRA_CONVERSATION_TITLE (group chats)
+        sanitize(extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE))?.let { return it }
+
+        // Priority 2: EXTRA_TITLE (1:1 chats)
+        sanitize(extras.getCharSequence(Notification.EXTRA_TITLE))?.let { return it }
+
+        // Priority 3: infer from the Person list inside EXTRA_MESSAGES —
+        // most recent non-self sender name wins. Null-safe at every step.
+        val selfDisplayName = runCatching { selfDisplayNameFromNotification(source) }.getOrNull()
+        return runCatching {
+            rawNotificationMessages(source)
+                .asReversed()
+                .firstNotNullOfOrNull { message ->
+                    frameworkMessageSenderName(message)
+                        ?.trim()
+                        ?.takeIf { name ->
+                            name.isNotEmpty() &&
+                                !isSelfSender(name, selfDisplayName) &&
+                                (normalizedAppName == null ||
+                                    !name.equals(normalizedAppName, ignoreCase = true))
+                        }
+                }
+        }.getOrNull()
     }
 
     private fun deterministicSenderKey(threadKey: String, senderName: String): String {
@@ -460,6 +549,11 @@ object LiveUpdateNotifier {
             SELF_SENDER_NAMES.contains(normalizedSender.lowercase(Locale.ROOT))
     }
 
+    private fun isSentConfirmationText(text: String?): Boolean {
+        val trimmed = text?.trim()?.takeIf { it.isNotEmpty() } ?: return false
+        return SENT_CONFIRMATION_PATTERNS.any { it.matches(trimmed) }
+    }
+
     private fun cacheRawNotificationMessages(
         threadKey: String,
         source: Notification,
@@ -496,14 +590,11 @@ object LiveUpdateNotifier {
             .setKey(LOCAL_USER_PERSON_KEY)
             .build()
         val style = NotificationCompat.MessagingStyle(me)
-        conversationTitle
-            ?.toString()
-            ?.trim()
-            ?.takeIf { it.isNotEmpty() }
-            ?.let { title ->
-                style.conversationTitle = title
-                style.isGroupConversation = false
-            }
+        // For 1-1 chats, do NOT set conversationTitle.
+        // Some OS variants (One UI Watch) fall back to the app label when
+        // conversationTitle is set on a non-group chat. Instead, rely on the
+        // Person.name of each remote sender message to display the header.
+        // conversationTitle is intentionally omitted here for 1-1 chats.
 
         val renderMessages = messages.ifEmpty {
             listOf(
@@ -612,15 +703,21 @@ object LiveUpdateNotifier {
                 .build()
         )
 
-        val resolvedConversationTitle = extractedStyle?.conversationTitle ?: conversationTitle
-        resolvedConversationTitle
-            ?.toString()
-            ?.trim()
-            ?.takeIf { it.isNotEmpty() }
-            ?.let { title ->
-                style.conversationTitle = title
-                style.isGroupConversation = extractedStyle?.isGroupConversation ?: false
-            }
+        val isGroupConversation = extractedStyle?.isGroupConversation ?: false
+        if (isGroupConversation) {
+            // Only set conversationTitle for group chats.
+            // For 1-1 chats, omitting conversationTitle forces the OS to use
+            // Person.name as the header, avoiding One UI Watch showing the app label.
+            val resolvedConversationTitle = extractedStyle?.conversationTitle ?: conversationTitle
+            resolvedConversationTitle
+                ?.toString()
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+                ?.let { title ->
+                    style.conversationTitle = title
+                    style.isGroupConversation = true
+                }
+        }
 
         val sourceStyleCandidates = extractedStyle
             ?.messages
@@ -4235,6 +4332,9 @@ object LiveUpdateNotifier {
         } else {
             configuredDisplayTitle
         }
+        // Strip "$appName: " prefix from displayTitle (e.g. "Messenger: little mom" → "little mom")
+        // This ensures Now Bar and Wear OS show only the sender name, not the app prefix.
+        displayTitle = stripAppNamePrefix(displayTitle, appName)
         // Strip WhatsApp brand prefix from notification titles to reduce clutter on wearables.
         // Matches patterns like "WhatsApp: Name", "[WhatsApp] Name", "WhatsApp Name", etc.
         if (sourcePackageNameLower.contains("whatsapp")) {
@@ -4593,9 +4693,14 @@ object LiveUpdateNotifier {
                         } == true
 
             if (sourceMessages.isNotEmpty() && isVerifiedMessagingNotification) {
-                val conversationTitle = source.extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
-                    ?: source.extras.getCharSequence(Notification.EXTRA_TITLE)
-                    ?: displayTitle.takeIf { it.isNotBlank() }
+                // ── PRIMARY PATH: Source notification has valid MessagingStyle messages ──
+                // Works perfectly for WhatsApp and any app following Android MessagingStyle spec.
+                // Robust Title Extraction: never let the app label become the
+                // conversation title / threadKey (see resolveRobustConversationTitle).
+                val conversationTitle = resolveRobustConversationTitle(source, appName)
+                    ?: displayTitle.trim().takeIf {
+                        it.isNotBlank() && !it.equals(appName, ignoreCase = true)
+                    }
                 val threadKey = buildThreadKey(sbn.packageName, conversationTitle)
                 deterministicMessagingThreadKey = threadKey
                 val selfDisplayName = selfDisplayNameFromNotification(source)
@@ -4636,32 +4741,153 @@ object LiveUpdateNotifier {
                     context = context
                 )
             } else {
-                // Merge source extras FIRST so that any broken templates
-                // (e.g. empty InboxStyle from Zalo community notifications)
-                // are subsequently overwritten by our explicit BigTextStyle below.
-                builder.addExtras(source.extras)
+                // ── FALLBACK PATH: Source has no raw MessagingStyle messages ──
+                // This happens when Messenger/Zalo update their notification after
+                // a reply using BigTextStyle or other non-MessagingStyle formats,
+                // causing extractMessagingStyleFromNotification() to return null
+                // and rawNotificationMessages() to return empty.
+                //
+                // RESCUE STRATEGY: Before falling back to plain BigTextStyle,
+                // check if ChatHistoryStore has cached chat history for this thread.
+                // If history exists, we CONSTRUCT a fresh MessagingStyle from the
+                // cached messages + the current notification's text content,
+                // preserving the chat bubble UI on Wear OS.
 
-                val hiddenMsgText = sourceMessages
-                    .mapNotNull { message -> message.text?.toString()?.trim() }
-                    ?.filter { it.isNotEmpty() }
-                    ?.joinToString("\n")
-                    ?.takeIf { it.isNotEmpty() }
-                val tickerString = source.tickerText?.toString()?.trim()
-                    ?.takeIf { it.length > 1 }
-                val cleanText = text.trim().takeIf { it.length > 1 }
-                    ?: displayText.trim().takeIf { it.length > 1 }
-                val fallbackBigText = hiddenMsgText
-                    ?: tickerString
-                    ?: cleanText
-                    ?: collectNotificationText(
-                        notification = source,
-                        fallbackTitle = "",
-                        includeRemoteViewTexts = true
-                    ).trim().takeIf { it.length > 1 }
+                // Robust Title Extraction (regression fix): the old chain fell
+                // through to displayTitle, which for Messenger/Zalo fallback
+                // updates resolved to the APP LABEL ("Messenger"), so every 1:1
+                // chat collided into the same threadKey
+                // (e.g. "com.facebook.orca_Messenger") and the Wear OS header
+                // showed the app name instead of the sender.
+                // Priority: EXTRA_CONVERSATION_TITLE → EXTRA_TITLE → Person
+                // names in EXTRA_MESSAGES; the app label is rejected everywhere.
+                val conversationTitle = resolveRobustConversationTitle(source, appName)
+                    ?: displayTitle.trim().takeIf {
+                        it.isNotBlank() && !it.equals(appName, ignoreCase = true)
+                    }
+                val threadKey = buildThreadKey(sbn.packageName, conversationTitle)
+                val cachedHistory = ChatHistoryStore.getMessages(threadKey)
+                val isChatApp = CHAT_APP_PACKAGES.contains(sbn.packageName)
+                    || sbn.packageName in DISCORD_PACKAGES
 
-                if (fallbackBigText != null) {
-                    builder.setContentText(fallbackBigText)
-                    builder.setStyle(NotificationCompat.BigTextStyle().bigText(fallbackBigText))
+                if (cachedHistory.isNotEmpty() && isChatApp) {
+                    // ── RESCUE: Reconstruct MessagingStyle from cache ──
+                    // Messenger/Zalo broke the MessagingStyle, but we have
+                    // cached chat history from previous valid notifications.
+                    // Build a synthetic MessagingStyle to keep chat bubbles alive.
+                    deterministicMessagingThreadKey = threadKey
+
+                    val selfDisplayName = selfDisplayNameFromNotification(source)
+
+                    // Extract the latest text from the current notification's EXTRA_TEXT
+                    // to create a new remote message representing the latest update.
+                    val currentText = source.extras.getCharSequence(Notification.EXTRA_TEXT)
+                        ?.toString()?.trim()
+                        ?.takeIf { it.isNotBlank() }
+                        ?: text.trim().takeIf { it.isNotBlank() }
+                        ?: displayText.trim().takeIf { it.isNotBlank() }
+                        ?: source.tickerText?.toString()?.trim()?.takeIf { it.isNotBlank() }
+
+                    // Determine a sender name for the new remote-message Person.
+                    // For 1:1 chats this MUST be the conversationTitle (the
+                    // sender's display name) so the Wear OS bubble shows
+                    // "little mom" / "Nguyễn Văn A" instead of "Messenger".
+                    // NEVER fall back to the app label anymore — prefer the
+                    // last known remote sender from cached history, then a
+                    // neutral "Unknown".
+                    val remoteSenderName = conversationTitle?.trim()
+                        ?.takeIf { it.isNotBlank() && !it.equals(appName, ignoreCase = true) }
+                        ?: cachedHistory.lastOrNull { snapshot ->
+                            !snapshot.isMe && !snapshot.senderName.isNullOrBlank()
+                        }?.senderName?.trim()?.takeIf { it.isNotBlank() }
+                        ?: "Unknown"
+
+                    // If we have a new text that isn't a sent-confirmation echo and
+                    // doesn't duplicate what's already in cache, add it as a new
+                    // incoming message from the remote sender.
+                    if (currentText != null &&
+                        !isSentConfirmationText(currentText) &&
+                        !isSelfSender(currentText, selfDisplayName)
+                    ) {
+                        val isDuplicate = cachedHistory.any { existing ->
+                            existing.text.toString().trim() == currentText &&
+                                kotlin.math.abs(existing.timestampMs - System.currentTimeMillis()) < LOCAL_ECHO_DUPLICATE_WINDOW_MS
+                        }
+                        if (!isDuplicate) {
+                            ChatHistoryStore.upsertSourceMessages(
+                                threadKey,
+                                listOf(
+                                    ChatHistoryStore.ChatMessageSnapshot(
+                                        text = currentText,
+                                        timestampMs = System.currentTimeMillis(),
+                                        senderName = remoteSenderName,
+                                        senderKey = deterministicSenderKey(threadKey, remoteSenderName),
+                                        isMe = false
+                                    )
+                                )
+                            )
+                        }
+                    }
+
+                    val fallback: CharSequence = currentText
+                        ?: text.trim().takeIf { it.isNotBlank() }
+                        ?: "New message"
+
+                    // Build a fresh MessagingStyle from cache (extractedStyle = null
+                    // since the source notification no longer has a valid MessagingStyle).
+                    builder.setStyle(
+                        buildMergedWearMessagingStyle(
+                            threadKey = threadKey,
+                            extractedStyle = null,
+                            conversationTitle = conversationTitle,
+                            selfDisplayName = selfDisplayName,
+                            fallbackMessages = ChatHistoryStore.getMessages(threadKey),
+                            fallbackText = fallback
+                        )
+                    )
+                    builder.setGroup(threadKey)
+                    builder.setSortKey(threadKey)
+                    builder.setOnlyAlertOnce(true)
+
+                    synchronized(stateLock) {
+                        sourceSnapshotsByMirrorKey[sbn.key] = sbn
+                        threadKeysByMirrorKey[sbn.key] = threadKey
+                    }
+
+                    addReplyActionIfNotAlreadyCopied(
+                        source = source,
+                        builder = builder,
+                        mirrorKey = sbn.key,
+                        context = context
+                    )
+                } else {
+                    // ── TRUE FALLBACK: No cache, no MessagingStyle ──
+                    // No chat history exists → this is genuinely a non-chat notification
+                    // or a first-time notification. Use BigTextStyle as before.
+                    builder.addExtras(source.extras)
+
+                    val hiddenMsgText = sourceMessages
+                        .mapNotNull { message -> message.text?.toString()?.trim() }
+                        ?.filter { it.isNotEmpty() }
+                        ?.joinToString("\n")
+                        ?.takeIf { it.isNotEmpty() }
+                    val tickerString = source.tickerText?.toString()?.trim()
+                        ?.takeIf { it.length > 1 }
+                    val cleanText = text.trim().takeIf { it.length > 1 }
+                        ?: displayText.trim().takeIf { it.length > 1 }
+                    val fallbackBigText = hiddenMsgText
+                        ?: tickerString
+                        ?: cleanText
+                        ?: collectNotificationText(
+                            notification = source,
+                            fallbackTitle = "",
+                            includeRemoteViewTexts = true
+                        ).trim().takeIf { it.length > 1 }
+
+                    if (fallbackBigText != null) {
+                        builder.setContentText(fallbackBigText)
+                        builder.setStyle(NotificationCompat.BigTextStyle().bigText(fallbackBigText))
+                    }
                 }
             }
         }
@@ -8385,9 +8611,17 @@ object LiveUpdateNotifier {
         val mirrorKey = sourceEntry.key
         val sourceSbn = sourceEntry.value
         val source = sourceSbn.notification
-        val conversationTitle = source.extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
-            ?: source.extras.getCharSequence(Notification.EXTRA_TITLE)
-            ?: threadKey.substringAfter('_', "")
+        val appName = resolveAppName(context, sourceSbn.packageName)
+        // Robust title resolution: do NOT fall back to the raw extras chain
+        // here. If EXTRA_CONVERSATION_TITLE / EXTRA_TITLE carry the app label
+        // ("Messenger", "Zalo"), resolveRobustConversationTitle rejects them
+        // and infers the sender name from EXTRA_MESSAGES instead.
+        val rawConversationTitle: CharSequence = resolveRobustConversationTitle(
+            source = source,
+            appName = appName
+        ) ?: threadKey.substringAfter('_', "")
+        // Strip "$appName: " prefix from conversation title for Wear OS / Now Bar display
+        val conversationTitle: CharSequence = stripAppNamePrefix(rawConversationTitle.toString(), appName)
         val selfDisplayName = selfDisplayNameFromNotification(source)
         val messages = ChatHistoryStore.getMessages(threadKey)
         val fallbackText = source.extras.getCharSequence(Notification.EXTRA_TEXT)
@@ -8413,7 +8647,6 @@ object LiveUpdateNotifier {
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
         }
 
-        val appName = resolveAppName(context, sourceSbn.packageName)
         builder
             .setChannelId(MirrorNotificationChannel.ALERTS.id)
             .setContentTitle(conversationTitle)
