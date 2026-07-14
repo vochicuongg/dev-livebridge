@@ -4866,27 +4866,49 @@ object LiveUpdateNotifier {
                     // or a first-time notification. Use BigTextStyle as before.
                     builder.addExtras(source.extras)
 
-                    val hiddenMsgText = sourceMessages
-                        .mapNotNull { message -> message.text?.toString()?.trim() }
-                        ?.filter { it.isNotEmpty() }
-                        ?.joinToString("\n")
-                        ?.takeIf { it.isNotEmpty() }
-                    val tickerString = source.tickerText?.toString()?.trim()
-                        ?.takeIf { it.length > 1 }
-                    val cleanText = text.trim().takeIf { it.length > 1 }
-                        ?: displayText.trim().takeIf { it.length > 1 }
-                    val fallbackBigText = hiddenMsgText
-                        ?: tickerString
-                        ?: cleanText
-                        ?: collectNotificationText(
+                    // ── FIX: Extract the Text (body) from source.extras with correct
+                    // priority so Wear OS never duplicates the Title as the body.
+                    // Priority: EXTRA_BIG_TEXT → EXTRA_TEXT → EXTRA_SUB_TEXT → EXTRA_SUMMARY_TEXT
+                    // Then fall back to ticker, hiddenMsgText, or collectNotificationText.
+                    // CRITICAL: NEVER fall back to title/contentTitle to avoid duplication.
+                    val extractedWearText: String? = run {
+                        val extras = source.extras
+                        // 1. EXTRA_BIG_TEXT (expanded body)
+                        extras.getCharSequence(Notification.EXTRA_BIG_TEXT)
+                            ?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { return@run it }
+                        // 2. EXTRA_TEXT (standard body)
+                        extras.getCharSequence(Notification.EXTRA_TEXT)
+                            ?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { return@run it }
+                        // 3. EXTRA_SUB_TEXT
+                        extras.getCharSequence(Notification.EXTRA_SUB_TEXT)
+                            ?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { return@run it }
+                        // 4. EXTRA_SUMMARY_TEXT
+                        extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT)
+                            ?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { return@run it }
+                        // 5. Hidden messaging-style text fragments
+                        val hiddenMsgText = sourceMessages
+                            .mapNotNull { message -> message.text?.toString()?.trim() }
+                            .filter { it.isNotEmpty() }
+                            .joinToString("\n")
+                            .takeIf { it.isNotEmpty() }
+                        if (hiddenMsgText != null) return@run hiddenMsgText
+                        // 6. Ticker text
+                        source.tickerText?.toString()?.trim()
+                            ?.takeIf { it.length > 1 }?.let { return@run it }
+                        // 7. collectNotificationText (remote view fallback)
+                        collectNotificationText(
                             notification = source,
                             fallbackTitle = "",
                             includeRemoteViewTexts = true
                         ).trim().takeIf { it.length > 1 }
+                    }
 
-                    if (fallbackBigText != null) {
-                        builder.setContentText(fallbackBigText)
-                        builder.setStyle(NotificationCompat.BigTextStyle().bigText(fallbackBigText))
+                    // Set contentText and BigTextStyle for Wear OS.
+                    // If extractedWearText is null/empty, set contentText to null
+                    // to avoid repeating the title. NEVER use title as fallback.
+                    builder.setContentText(extractedWearText)
+                    if (!extractedWearText.isNullOrEmpty()) {
+                        builder.setStyle(NotificationCompat.BigTextStyle().bigText(extractedWearText))
                     }
                 }
             }
