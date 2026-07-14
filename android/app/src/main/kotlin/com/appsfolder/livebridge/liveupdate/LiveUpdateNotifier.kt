@@ -734,7 +734,44 @@ object LiveUpdateNotifier {
                         null as Person?
                     )
                 } else {
-                    message
+                    // ── FIX: Clean Person name from app prefix pollution ──
+                    // Some apps (Messenger, Telegram, etc.) store Person names with
+                    // app prefixes like "Messenger: Anh iu". One UI reads Person.name
+                    // directly for popup headers, bypassing our EXTRA_TITLE overrides.
+                    // We must create a new Person with the cleaned name to fix this.
+                    val originalPerson = message.person
+                    val cleanedPerson = if (originalPerson != null) {
+                        val originalName = NotificationTextNormalizer.normalize(originalPerson.name)
+                        val cleanedName = if (originalName != null) {
+                            // Try to strip app name prefix from Person name
+                            // conversationTitle already has the cleaned name we want
+                            conversationTitle?.toString()?.trim()?.takeIf { it.isNotBlank() }
+                                ?: stripAppNamePrefix(originalName, conversationTitle?.toString())
+                        } else {
+                            originalName
+                        }
+                        // Create a new Person with cleaned name, preserving key and other properties
+                        Person.Builder()
+                            .setName(cleanedName)
+                            .setKey(originalPerson.key)
+                            .setUri(originalPerson.uri)
+                            .setBot(originalPerson.isBot)
+                            .setImportant(originalPerson.isImportant)
+                            .apply {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                                    originalPerson.icon?.let { setIcon(it) }
+                                }
+                            }
+                            .build()
+                    } else {
+                        null
+                    }
+                    // Create a new Message with the cleaned Person, preserving text and timestamp
+                    NotificationCompat.MessagingStyle.Message(
+                        message.text,
+                        message.timestamp,
+                        cleanedPerson
+                    )
                 }
                 MergedMessagingCandidate(
                     renderedMessage,
@@ -5203,6 +5240,14 @@ object LiveUpdateNotifier {
         val cleanedTitle: CharSequence = contentTitle
         builder.extras.putCharSequence(Notification.EXTRA_TITLE, cleanedTitle)
         builder.extras.putCharSequence(Notification.EXTRA_CONVERSATION_TITLE, cleanedTitle)
+        // ── CRITICAL: Clear EXTRA_SUB_TEXT and EXTRA_SUMMARY_TEXT to prevent
+        // the app prefix from leaking through these secondary text fields.
+        // One UI popup may fall back to these if MessagingStyle Person names
+        // are null or if the system uses an alternate rendering path.
+        builder.extras.putCharSequence(Notification.EXTRA_SUB_TEXT, null)
+        builder.extras.putCharSequence(Notification.EXTRA_SUMMARY_TEXT, null)
+        // Set EXTRA_DISPLAY_TEXT to the cleaned title for consistency
+        builder.extras.putCharSequence(Notification.EXTRA_TEXT, cleanedTitle)
         builder.setTicker(cleanedTitle)
 
         val notification = builder.build()
