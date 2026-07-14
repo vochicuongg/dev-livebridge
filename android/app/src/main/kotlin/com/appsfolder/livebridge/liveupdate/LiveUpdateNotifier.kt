@@ -5191,6 +5191,20 @@ object LiveUpdateNotifier {
 
         source.contentIntent?.let(builder::setContentIntent)
 
+        // ── FIX: Override extras so the Heads-Up Notification popup on the
+        // phone (especially Samsung One UI) shows the clean title without the
+        // app-name prefix (e.g. "Anh iu" instead of "Messenger: Anh...").
+        // Android's notification system sometimes reads EXTRA_TITLE directly
+        // from builder.extras (copied from the source notification) and
+        // ignores setContentTitle(). Overwriting these extras ensures the
+        // clean title propagates to every rendering surface.
+        // This applies to BOTH the MessagingStyle branch AND the Fallback branch
+        // since they all converge here before builder.build().
+        val cleanedTitle: CharSequence = contentTitle
+        builder.extras.putCharSequence(Notification.EXTRA_TITLE, cleanedTitle)
+        builder.extras.putCharSequence(Notification.EXTRA_CONVERSATION_TITLE, cleanedTitle)
+        builder.setTicker(cleanedTitle)
+
         val notification = builder.build()
         return if (requestPromoted || samsungBridge.enabled) {
             SamsungOneUi7NowBarCompat.markEligible(notification)
