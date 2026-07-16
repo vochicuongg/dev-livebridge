@@ -236,17 +236,14 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
     override fun onListenerDisconnected() {
         super.onListenerDisconnected()
         Log.w(TAG, "Listener disconnected - initiating immediate rebind to prevent idle death")
-        
+
         if (isUnsupportedDevice()) {
             return
         }
-        
+
         LiveUpdateNotifier.cancelNotificationCapsule(applicationContext)
         syncNetworkSpeedService()
-        
-        // CRITICAL: Immediately request rebind to fight aggressive battery optimizations
-        // This prevents Samsung Doze Mode and other OEM battery managers from permanently
-        // killing the notification interception pipeline after idle periods (~5 minutes)
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             try {
                 requestRebind(ComponentName(this, this::class.java))
@@ -255,8 +252,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
                 Log.e(TAG, "Immediate rebind failed in onListenerDisconnected()", error)
             }
         }
-        
-        // Fallback: also schedule delayed rebind with exponential backoff
+
         scheduleRebind("listener_disconnected")
     }
 
@@ -283,6 +279,10 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
                 return
             }
 
+            // FIX #1: Hủy thông báo gốc NGAY LẬP TỨC trước parse/build Now Bar
+            // để Wear OS không kịp bridge bản gốc (tránh lặp 2 thông báo).
+            maybeEarlyDismissSourceForWearRace(sbn)
+
             processIncomingNotification(sbn)
             refreshNotificationCapsuleFromActiveNotifications()
         } catch (e: Exception) {
@@ -305,11 +305,6 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         reason: Int
     ) {
         try {
-            // Self-Cancellation Ignore: when LiveBridge itself cancelled the original
-            // notification via the experimental "Remove Original" feature, the OS fires
-            // this callback with REASON_LISTENER_CANCEL.  We must ignore it to prevent
-            // the race condition where LiveBridge mistakenly auto-deletes its own
-            // mirrored Wear OS notification milliseconds after creating it.
             if (reason == NotificationListenerService.REASON_LISTENER_CANCEL) {
                 Log.v(TAG, "Ignoring self-cancelled notification removal (REASON_LISTENER_CANCEL): ${sbn?.key}")
                 return
@@ -365,6 +360,83 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
 
     private fun isUnsupportedDevice(): Boolean {
         return DeviceBlocker.isBlockedDevice()
+    }
+
+    /**
+     * FIX #1: Quyết định hủy sớm thông báo gốc để chặn race Wear OS.
+     */
+    private fun shouldEarlyDismissOriginalSource(sbn: StatusBarNotification): Boolean {
+        if (!sbn.isClearable) {
+            return false
+        }
+        val packageName = sbn.packageName
+        val packageLower = packageName.lowercase()
+
+        val appPresentationRemoveOriginal = runCatching {
+            AppPresentationOverridesLoader
+                .get(prefs)
+                .resolve(packageLower)
+                .removeOriginalMessage
+        }.getOrDefault(false)
+        if (appPresentationRemoveOriginal) {
+            return true
+        }
+
+        if (prefs.getOtpRemoveOriginalMessageEnabled() && prefs.isOtpPackageAllowed(packageName)) {
+            return true
+        }
+        if (prefs.getSmartRemoveOriginalMessageEnabled() && prefs.isSmartPackageAllowed(packageName)) {
+            return true
+        }
+        if (
+            prefs.getNotificationDedupEnabled() &&
+            prefs.isNotificationDedupPackageAllowed(packageName)
+        ) {
+            return true
+        }
+        return false
+    }
+
+    /**
+     * FIX #1: Hủy gốc ngay lập tức trước khi parse/build mirror.
+     */
+    private fun maybeEarlyDismissSourceForWearRace(sbn: StatusBarNotification) {
+        if (!shouldEarlyDismissOriginalSource(sbn)) {
+            return
+        }
+        val sourceKey = sbn.key
+        rememberProgrammaticCancelKeys(
+            sourceKey,
+            notificationIdentityKey(sbn.packageName, sbn.id, sbn.tag)
+        )
+
+        val cancelDirectRequested = runCatching {
+            cancelNotification(sourceKey)
+        }.onSuccess {
+            Log.i(TAG, "Early-dismiss source via cancelNotification: $sourceKey")
+        }.onFailure { error ->
+            Log.w(TAG, "Early cancelNotification failed: $sourceKey", error)
+        }.isSuccess
+
+        val cancelBatchRequested = runCatching {
+            cancelNotifications(arrayOf(sourceKey))
+        }.onSuccess {
+            Log.i(TAG, "Early-dismiss source via cancelNotifications: $sourceKey")
+        }.onFailure { error ->
+            Log.w(TAG, "Early cancelNotifications failed: $sourceKey", error)
+        }.isSuccess
+
+        val snoozeRequested = runCatching {
+            snoozeNotification(sourceKey, ORIGINAL_SOURCE_SNOOZE_MS)
+        }.onSuccess {
+            Log.i(TAG, "Early-dismiss source via snooze fallback: $sourceKey")
+        }.onFailure { error ->
+            Log.w(TAG, "Early snoozeNotification failed: $sourceKey", error)
+        }.isSuccess
+
+        if (!cancelDirectRequested && !cancelBatchRequested && !snoozeRequested) {
+            Log.w(TAG, "Early-dismiss failed completely for source: $sourceKey")
+        }
     }
 
     private fun drainPendingReplySourceCancels() {
@@ -966,6 +1038,15 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
             return
         }
 
+        // Nếu đã early-dismiss thành công thì bỏ schedule trễ.
+        val stillActive = runCatching {
+            activeNotifications?.any { it.key == sbn.key } == true
+        }.getOrDefault(true)
+        if (!stillActive) {
+            Log.v(TAG, "Skip delayed original dismissal: already early-dismissed ${sbn.key}")
+            return
+        }
+
         val mirrorNotificationId = result.notificationId
         if (mirrorNotificationId == null) {
             Log.w(TAG, "Skip original notification dismissal: missing mirror id for ${sbn.key}")
@@ -985,11 +1066,6 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         mirrorKey: String?,
         attempt: Int
     ) {
-        // Golden Grace Period: on the first attempt (attempt 0), use a 750ms delay
-        // to guarantee the Wear OS Bluetooth bridge has enough time to fully
-        // transmit the new mirrored notification to the smartwatch before the
-        // original source notification is destroyed.  Subsequent retry attempts
-        // use the shorter retry delay.
         val delayMs = if (attempt == 0) {
             ORIGINAL_DISMISS_INITIAL_GRACE_MS
         } else {
@@ -1314,6 +1390,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
             selfDismissedFlashlightSourceKeys.remove(sbnKey)
         }
     }
+
     private fun scheduleRebind(reason: String) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
             return
@@ -1373,20 +1450,10 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         private val programmaticCancelDeadlines =
             java.util.concurrent.ConcurrentHashMap<String, Long>()
 
-        /**
-         * Heartbeat timestamp updated every time the listener successfully
-         * processes a notification event or completes a snapshot sync.
-         * The watchdog in [KeepAliveForegroundService] reads this to detect
-         * silent unbinds caused by Samsung One UI background limits.
-         */
         @Volatile
         var lastHeartbeatMs: Long = 0L
             private set
 
-        /**
-         * Returns true if the listener is considered alive — i.e. there is
-         * an active instance AND a heartbeat was recorded recently.
-         */
         fun isListenerAlive(maxStaleMs: Long = 30_000L): Boolean {
             if (activeInstance == null) return false
             if (lastHeartbeatMs == 0L) return false
@@ -1514,11 +1581,6 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
             }
         }
 
-        /**
-         * Cancels the original source notification (e.g. Messenger/Zalo) on the
-         * phone after a Wear OS reply. This ensures WearOS sees the notification
-         * disappear and exits the "Sending..." state.
-         */
         fun requestCancelSourceNotification(
             context: Context,
             sourceKey: String
