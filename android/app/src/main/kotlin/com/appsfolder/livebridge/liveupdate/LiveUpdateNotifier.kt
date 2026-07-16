@@ -8135,6 +8135,7 @@ object LiveUpdateNotifier {
             if (hasRemoteInputs) {
                 builder.setShowsUserInterface(false)
                 builder.setAllowGeneratedReplies(true)
+                builder.setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_REPLY)
             }
 
             builder.build()
@@ -8165,6 +8166,7 @@ object LiveUpdateNotifier {
             if (fallbackHasRemoteInputs) {
                 builder.setShowsUserInterface(false)
                 builder.setAllowGeneratedReplies(true)
+                builder.setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_REPLY)
             }
 
             builder.build()

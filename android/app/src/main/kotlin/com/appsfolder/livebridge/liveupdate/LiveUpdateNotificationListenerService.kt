@@ -411,7 +411,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
             notificationIdentityKey(sbn.packageName, sbn.id, sbn.tag)
         )
 
-        // Delay 900ms để hệ thống kịp phát âm thanh trước khi hủy thông báo
+        // Delay 1500ms để hệ thống kịp phát âm thanh trước khi hủy thông báo
         mainHandler.postDelayed({
             val cancelDirectRequested = runCatching {
                 cancelNotification(sourceKey)
@@ -440,7 +440,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
             if (!cancelDirectRequested && !cancelBatchRequested && !snoozeRequested) {
                 Log.w(TAG, "Early-dismiss failed completely for source: $sourceKey")
             }
-        }, 900) // Delay 900ms
+        }, 1500) // Delay 1500ms
     }
 
     private fun drainPendingReplySourceCancels() {
