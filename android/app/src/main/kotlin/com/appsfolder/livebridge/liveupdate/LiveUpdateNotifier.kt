@@ -4575,13 +4575,21 @@ object LiveUpdateNotifier {
             null
         }
 
+        // FIX: Ép buộc sound URI và vibration tường minh cho notification
+        // Android chặn âm thanh khi coi đây là "notification update", nên cần force
+        val notificationSoundUri = android.media.RingtoneManager.getDefaultUri(
+            android.media.RingtoneManager.TYPE_NOTIFICATION
+        )
+        
         val builder = NotificationCompat.Builder(context, mirrorChannel.id)
             .setContentTitle(contentTitle)
             .setContentText(contentText)
             .setSubText(appName)
             .setOnlyAlertOnce(true)
-            .setSilent(true)
+            .setSilent(false)  // FIX: Đổi thành false để cho phép âm thanh
             .setDefaults(0)
+            .setSound(notificationSoundUri)  // FIX: Ép buộc sound URI tường minh
+            .setVibrate(longArrayOf(0, 200, 100, 200))  // FIX: Ép buộc vibration pattern
             .setOngoing(true)
             .setAutoCancel(true)
             .setWhen(callChronometerStart ?: resolveStableWhen(source, sbn.postTime))
