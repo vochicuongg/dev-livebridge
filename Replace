@@ -1,50 +1,14 @@
-    private fun stripAppNamePrefix(title: String, appName: String?): String {
-        if (appName.isNullOrBlank()) return title
-        // Check patterns: "AppName: text", "AppName : text", "AppName:text"
-        val prefixColon = "$appName:"
-        val prefixSpaceColon = "$appName :"
-        val stripped = when {
-            title.startsWith(prefixSpaceColon, ignoreCase = true) ->
-                title.removeRange(0, prefixSpaceColon.length).trimStart()
-            title.startsWith(prefixColon, ignoreCase = true) ->
-                title.removeRange(0, prefixColon.length).trimStart()
-            else -> null
-        }
-        // Only accept the stripped result if it's non-empty; otherwise keep original.
-        return stripped?.takeIf { it.isNotEmpty() } ?: title
-    }
+                if (isChatApp) {
+                    // Inbound message: bắt buộc alert (sound/vibrate)
+                    builder.setOnlyAlertOnce(false)
+                    builder.setSilent(false)
+                    builder.setPriority(NotificationCompat.PRIORITY_HIGH)
+                    builder.setDefaults(NotificationCompat.DEFAULT_SOUND or NotificationCompat.DEFAULT_VIBRATE)
 
-    private val KNOWN_CHAT_APP_TITLE_PREFIXES = setOf(
-        "messenger", "whatsapp", "telegram", "zalo", "viber",
-        "line", "skype", "discord", "snapchat", "facebook", "instagram"
-    )
-
-    /**
-     * Làm sạch Person.name / title: "Messenger: Anh iu" → "Anh iu".
-     * Dùng khi rebuild MessagingStyle history + Heads-up extras.
-     */
-    private fun sanitizePersonDisplayName(rawName: String?, appName: String?): String? {
-        val original = rawName?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-        var cleaned = stripAppNamePrefix(original, appName)
-
-        val match = Regex("""^([^\s:]{2,24})\s*[:：]\s+(.+)$""").find(cleaned)
-        if (match != null) {
-            val prefix = match.groupValues[1].trim()
-            val rest = match.groupValues[2].trim()
-            val prefixLower = prefix.lowercase(Locale.ROOT)
-            val appLower = appName?.trim()?.lowercase(Locale.ROOT)
-            if (
-                rest.isNotEmpty() &&
-                (
-                    (appLower != null && prefix.equals(appName, ignoreCase = true)) ||
-                        prefixLower in KNOWN_CHAT_APP_TITLE_PREFIXES ||
-                        (appLower != null && appLower.contains(prefixLower))
-                    )
-            ) {
-                cleaned = rest
-            }
-        }
-        return cleaned.ifBlank { original }
-    }
-
-    private fun resolveRobustConversationTitle(
+                    @Suppress("DEPRECATION")
+                    source.sound?.let { soundUri -> builder.setSound(soundUri) }
+                    @Suppress("DEPRECATION")
+                    source.vibrate?.takeIf { pattern -> pattern.isNotEmpty() }?.let { pattern ->
+                        builder.setVibrate(pattern)
+                    }
+                } else {

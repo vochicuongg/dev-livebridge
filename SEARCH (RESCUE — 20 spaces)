@@ -1,0 +1,17 @@
+                    builder.setGroup(threadKey)
+                    builder.setSortKey(threadKey)
+                    builder.setOnlyAlertOnce(true)
+
+                    synchronized(stateLock) {
+                        sourceSnapshotsByMirrorKey[sbn.key] = sbn
+                        threadKeysByMirrorKey[sbn.key] = threadKey
+                    }
+
+                    addReplyActionIfNotAlreadyCopied(
+                        source = source,
+                        builder = builder,
+                        mirrorKey = sbn.key,
+                        context = context
+                    )
+                } else {
+                    // ── TRUE FALLBACK: No cache, no MessagingStyle ──
