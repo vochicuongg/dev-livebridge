@@ -2,43 +2,56 @@ package com.kakao.taxi.liveupdate
 
 import android.app.NotificationManager
 import android.app.PendingIntent
-import android.content.BroadcastReceiver
+import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
+import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.Person
 import androidx.core.app.RemoteInput
 import androidx.core.graphics.drawable.IconCompat
 import com.kakao.taxi.R
+import java.util.concurrent.Executors
 
 /**
- * Proxy BroadcastReceiver that intercepts Wear OS inline replies.
- *
- * Flow:
- * 1. Extract typed RemoteInput text.
- * 2. Store it as a local reply in ChatHistoryStore (it will be merged into
- *    the mirrored chat history when the other party replies later).
- * 3. Immediately re-post the mirrored MessagingStyle notification with the
- *    local echo injected (clone-and-inject). Gboard on Wear OS only renders
- *    the "local echo" bubble when the app calls NotificationManager.notify()
- *    on the existing notification after the reply is cached; Samsung/One UI
- *    Watch fakes this UI on its own, Gboard does not.
- * 4. Forward the original PendingIntent after 500 ms so the source app
- *    actually sends the message.
- * 5. After the PendingIntent is handed to the source app, wait
- *    [DISMISS_DELAY_MS] (so the updated UI from step 3 stays visible and the
- *    notify() has completed) and only then dismiss both the LiveBridge
- *    mirror and the original phone notification.
+ * Service that intercepts Wear OS inline replies.
+ * Uses Service instead of BroadcastReceiver because Service
+ * can properly receive RemoteInput results via startService intent.
  */
-class ReplyInterceptReceiver : BroadcastReceiver() {
+class ReplyProxyService : Service() {
+
+    private val executor = Executors.newSingleThreadExecutor()
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        Log.d(TAG, "onStartCommand called, action=${intent?.action}")
+        
+        if (intent != null) {
+            executor.execute {
+                try {
+                    handleIntent(intent)
+                } finally {
+                    stopSelf(startId)
+                }
+            }
+        } else {
+            stopSelf(startId)
+        }
+        
+        return START_NOT_STICKY
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        executor.shutdown()
+    }
 
     companion object {
-        private const val TAG = "ReplyInterceptReceiver"
+        private const val TAG = "ReplyProxyService"
 
         const val ACTION_PROXY_REPLY = "com.kakao.taxi.action.PROXY_REPLY"
         const val EXTRA_ORIGINAL_PENDING_INTENT = "original_pending_intent"
@@ -49,25 +62,18 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
         const val EXTRA_SOURCE_KEY = "source_key"
 
         private const val INTENT_DELAY_MS = 500L
-
-        /**
-         * Delay between forwarding the reply to the source app and cancelling
-         * the mirror/source notifications. Keeps the re-posted local-echo UI
-         * on screen long enough for Gboard to render it and guarantees the
-         * cancel always runs AFTER the notify() from the local-echo update.
-         * Must stay within goAsync()'s ~10 s window (500 + 1500 = 2000 ms).
-         */
         private const val DISMISS_DELAY_MS = 1_500L
         private const val INVALID_NOTIFICATION_ID = Int.MIN_VALUE
     }
 
-    override fun onReceive(context: Context, intent: Intent?) {
-        Log.d(TAG, "onReceive called, action=${intent?.action}")
-        if (intent == null || intent.action != ACTION_PROXY_REPLY) {
+    private fun handleIntent(intent: Intent) {
+        Log.d(TAG, "handleIntent called, action=${intent.action}")
+        if (intent.action != ACTION_PROXY_REPLY) {
             Log.w(TAG, "Intent null or wrong action, returning")
             return
         }
 
+        // Extract RemoteInput results from the intent
         val remoteInputResults = RemoteInput.getResultsFromIntent(intent)
         val resultKey = intent.getStringExtra(EXTRA_RESULT_KEY).orEmpty()
         
@@ -101,34 +107,20 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
         )
         val sourceKey = intent.getStringExtra(EXTRA_SOURCE_KEY).orEmpty()
 
-        Log.d(TAG, "Intercepted reply for threadKey=$threadKey, mirrorKey=$mirrorKey")
+        Log.d(TAG, "Intercepted reply for threadKey=$threadKey, mirrorKey=$mirrorKey, replyText='$replyText'")
 
         if (threadKey.isNotBlank()) {
             ChatHistoryStore.setPendingReply(threadKey, replyText)
             ChatHistoryStore.appendLocalReply(threadKey, replyText)
             Log.d(TAG, "Reply cached for threadKey=$threadKey")
 
-            // GBOARD LOCAL ECHO FIX: Gboard (unlike Samsung keyboard / One UI
-            // Watch) does not fake a temporary "sent" UI. It only renders the
-            // local echo when the app re-posts the SAME notification id via
-            // NotificationManager.notify() after the reply is cached. We use
-            // the clone-and-inject pattern (recoverBuilder on the cached
-            // active notification) so OEM extras, the notification channel
-            // and Person identity are preserved. threadKey here was produced
-            // by LiveUpdateNotifier.threadKeyForNotification(sbn) ->
-            // buildThreadKey(packageName, conversationTitle), i.e. the exact
-            // same builder logic used for history caching/grouping, so the
-            // merged chat history stays consistent.
             val echoPosted = republishMirrorWithLocalEcho(
-                context = context.applicationContext,
+                context = applicationContext,
                 threadKey = threadKey,
                 mirrorNotificationId = mirrorNotificationId,
                 replyText = replyText
             )
-            Log.d(
-                TAG,
-                "Local echo notify posted=$echoPosted for id=$mirrorNotificationId, threadKey=$threadKey"
-            )
+            Log.d(TAG, "Local echo posted=$echoPosted for id=$mirrorNotificationId")
         }
 
         val originalPendingIntent: PendingIntent? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -143,68 +135,39 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
             return
         }
 
-        val pendingResult = goAsync()
-        val mainHandler = Handler(Looper.getMainLooper())
-        mainHandler.postDelayed({
-            var dismissScheduled = false
-            try {
-                val forwardIntent = Intent()
-                val resultBundle = Bundle().apply {
-                    putCharSequence(resultKey, replyText)
-                }
-                RemoteInput.addResultsToIntent(
-                    arrayOf(RemoteInput.Builder(resultKey).build()),
-                    forwardIntent,
-                    resultBundle
-                )
-                originalPendingIntent.send(context, 0, forwardIntent)
-                Log.d(TAG, "Intent forwarded after ${INTENT_DELAY_MS}ms")
+        // Wait before forwarding to source app
+        Thread.sleep(INTENT_DELAY_MS)
 
-                // Delay the mirror/source cancellation so it always happens
-                // AFTER the local-echo notify() has been rendered by Gboard.
-                // pendingResult.finish() is only called once the dismissal
-                // completes, keeping the process alive for the whole delay
-                // (total 500 + 1800 = 2300 ms, well inside goAsync's window).
-                dismissScheduled = true
-                mainHandler.postDelayed({
-                    try {
-                        dismissAfterSuccessfulReply(
-                            context = context.applicationContext,
-                            mirrorKey = mirrorKey,
-                            mirrorNotificationId = mirrorNotificationId,
-                            sourceKey = sourceKey.ifBlank { mirrorKey }
-                        )
-                        Log.d(TAG, "Mirror/source dismissed after ${DISMISS_DELAY_MS}ms delay")
-                    } catch (error: Throwable) {
-                        Log.e(TAG, "Delayed dismissal failed.", error)
-                    } finally {
-                        pendingResult.finish()
-                    }
-                }, DISMISS_DELAY_MS)
-            } catch (e: PendingIntent.CanceledException) {
-                Log.e(TAG, "Original PendingIntent was cancelled.", e)
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to forward reply to original app.", e)
-            } finally {
-                if (!dismissScheduled) {
-                    pendingResult.finish()
-                }
+        try {
+            val forwardIntent = Intent()
+            val resultBundle = Bundle().apply {
+                putCharSequence(resultKey, replyText)
             }
-        }, INTENT_DELAY_MS)
+            RemoteInput.addResultsToIntent(
+                arrayOf(RemoteInput.Builder(resultKey).build()),
+                forwardIntent,
+                resultBundle
+            )
+            originalPendingIntent.send(applicationContext, 0, forwardIntent)
+            Log.d(TAG, "Intent forwarded to source app")
+
+            // Wait before dismissing notifications
+            Thread.sleep(DISMISS_DELAY_MS)
+
+            dismissAfterSuccessfulReply(
+                context = applicationContext,
+                mirrorKey = mirrorKey,
+                mirrorNotificationId = mirrorNotificationId,
+                sourceKey = sourceKey.ifBlank { mirrorKey }
+            )
+            Log.d(TAG, "Mirror/source notifications dismissed")
+        } catch (e: PendingIntent.CanceledException) {
+            Log.e(TAG, "Original PendingIntent was cancelled.", e)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to forward reply to original app.", e)
+        }
     }
 
-    /**
-     * Re-posts the currently displayed mirrored notification with the typed
-     * reply appended as a right-aligned "Me" bubble (local echo).
-     *
-     * Uses the clone-and-inject pattern: recover the builder from the active
-     * notification currently shown on the watch (preserving channel, OEM extras
-     * and Person identity), append the local message to its MessagingStyle and
-     * call NotificationManager.notify() with the EXACT mirror notification id.
-     * This is what makes Gboard render the local echo immediately.
-     *
-     * @return true if an updated notification was posted.
-     */
     private fun republishMirrorWithLocalEcho(
         context: Context,
         threadKey: String,
@@ -217,14 +180,12 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
         }
 
         return try {
-            // 1. Get NotificationManager and find the active notification
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
             if (notificationManager == null) {
                 Log.e(TAG, "NotificationManager unavailable; cannot post local echo.")
                 return false
             }
 
-            // 2. Find the active notification with matching ID on the watch
             val activeNotifications = notificationManager.activeNotifications
             val activeSbn = activeNotifications.firstOrNull { it.id == mirrorNotificationId }
 
@@ -233,7 +194,6 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
                 return false
             }
 
-            // 3. Get the original Notification and extract its MessagingStyle
             val activeNotif = activeSbn.notification
             val style = NotificationCompat.MessagingStyle
                 .extractMessagingStyleFromNotification(activeNotif)
@@ -242,12 +202,8 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
                 return false
             }
 
-            // 4. Add the reply message as "Me" (null Person = current user)
-            // null Person renders as right-aligned bubble on Wear OS
             style.addMessage(replyText, System.currentTimeMillis(), null as Person?)
 
-            // 5. Build a new NotificationCompat.Builder from the channel ID
-            //    of the active notification (no recoverBuilder needed).
             val channelId = activeNotif.channelId ?: LiveUpdateNotifier.CHANNEL_ID
             val smallIcon = activeNotif.smallIcon
             val builder = NotificationCompat.Builder(context, channelId)
@@ -263,7 +219,6 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
                 .setAutoCancel(false)
                 .setOngoing(false)
 
-            // Preserve existing actions (e.g. reply action) from the original
             activeNotif.actions?.forEach { action ->
                 val actionIcon = action.getIcon()?.let { icon ->
                     try { IconCompat.createFromIcon(context, icon) } catch (_: Throwable) { null }
@@ -284,16 +239,12 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
                 builder.addAction(compatAction)
             }
 
-            // Preserve group and sort keys
             activeNotif.group?.let { builder.setGroup(it) }
             activeNotif.sortKey?.let { builder.setSortKey(it) }
 
-            // 6. Build and post the updated notification with the same ID
             val updatedNotification = builder.build()
             notificationManager.notify(mirrorNotificationId, updatedNotification)
 
-            // Keep the cache in sync so any later clone-and-inject pass
-            // starts from the notification that is actually on screen.
             ChatHistoryStore.setActiveNotification(threadKey, updatedNotification)
 
             Log.d(TAG, "Successfully posted local echo for notification id=$mirrorNotificationId")

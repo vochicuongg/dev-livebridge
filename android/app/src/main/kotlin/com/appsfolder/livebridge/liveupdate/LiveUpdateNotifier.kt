@@ -8690,17 +8690,14 @@ object LiveUpdateNotifier {
             val mirrorNotificationId = synchronized(stateLock) {
                 mirrorNotificationIdsByKey[mirrorKey]?.firstOrNull()
             } ?: mirrorIdForKey(mirrorKey)
-            val proxyIntent = Intent(ReplyInterceptReceiver.ACTION_PROXY_REPLY).apply {
-                setClassName(
-                    context.packageName,
-                    ReplyInterceptReceiver::class.java.name
-                )
-                putExtra(ReplyInterceptReceiver.EXTRA_ORIGINAL_PENDING_INTENT, originalIntent)
-                putExtra(ReplyInterceptReceiver.EXTRA_MIRROR_KEY, mirrorKey)
-                putExtra(ReplyInterceptReceiver.EXTRA_RESULT_KEY, resultKey)
-                putExtra(ReplyInterceptReceiver.EXTRA_THREAD_KEY, threadKey)
-                putExtra(ReplyInterceptReceiver.EXTRA_MIRROR_NOTIFICATION_ID, mirrorNotificationId)
-                putExtra(ReplyInterceptReceiver.EXTRA_SOURCE_KEY, sourceKey)
+            val proxyIntent = Intent(context, ReplyProxyReceiver::class.java).apply {
+                action = ReplyProxyService.ACTION_PROXY_REPLY
+                putExtra(ReplyProxyService.EXTRA_ORIGINAL_PENDING_INTENT, originalIntent)
+                putExtra(ReplyProxyService.EXTRA_MIRROR_KEY, mirrorKey)
+                putExtra(ReplyProxyService.EXTRA_RESULT_KEY, resultKey)
+                putExtra(ReplyProxyService.EXTRA_THREAD_KEY, threadKey)
+                putExtra(ReplyProxyService.EXTRA_MIRROR_NOTIFICATION_ID, mirrorNotificationId)
+                putExtra(ReplyProxyService.EXTRA_SOURCE_KEY, sourceKey)
             }
             PendingIntent.getBroadcast(
                 context,
