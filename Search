@@ -13,3 +13,5 @@
         // Only accept the stripped result if it's non-empty; otherwise keep original.
         return stripped?.takeIf { it.isNotEmpty() } ?: title
     }
+
+    private fun resolveRobustConversationTitle(

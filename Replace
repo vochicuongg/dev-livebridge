@@ -20,8 +20,8 @@
     )
 
     /**
-     * Làm sạch Person.name / title khỏi tiền tố app ("Messenger: Anh iu" → "Anh iu").
-     * Dùng cho MessagingStyle history + Heads-up.
+     * Làm sạch Person.name / title: "Messenger: Anh iu" → "Anh iu".
+     * Dùng khi rebuild MessagingStyle history + Heads-up extras.
      */
     private fun sanitizePersonDisplayName(rawName: String?, appName: String?): String? {
         val original = rawName?.trim()?.takeIf { it.isNotEmpty() } ?: return null
@@ -46,3 +46,5 @@
         }
         return cleaned.ifBlank { original }
     }
+
+    private fun resolveRobustConversationTitle(
