@@ -4565,7 +4565,14 @@ object LiveUpdateNotifier {
         // Các app khác (download, progress) vẫn giữ onlyAlertOnce = true để tránh spam
         val isChatApp = CHAT_APP_PACKAGES.contains(sourcePackageNameLower)
         
-        val builder = NotificationCompat.Builder(context, mirrorChannel.id)
+        // FIX: Chat apps MUST use ALERTS channel to get sound/vibration
+        val effectiveChannel = if (isChatApp) {
+            MirrorNotificationChannel.ALERTS
+        } else {
+            mirrorChannel
+        }
+        
+        val builder = NotificationCompat.Builder(context, effectiveChannel.id)
             .setContentTitle(contentTitle)
             .setContentText(contentText)
             .setSubText(appName)
