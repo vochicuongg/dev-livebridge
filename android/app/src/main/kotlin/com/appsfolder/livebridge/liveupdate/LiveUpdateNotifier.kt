@@ -424,61 +424,25 @@ object LiveUpdateNotifier {
      * Fully null-safe: returns null when no trustworthy title can be resolved
      * so callers decide their own fallback (never silently the app label).
      */
-    /**
-     * FIX #1: Hủy gốc với delay nhỏ để cho phép âm thanh phát trước khi thông báo bị hủy.
-     * Android cần một khoảng thời gian ngắn để xử lý âm thanh của thông báo. Nếu hủy
-     * quá nhanh, hệ thống sẽ "giết" luồng phát âm thanh trước khi nó bắt đầu.
-     */
-    private fun maybeEarlyDismissSourceForWearRace(sbn: StatusBarNotification) {
-        if (!shouldEarlyDismissOriginalSource(sbn)) {
-            return
-        }
-        val sourceKey = sbn.key
-        rememberProgrammaticCancelKeys(
-            sourceKey,
-            notificationIdentityKey(sbn.packageName, sbn.id, sbn.tag)
-        )
-
-        // FIX: Add 100ms delay before canceling to allow sound to start playing
-        mainHandler.postDelayed({
-            val cancelDirectRequested = runCatching {
-                cancelNotification(sourceKey)
-            }.onSuccess {
-                Log.i(TAG, "Early-dismiss source via cancelNotification (delayed): $sourceKey")
-            }.onFailure { error ->
-                Log.w(TAG, "Early cancelNotification failed: $sourceKey", error)
-            }.isSuccess
-
-            val cancelBatchRequested = runCatching {
-                cancelNotifications(arrayOf(sourceKey))
-            }.onSuccess {
-                Log.i(TAG, "Early-dismiss source via cancelNotifications (delayed): $sourceKey")
-            }.onFailure { error ->
-                Log.w(TAG, "Early cancelNotifications failed: $sourceKey", error)
-            }.isSuccess
-
-            val snoozeRequested = runCatching {
-                snoozeNotification(sourceKey, ORIGINAL_SOURCE_SNOOZE_MS)
-            }.onSuccess {
-                Log.i(TAG, "Early-dismiss source via snooze fallback (delayed): $sourceKey")
-            }.onFailure { error ->
-                Log.w(TAG, "Early snoozeNotification failed: $sourceKey", error)
-            }.isSuccess
-
-            if (!cancelDirectRequested && !cancelBatchRequested && !snoozeRequested) {
-                Log.w(TAG, "Early-dismiss failed completely for source: $sourceKey")
-            }
-        }, 100L) // 100ms delay to allow sound to start
-    }
 
     private fun resolveRobustConversationTitle(source: Notification, appName: String?): CharSequence? {
         val extras = source.extras
 
         // Priority 1: EXTRA_CONVERSATION_TITLE (group chats)
-        sanitize(extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE))?.let { return it }
+        extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)?.let { 
+            val sanitized = it.toString().trim()
+            if (sanitized.isNotEmpty() && !sanitized.equals(appName, ignoreCase = true)) {
+                return sanitized
+            }
+        }
 
         // Priority 2: EXTRA_TITLE (1:1 chats)
-        sanitize(extras.getCharSequence(Notification.EXTRA_TITLE))?.let { return it }
+        extras.getCharSequence(Notification.EXTRA_TITLE)?.let { 
+            val sanitized = it.toString().trim()
+            if (sanitized.isNotEmpty() && !sanitized.equals(appName, ignoreCase = true)) {
+                return sanitized
+            }
+        }
 
         // Priority 3: infer from the Person list inside EXTRA_MESSAGES —
         // most recent non-self sender name wins. Null-safe at every step.
@@ -492,11 +456,24 @@ object LiveUpdateNotifier {
                         ?.takeIf { name ->
                             name.isNotEmpty() &&
                                 !isSelfSender(name, selfDisplayName) &&
-                                (normalizedAppName == null ||
-                                    !name.equals(normalizedAppName, ignoreCase = true))
+                                !name.equals(appName, ignoreCase = true)
                         }
                 }
         }.getOrNull()
+    }
+
+    /**
+     * Strips "$appName: " or "[AppName] " prefix from notification titles.
+     * Example: "Messenger: little mom" → "little mom"
+     */
+    private fun stripAppNamePrefix(title: String, appName: String?): String {
+        if (appName.isNullOrBlank()) return title
+        
+        val cleanedTitle = title
+            .replace(Regex("^\\[?\\s*${Regex.escape(appName)}\\s*]?\\s*[:\\-–—]?\\s*", RegexOption.IGNORE_CASE), "")
+            .trim()
+        
+        return if (cleanedTitle.isNotEmpty()) cleanedTitle else title
     }
 
     private fun deterministicSenderKey(threadKey: String, senderName: String): String {
@@ -4859,7 +4836,7 @@ object LiveUpdateNotifier {
                     // NEVER fall back to the app label anymore — prefer the
                     // last known remote sender from cached history, then a
                     // neutral "Unknown".
-                    val remoteSenderName = conversationTitle?.trim()
+                    val remoteSenderName = conversationTitle?.toString()?.trim()
                         ?.takeIf { it.isNotBlank() && !it.equals(appName, ignoreCase = true) }
                         ?: cachedHistory.lastOrNull { snapshot ->
                             !snapshot.isMe && !snapshot.senderName.isNullOrBlank()
@@ -4878,18 +4855,18 @@ object LiveUpdateNotifier {
                                 kotlin.math.abs(existing.timestampMs - System.currentTimeMillis()) < LOCAL_ECHO_DUPLICATE_WINDOW_MS
                         }
                         if (!isDuplicate) {
-                            ChatHistoryStore.upsertSourceMessages(
-                                threadKey,
-                                listOf(
-                                    ChatHistoryStore.ChatMessageSnapshot(
-                                        text = currentText,
-                                        timestampMs = System.currentTimeMillis(),
-                                        senderName = remoteSenderName,
-                                        senderKey = deterministicSenderKey(threadKey, remoteSenderName),
-                                        isMe = false
-                                    )
+                        ChatHistoryStore.upsertSourceMessages(
+                            threadKey,
+                            listOf(
+                                ChatHistoryStore.ChatMessageSnapshot(
+                                    text = currentText,
+                                    timestampMs = System.currentTimeMillis(),
+                                    senderName = remoteSenderName,
+                                    senderKey = deterministicSenderKey(threadKey, remoteSenderName),
+                                    isMe = false
                                 )
                             )
+                        )
                         }
                     }
 
