@@ -680,7 +680,8 @@ object LiveUpdateNotifier {
         conversationTitle: CharSequence?,
         selfDisplayName: String,
         fallbackMessages: List<ChatHistoryStore.ChatMessageSnapshot>,
-        fallbackText: CharSequence
+        fallbackText: CharSequence,
+        appName: String?
     ): NotificationCompat.MessagingStyle {
         val style = NotificationCompat.MessagingStyle(
             extractedStyle?.user ?: Person.Builder()
@@ -729,10 +730,8 @@ object LiveUpdateNotifier {
                     val cleanedPerson = if (originalPerson != null) {
                         val originalName = NotificationTextNormalizer.normalize(originalPerson.name)
                         val cleanedName = if (originalName != null) {
-                            // Try to strip app name prefix from Person name
-                            // conversationTitle already has the cleaned name we want
-                            conversationTitle?.toString()?.trim()?.takeIf { it.isNotBlank() }
-                                ?: stripAppNamePrefix(originalName, conversationTitle?.toString())
+                            // Strip app name prefix from Person name (e.g. "Messenger: Name" → "Name")
+                            stripAppNamePrefix(originalName, appName)
                         } else {
                             originalName
                         }
@@ -4774,7 +4773,8 @@ object LiveUpdateNotifier {
                         conversationTitle = conversationTitle,
                         selfDisplayName = selfDisplayName,
                         fallbackMessages = renderedMessages,
-                        fallbackText = fallback
+                        fallbackText = fallback,
+                        appName = appName
                     )
                 )
                 builder.setGroup(threadKey)
@@ -4894,7 +4894,8 @@ object LiveUpdateNotifier {
                             conversationTitle = conversationTitle,
                             selfDisplayName = selfDisplayName,
                             fallbackMessages = ChatHistoryStore.getMessages(threadKey),
-                            fallbackText = fallback
+                            fallbackText = fallback,
+                            appName = appName
                         )
                     )
                     builder.setGroup(threadKey)

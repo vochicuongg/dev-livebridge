@@ -279,9 +279,9 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
                 return
             }
 
-            // FIX #1: Hủy thông báo gốc NGAY LẬP TỨC trước parse/build Now Bar
-            // để Wear OS không kịp bridge bản gốc (tránh lặp 2 thông báo).
-            maybeEarlyDismissSourceForWearRace(sbn)
+            // FIX: DISABLED early dismiss để phone giữ notification gốc → có âm thanh
+            // WearOS sẽ nhận cả gốc + mirror, user cần tắt notification gốc trong WearOS settings
+            // maybeEarlyDismissSourceForWearRace(sbn)
 
             processIncomingNotification(sbn)
             refreshNotificationCapsuleFromActiveNotifications()
@@ -411,7 +411,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
             notificationIdentityKey(sbn.packageName, sbn.id, sbn.tag)
         )
 
-        // Delay 500ms để hệ thống kịp phát âm thanh trước khi hủy thông báo
+        // Delay 900ms để hệ thống kịp phát âm thanh trước khi hủy thông báo
         mainHandler.postDelayed({
             val cancelDirectRequested = runCatching {
                 cancelNotification(sourceKey)
@@ -440,7 +440,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
             if (!cancelDirectRequested && !cancelBatchRequested && !snoozeRequested) {
                 Log.w(TAG, "Early-dismiss failed completely for source: $sourceKey")
             }
-        }, 500) // Delay 500ms
+        }, 900) // Delay 900ms
     }
 
     private fun drainPendingReplySourceCancels() {
