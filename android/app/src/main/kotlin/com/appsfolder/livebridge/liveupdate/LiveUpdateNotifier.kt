@@ -471,6 +471,9 @@ object LiveUpdateNotifier {
         }, 100L) // 100ms delay to allow sound to start
     }
 
+    private fun resolveRobustConversationTitle(source: Notification, appName: String?): CharSequence? {
+        val extras = source.extras
+
         // Priority 1: EXTRA_CONVERSATION_TITLE (group chats)
         sanitize(extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE))?.let { return it }
 
