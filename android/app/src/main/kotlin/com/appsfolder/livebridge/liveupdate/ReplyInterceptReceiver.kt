@@ -62,7 +62,9 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
     }
 
     override fun onReceive(context: Context, intent: Intent?) {
+        Log.d(TAG, "onReceive called, action=${intent?.action}")
         if (intent == null || intent.action != ACTION_PROXY_REPLY) {
+            Log.w(TAG, "Intent null or wrong action, returning")
             return
         }
 
