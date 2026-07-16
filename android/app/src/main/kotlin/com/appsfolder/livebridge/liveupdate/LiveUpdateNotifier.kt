@@ -4963,6 +4963,14 @@ object LiveUpdateNotifier {
                     if (!extractedWearText.isNullOrEmpty()) {
                         builder.setStyle(NotificationCompat.BigTextStyle().bigText(extractedWearText))
                     }
+
+                    // Add reply action even in true fallback path for inline reply support
+                    addReplyActionIfNotAlreadyCopied(
+                        source = source,
+                        builder = builder,
+                        mirrorKey = sbn.key,
+                        context = context
+                    )
                 }
             }
         }
