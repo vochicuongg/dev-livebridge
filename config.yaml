@@ -1,0 +1,11 @@
+model_list:
+  - model_name: claude-3-5-sonnet-20241022
+    litellm_params:
+      model: openai/grok-4.5
+      api_base: https://api.58aimi.cn/v1
+      api_key: sk-KENBj7yS0g4dQiodeJulbhvOrfA0E2FFq4PmcSIULYVWtHxh
+  - model_name: claude-opus-4-6-thinking
+    litellm_params:
+      model: openai/grok-4.5
+      api_base: https://api.58aimi.cn/v1
+      api_key: sk-KENBj7yS0g4dQiodeJulbhvOrfA0E2FFq4PmcSIULYVWtHxh

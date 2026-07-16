@@ -24,6 +24,7 @@ import android.graphics.RectF
 import android.graphics.drawable.AdaptiveIconDrawable
 import android.graphics.drawable.Drawable
 import android.icu.text.BreakIterator
+import android.media.RingtoneManager
 import android.media.MediaMetadata
 import android.media.session.MediaController
 import android.media.session.MediaSession
@@ -899,6 +900,12 @@ object LiveUpdateNotifier {
         context: Context,
         channel: MirrorNotificationChannel
     ) {
+        // Delete legacy/poisoned channel IDs that the OS may have cached
+        // with incorrect (silent) settings. This forces Android to use the
+        // newly-created channel with correct sound/vibration config.
+        if (channel == MirrorNotificationChannel.ALERTS) {
+            runCatching { manager.deleteNotificationChannel("livebridge_alerts_v1") }
+        }
         val lockscreenVisibility = mirrorChannelLockscreenVisibility(context)
         val current = manager.getNotificationChannel(channel.id)
         if (current == null) {
@@ -937,9 +944,10 @@ object LiveUpdateNotifier {
                 // notifications on this channel can ring/vibrate on both
                 // the phone and Wear OS (Galaxy Watch).
                 enableVibration(true)
-                // Use the system default notification sound
+                vibrationPattern = longArrayOf(0, 500, 200, 500)
+                // Use the system default notification sound via RingtoneManager
                 setSound(
-                    android.provider.Settings.System.DEFAULT_NOTIFICATION_URI,
+                    RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
                     android.media.AudioAttributes.Builder()
                         .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION)
                         .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
@@ -5223,7 +5231,9 @@ object LiveUpdateNotifier {
         deterministicMessagingThreadKey?.let { threadKey ->
             builder.setGroup(threadKey)
             builder.setSortKey(threadKey)
-            builder.setOnlyAlertOnce(true)
+            // NOTE: Do NOT set setOnlyAlertOnce(true) here — it would override
+            // the Smart Alerting logic above that sets setOnlyAlertOnce(false)
+            // for chat apps (Messenger, Zalo, etc.), silencing their vibration.
         }
 
         source.contentIntent?.let(builder::setContentIntent)
@@ -9169,7 +9179,7 @@ object LiveUpdateNotifier {
         NOTIFICATION_CAPSULE("livebridge_notification_capsule"),
         CHARGING_INFO("livebridge_charging_info"),
         BYPASS("livebridge_bypass_applications"),
-        ALERTS("livebridge_alerts_v1")
+        ALERTS("livebridge_alerts_v2")
     }
 
     private data class MirrorChannelText(
