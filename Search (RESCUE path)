@@ -1,0 +1,8 @@
+                        buildMergedWearMessagingStyle(
+                            threadKey = threadKey,
+                            extractedStyle = null,
+                            conversationTitle = conversationTitle,
+                            selfDisplayName = selfDisplayName,
+                            fallbackMessages = ChatHistoryStore.getMessages(threadKey),
+                            fallbackText = fallback
+                        )

@@ -1,0 +1,8 @@
+            if (fallbackHasRemoteInputs) {
+                builder.setShowsUserInterface(false)
+                builder.setAllowGeneratedReplies(true)
+            }
+
+            builder.build()
+        }
+    }

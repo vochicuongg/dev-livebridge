@@ -1,0 +1,5 @@
+                val senderName = message.senderName?.trim()?.takeIf { it.isNotEmpty() } ?: "Unknown"
+                val senderPerson = Person.Builder()
+                    .setName(senderName)
+                    .setKey(message.senderKey ?: deterministicSenderKey(threadKey, senderName))
+                    .build()

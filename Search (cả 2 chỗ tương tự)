@@ -1,0 +1,8 @@
+                    buildMergedWearMessagingStyle(
+                        threadKey = threadKey,
+                        extractedStyle = extractedStyle,
+                        conversationTitle = conversationTitle,
+                        selfDisplayName = selfDisplayName,
+                        fallbackMessages = renderedMessages,
+                        fallbackText = fallback
+                    )
