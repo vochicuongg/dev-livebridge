@@ -953,11 +953,14 @@ object LiveUpdateNotifier {
                         .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
                         .build()
                 )
+                // Force lockscreen visibility to PUBLIC for ALERTS so notifications
+                // always display on the lock screen regardless of user prefs
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             } else {
                 enableVibration(false)
                 setSound(null, null)
+                lockscreenVisibility = mirrorChannelLockscreenVisibility(context)
             }
-            lockscreenVisibility = mirrorChannelLockscreenVisibility(context)
         }
     }
 
@@ -5156,7 +5159,10 @@ object LiveUpdateNotifier {
                 // syncs), while allowing actual new messages to pop up.
                 val sourceAlertOnce = source.flags and Notification.FLAG_ONLY_ALERT_ONCE != 0
                 builder.setOnlyAlertOnce(sourceAlertOnce)
-                builder.setPriority(NotificationCompat.PRIORITY_HIGH)
+                builder.setSilent(false)
+                builder.setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                builder.setPriority(NotificationCompat.PRIORITY_MAX)
+                builder.setDefaults(NotificationCompat.DEFAULT_ALL)
                 
                 // Timestamp Refresh: use current time so the OS does not
                 // bury the notification at the bottom of the queue.
@@ -5205,7 +5211,8 @@ object LiveUpdateNotifier {
                     // Messaging apps: every new message should alert (vibrate)
                     builder.setOnlyAlertOnce(false)
                     builder.setSilent(false)
-                    builder.setPriority(NotificationCompat.PRIORITY_HIGH)
+                    builder.setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                    builder.setPriority(NotificationCompat.PRIORITY_MAX)
                     builder.setDefaults(NotificationCompat.DEFAULT_ALL)
                 } else {
                     // Tracking / ride-hailing apps: alert once on first appearance,
