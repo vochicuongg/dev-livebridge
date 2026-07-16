@@ -399,6 +399,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
 
     /**
      * FIX #1: Hủy gốc ngay lập tức trước khi parse/build mirror.
+     * FIX SOUND: Thêm delay 100ms để hệ thống kịp phát âm thanh trước khi hủy.
      */
     private fun maybeEarlyDismissSourceForWearRace(sbn: StatusBarNotification) {
         if (!shouldEarlyDismissOriginalSource(sbn)) {
@@ -410,33 +411,36 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
             notificationIdentityKey(sbn.packageName, sbn.id, sbn.tag)
         )
 
-        val cancelDirectRequested = runCatching {
-            cancelNotification(sourceKey)
-        }.onSuccess {
-            Log.i(TAG, "Early-dismiss source via cancelNotification: $sourceKey")
-        }.onFailure { error ->
-            Log.w(TAG, "Early cancelNotification failed: $sourceKey", error)
-        }.isSuccess
+        // Delay 100ms để hệ thống kịp phát âm thanh trước khi hủy thông báo
+        mainHandler.postDelayed({
+            val cancelDirectRequested = runCatching {
+                cancelNotification(sourceKey)
+            }.onSuccess {
+                Log.i(TAG, "Early-dismiss source via cancelNotification: $sourceKey")
+            }.onFailure { error ->
+                Log.w(TAG, "Early cancelNotification failed: $sourceKey", error)
+            }.isSuccess
 
-        val cancelBatchRequested = runCatching {
-            cancelNotifications(arrayOf(sourceKey))
-        }.onSuccess {
-            Log.i(TAG, "Early-dismiss source via cancelNotifications: $sourceKey")
-        }.onFailure { error ->
-            Log.w(TAG, "Early cancelNotifications failed: $sourceKey", error)
-        }.isSuccess
+            val cancelBatchRequested = runCatching {
+                cancelNotifications(arrayOf(sourceKey))
+            }.onSuccess {
+                Log.i(TAG, "Early-dismiss source via cancelNotifications: $sourceKey")
+            }.onFailure { error ->
+                Log.w(TAG, "Early cancelNotifications failed: $sourceKey", error)
+            }.isSuccess
 
-        val snoozeRequested = runCatching {
-            snoozeNotification(sourceKey, ORIGINAL_SOURCE_SNOOZE_MS)
-        }.onSuccess {
-            Log.i(TAG, "Early-dismiss source via snooze fallback: $sourceKey")
-        }.onFailure { error ->
-            Log.w(TAG, "Early snoozeNotification failed: $sourceKey", error)
-        }.isSuccess
+            val snoozeRequested = runCatching {
+                snoozeNotification(sourceKey, ORIGINAL_SOURCE_SNOOZE_MS)
+            }.onSuccess {
+                Log.i(TAG, "Early-dismiss source via snooze fallback: $sourceKey")
+            }.onFailure { error ->
+                Log.w(TAG, "Early snoozeNotification failed: $sourceKey", error)
+            }.isSuccess
 
-        if (!cancelDirectRequested && !cancelBatchRequested && !snoozeRequested) {
-            Log.w(TAG, "Early-dismiss failed completely for source: $sourceKey")
-        }
+            if (!cancelDirectRequested && !cancelBatchRequested && !snoozeRequested) {
+                Log.w(TAG, "Early-dismiss failed completely for source: $sourceKey")
+            }
+        }, 100) // Delay 100ms
     }
 
     private fun drainPendingReplySourceCancels() {

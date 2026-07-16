@@ -425,46 +425,51 @@ object LiveUpdateNotifier {
      * so callers decide their own fallback (never silently the app label).
      */
     /**
-     * Strips a leading "$appName: " or "$appName : " prefix from [title].
-     * Many apps (Messenger, Telegram, etc.) prepend their name to EXTRA_TITLE.
-     * Returns the cleaned title, or [title] unchanged if no prefix is found.
+     * FIX #1: Hủy gốc với delay nhỏ để cho phép âm thanh phát trước khi thông báo bị hủy.
+     * Android cần một khoảng thời gian ngắn để xử lý âm thanh của thông báo. Nếu hủy
+     * quá nhanh, hệ thống sẽ "giết" luồng phát âm thanh trước khi nó bắt đầu.
      */
-    private fun stripAppNamePrefix(title: String, appName: String?): String {
-        if (appName.isNullOrBlank()) return title
-        // Check patterns: "AppName: text", "AppName : text", "AppName:text"
-        val prefixColon = "$appName:"
-        val prefixSpaceColon = "$appName :"
-        val stripped = when {
-            title.startsWith(prefixSpaceColon, ignoreCase = true) ->
-                title.removeRange(0, prefixSpaceColon.length).trimStart()
-            title.startsWith(prefixColon, ignoreCase = true) ->
-                title.removeRange(0, prefixColon.length).trimStart()
-            else -> null
+    private fun maybeEarlyDismissSourceForWearRace(sbn: StatusBarNotification) {
+        if (!shouldEarlyDismissOriginalSource(sbn)) {
+            return
         }
-        // Only accept the stripped result if it's non-empty; otherwise keep original.
-        return stripped?.takeIf { it.isNotEmpty() } ?: title
+        val sourceKey = sbn.key
+        rememberProgrammaticCancelKeys(
+            sourceKey,
+            notificationIdentityKey(sbn.packageName, sbn.id, sbn.tag)
+        )
+
+        // FIX: Add 100ms delay before canceling to allow sound to start playing
+        mainHandler.postDelayed({
+            val cancelDirectRequested = runCatching {
+                cancelNotification(sourceKey)
+            }.onSuccess {
+                Log.i(TAG, "Early-dismiss source via cancelNotification (delayed): $sourceKey")
+            }.onFailure { error ->
+                Log.w(TAG, "Early cancelNotification failed: $sourceKey", error)
+            }.isSuccess
+
+            val cancelBatchRequested = runCatching {
+                cancelNotifications(arrayOf(sourceKey))
+            }.onSuccess {
+                Log.i(TAG, "Early-dismiss source via cancelNotifications (delayed): $sourceKey")
+            }.onFailure { error ->
+                Log.w(TAG, "Early cancelNotifications failed: $sourceKey", error)
+            }.isSuccess
+
+            val snoozeRequested = runCatching {
+                snoozeNotification(sourceKey, ORIGINAL_SOURCE_SNOOZE_MS)
+            }.onSuccess {
+                Log.i(TAG, "Early-dismiss source via snooze fallback (delayed): $sourceKey")
+            }.onFailure { error ->
+                Log.w(TAG, "Early snoozeNotification failed: $sourceKey", error)
+            }.isSuccess
+
+            if (!cancelDirectRequested && !cancelBatchRequested && !snoozeRequested) {
+                Log.w(TAG, "Early-dismiss failed completely for source: $sourceKey")
+            }
+        }, 100L) // 100ms delay to allow sound to start
     }
-
-    private fun resolveRobustConversationTitle(
-        source: Notification?,
-        appName: String?
-    ): String? {
-        val extras = source?.extras ?: return null
-        val normalizedAppName = appName?.trim()?.takeIf { it.isNotEmpty() }
-
-        fun sanitize(value: CharSequence?): String? {
-            var candidate = value?.toString()?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-            // Strip "$appName: " prefix if present (e.g. "Messenger: little mom" → "little mom")
-            if (normalizedAppName != null) {
-                candidate = stripAppNamePrefix(candidate, normalizedAppName)
-            }
-            if (normalizedAppName != null &&
-                candidate.equals(normalizedAppName, ignoreCase = true)
-            ) {
-                return null
-            }
-            return candidate
-        }
 
         // Priority 1: EXTRA_CONVERSATION_TITLE (group chats)
         sanitize(extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE))?.let { return it }
@@ -5162,7 +5167,11 @@ object LiveUpdateNotifier {
                 builder.setSilent(false)
                 builder.setCategory(NotificationCompat.CATEGORY_MESSAGE)
                 builder.setPriority(NotificationCompat.PRIORITY_MAX)
-                builder.setDefaults(NotificationCompat.DEFAULT_ALL)
+                
+                // Force explicit sound and vibration to override silent defaults
+                val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                builder.setSound(soundUri)
+                builder.setVibrate(longArrayOf(0, 200, 100, 200))
                 
                 // Timestamp Refresh: use current time so the OS does not
                 // bury the notification at the bottom of the queue.
@@ -5213,7 +5222,11 @@ object LiveUpdateNotifier {
                     builder.setSilent(false)
                     builder.setCategory(NotificationCompat.CATEGORY_MESSAGE)
                     builder.setPriority(NotificationCompat.PRIORITY_MAX)
-                    builder.setDefaults(NotificationCompat.DEFAULT_ALL)
+                    
+                    // Force explicit sound and vibration to override silent defaults
+                    val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                    builder.setSound(soundUri)
+                    builder.setVibrate(longArrayOf(0, 200, 100, 200))
                 } else {
                     // Tracking / ride-hailing apps: alert once on first appearance,
                     // then stay silent for subsequent updates
