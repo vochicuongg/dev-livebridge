@@ -4561,11 +4561,15 @@ object LiveUpdateNotifier {
             android.media.RingtoneManager.TYPE_NOTIFICATION
         )
         
+        // FIX: Chỉ alert mỗi lần có tin nhắn mới từ các ứng dụng nhắn tin
+        // Các app khác (download, progress) vẫn giữ onlyAlertOnce = true để tránh spam
+        val isChatApp = CHAT_APP_PACKAGES.contains(sourcePackageNameLower)
+        
         val builder = NotificationCompat.Builder(context, mirrorChannel.id)
             .setContentTitle(contentTitle)
             .setContentText(contentText)
             .setSubText(appName)
-            .setOnlyAlertOnce(true)
+            .setOnlyAlertOnce(!isChatApp)  // FIX: Chat apps luôn phát âm thanh, apps khác chỉ 1 lần
             .setSilent(false)  // FIX: Đổi thành false để cho phép âm thanh
             .setDefaults(0)
             .setSound(notificationSoundUri)  // FIX: Ép buộc sound URI tường minh
