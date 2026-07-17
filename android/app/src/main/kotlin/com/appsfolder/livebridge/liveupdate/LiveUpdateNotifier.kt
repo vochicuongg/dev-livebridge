@@ -4917,7 +4917,25 @@ object LiveUpdateNotifier {
                     // ── TRUE FALLBACK: No cache, no MessagingStyle ──
                     // No chat history exists → this is genuinely a non-chat notification
                     // or a first-time notification. Use BigTextStyle as before.
-                    builder.addExtras(source.extras)
+                    //
+                    // IMPORTANT: Do NOT blindly copy all source extras with
+                    // builder.addExtras(source.extras) — that copies EXTRA_TITLE,
+                    // EXTRA_TEXT, EXTRA_BIG_TEXT etc. which then conflict with the
+                    // values we explicitly set below, causing WearOS to display
+                    // the title duplicated in the body.
+                    // Instead, selectively copy non-content extras that may carry
+                    // useful metadata (icons, people, etc.) without overriding
+                    // the title/text fields we control.
+                    val safeExtras = Bundle(source.extras)
+                    safeExtras.remove(Notification.EXTRA_TITLE)
+                    safeExtras.remove(Notification.EXTRA_TITLE_BIG)
+                    safeExtras.remove(Notification.EXTRA_TEXT)
+                    safeExtras.remove(Notification.EXTRA_BIG_TEXT)
+                    safeExtras.remove(Notification.EXTRA_SUB_TEXT)
+                    safeExtras.remove(Notification.EXTRA_SUMMARY_TEXT)
+                    safeExtras.remove(Notification.EXTRA_INFO_TEXT)
+                    safeExtras.remove(Notification.EXTRA_CONVERSATION_TITLE)
+                    builder.addExtras(safeExtras)
 
                     // ── FIX: Extract the Text (body) from source.extras with correct
                     // priority so Wear OS never duplicates the Title as the body.
@@ -4956,12 +4974,19 @@ object LiveUpdateNotifier {
                         ).trim().takeIf { it.length > 1 }
                     }
 
+                    // Set contentTitle explicitly so WearOS header shows the
+                    // correct title and BigTextStyle.setBigContentTitle matches.
+                    builder.setContentTitle(contentTitle)
                     // Set contentText and BigTextStyle for Wear OS.
                     // If extractedWearText is null/empty, set contentText to null
                     // to avoid repeating the title. NEVER use title as fallback.
                     builder.setContentText(extractedWearText)
                     if (!extractedWearText.isNullOrEmpty()) {
-                        builder.setStyle(NotificationCompat.BigTextStyle().bigText(extractedWearText))
+                        builder.setStyle(
+                            NotificationCompat.BigTextStyle()
+                                .setBigContentTitle(contentTitle)
+                                .bigText(extractedWearText)
+                        )
                     }
 
                     // Add reply action even in true fallback path for inline reply support
@@ -5277,7 +5302,13 @@ object LiveUpdateNotifier {
         // since they all converge here before builder.build().
         val cleanedTitle: CharSequence = contentTitle
         builder.extras.putCharSequence(Notification.EXTRA_TITLE, cleanedTitle)
-        builder.extras.putCharSequence(Notification.EXTRA_CONVERSATION_TITLE, cleanedTitle)
+        // ── FIX: Only set EXTRA_CONVERSATION_TITLE for messaging-style
+        // notifications. For non-messaging notifications (weather, downloads,
+        // etc.), setting EXTRA_CONVERSATION_TITLE causes WearOS to misinterpret
+        // the notification as a conversation, duplicating the title in the body.
+        if (deterministicMessagingThreadKey != null) {
+            builder.extras.putCharSequence(Notification.EXTRA_CONVERSATION_TITLE, cleanedTitle)
+        }
         // ── CRITICAL: Clear EXTRA_SUB_TEXT and EXTRA_SUMMARY_TEXT to prevent
         // the app prefix from leaking through these secondary text fields.
         // One UI popup may fall back to these if MessagingStyle Person names
@@ -5292,7 +5323,13 @@ object LiveUpdateNotifier {
         if (deterministicMessagingThreadKey != null) {
             builder.extras.putCharSequence(Notification.EXTRA_TEXT, cleanedTitle)
         } else {
-            builder.extras.putCharSequence(Notification.EXTRA_TEXT, contentText)
+            // For non-messaging notifications, use extractedWearText if available
+            // (set earlier in the TRUE FALLBACK path), otherwise fall back to
+            // contentText. This ensures the body text is never the title.
+            val bodyText = contentText?.takeIf { body ->
+                body.isNotBlank() && !body.equals(cleanedTitle.toString(), ignoreCase = true)
+            }
+            builder.extras.putCharSequence(Notification.EXTRA_TEXT, bodyText)
         }
         builder.setTicker(cleanedTitle)
 
