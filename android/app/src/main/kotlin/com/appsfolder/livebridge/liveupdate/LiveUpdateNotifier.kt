@@ -5284,8 +5284,16 @@ object LiveUpdateNotifier {
         // are null or if the system uses an alternate rendering path.
         builder.extras.putCharSequence(Notification.EXTRA_SUB_TEXT, null)
         builder.extras.putCharSequence(Notification.EXTRA_SUMMARY_TEXT, null)
-        // Set EXTRA_DISPLAY_TEXT to the cleaned title for consistency
-        builder.extras.putCharSequence(Notification.EXTRA_TEXT, cleanedTitle)
+        // ── FIX: Only set EXTRA_TEXT to cleanedTitle for messaging-style
+        // notifications (where deterministicMessagingThreadKey is set).
+        // For non-messaging notifications (weather, downloads, etc.),
+        // preserve the original contentText so WearOS displays the actual
+        // body text instead of duplicating the title.
+        if (deterministicMessagingThreadKey != null) {
+            builder.extras.putCharSequence(Notification.EXTRA_TEXT, cleanedTitle)
+        } else {
+            builder.extras.putCharSequence(Notification.EXTRA_TEXT, contentText)
+        }
         builder.setTicker(cleanedTitle)
 
         val notification = builder.build()
