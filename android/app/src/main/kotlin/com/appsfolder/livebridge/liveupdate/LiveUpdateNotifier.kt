@@ -5243,6 +5243,8 @@ object LiveUpdateNotifier {
                 }
                 if (originalText != null) {
                     builder.setContentText(originalText)
+                    // Apply BigTextStyle for full text display on WearOS
+                    builder.setStyle(NotificationCompat.BigTextStyle().bigText(originalText))
                 }
                 
                 // Smart Alerting: classify the source notification to decide
