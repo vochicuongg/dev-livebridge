@@ -8051,7 +8051,10 @@ object LiveUpdateNotifier {
                 !action.remoteInputs.isNullOrEmpty() && action.actionIntent != null
             }
             ?: return
-        val compatAction = toCompatAction(replyAction, mirrorKey = mirrorKey, context = context) ?: return
+        
+        // Add reply action với original PendingIntent (không proxy)
+        // Samsung Now Bar sẽ hoạt động bình thường vì gửi trực tiếp vào app gốc
+        val compatAction = toCompatAction(replyAction, mirrorKey = null, context = null) ?: return
         builder.addAction(compatAction)
     }
 
