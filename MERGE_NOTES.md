@@ -59,6 +59,36 @@ v2.2.1 + UI hotfix). 17 files conflicted; every hunk was resolved by hand.
   manifest and its `NetworkSpeedController.sync` call sites were routed to
   the fork's `syncNetworkSpeedService()`.
 
+## Build fix round 1 (after first Windows build attempt)
+
+The merged code reached Kotlin compilation on the maintainer's machine
+(the earlier "25.0.3" failure was the machine's Flutter jdk-dir pointing
+at JDK 25 — fixed by pointing Flutter at Temurin 17). Round-1 fixes:
+
+- Removed duplicated imports produced by union-resolved import blocks
+  (MainActivity, LiveUpdateNotifier).
+- Listener: removed the duplicated `activeInstance` companion declaration
+  (upstream `private` vs fork `internal` — kept `internal`, which
+  ReplyInterceptReceiver/ReplyProxyService use); restored the fork's
+  delayed original-dismissal chain (`scheduleOriginalSourceDismissal`,
+  `dismissOriginalSourceWhenMirrorActive`) that `retryOriginalSourceDismissal`
+  calls; added upstream's key-based self-dismissed set
+  (`rememberSelfDismissedSourceKey` / `consumeSelfDismissedSourceKey`)
+  alongside the fork's record-based tracking, with
+  `forgetSelfDismissedSourceKey` clearing both.
+- Notifier: added the missing `isUserDismissedMirror` /
+  `isUserDismissedMirrorLocked` helpers (upstream); completed the
+  `mirrorChannelText` localization `when` with the fork's
+  NOTIFICATION_CAPSULE / CHARGING_INFO / ALERTS branches; restored the
+  fork's `toCompatAction(frameworkAction, titleOverride, mirrorKey,
+  context)` signature (the union had stitched in a duplicate `context`
+  parameter) and converted one upstream positional call site to named
+  arguments.
+- Restored upstream `networkspeed/NetworkSpeedDataSource.kt` and
+  `networkspeed/NetworkSpeedFormatter.kt` — the fork had deleted the whole
+  subpackage, so the auto-merge dropped these two files that upstream's
+  subpackage service/builder still reference.
+
 ## Known issues / verify on device
 
 - **Kotlin/Android was NOT compiled.** This environment cannot run Gradle.

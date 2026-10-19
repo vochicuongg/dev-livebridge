@@ -34,6 +34,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
     private var destroyed = false
     private val selfDismissLock = Any()
     private val selfDismissedSourcesByKey = mutableMapOf<String, ProtectedSourceDismissal>()
+    private val selfDismissedSourceKeys = mutableSetOf<String>()
     private val protectedMirrorDismissalsById = mutableMapOf<Int, ProtectedSourceDismissal>()
     private val selfDismissedFlashlightSourceKeys = mutableSetOf<String>()
     private var trackedFlashlightSourceKey: String? = null
@@ -1080,6 +1081,69 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         }
     }
 
+    private fun scheduleOriginalSourceDismissal(
+        sourceSbn: StatusBarNotification,
+        mirrorNotificationId: Int,
+        mirrorKey: String?,
+        attempt: Int
+    ) {
+        val delayMs = if (attempt == 0) {
+            ORIGINAL_DISMISS_INITIAL_GRACE_MS
+        } else {
+            ORIGINAL_DISMISS_RETRY_DELAY_MS
+        }
+        mainHandler.postDelayed(
+            {
+                dismissOriginalSourceWhenMirrorActive(
+                    sourceSbn = sourceSbn,
+                    mirrorNotificationId = mirrorNotificationId,
+                    mirrorKey = mirrorKey,
+                    attempt = attempt
+                )
+            },
+            delayMs
+        )
+    }
+
+    private fun dismissOriginalSourceWhenMirrorActive(
+        sourceSbn: StatusBarNotification,
+        mirrorNotificationId: Int,
+        mirrorKey: String?,
+        attempt: Int
+    ) {
+        val sourceKey = sourceSbn.key
+        val active = try {
+            activeNotifications
+        } catch (error: Throwable) {
+            Log.w(TAG, "Failed to verify mirror before original dismissal: $sourceKey", error)
+            retryOriginalSourceDismissal(sourceSbn, mirrorNotificationId, mirrorKey, attempt)
+            return
+        }
+        if (active == null) {
+            retryOriginalSourceDismissal(sourceSbn, mirrorNotificationId, mirrorKey, attempt)
+            return
+        }
+
+        val snapshots = active.toList()
+        if (snapshots.none { it.key == sourceKey }) {
+            Log.v(TAG, "Skip original notification dismissal: source is no longer active: $sourceKey")
+            return
+        }
+        if (snapshots.none { isExpectedMirrorNotification(it, mirrorNotificationId) }) {
+            retryOriginalSourceDismissal(sourceSbn, mirrorNotificationId, mirrorKey, attempt)
+            return
+        }
+
+        rememberSelfDismissedSource(sourceSbn, mirrorNotificationId, mirrorKey)
+        val dismissRequested = requestDismissOrSnoozeSourceNotification(
+            sourceKey = sourceKey,
+            label = "original notification"
+        )
+        if (!dismissRequested) {
+            forgetSelfDismissedSourceKey(sourceKey)
+        }
+    }
+
     private fun retryOriginalSourceDismissal(
         sourceSbn: StatusBarNotification,
         mirrorNotificationId: Int,
@@ -1169,8 +1233,21 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         }
     }
 
+    private fun rememberSelfDismissedSourceKey(sbnKey: String) {
+        synchronized(selfDismissLock) {
+            selfDismissedSourceKeys.add(sbnKey)
+        }
+    }
+
+    private fun consumeSelfDismissedSourceKey(sbnKey: String): Boolean {
+        return synchronized(selfDismissLock) {
+            selfDismissedSourceKeys.remove(sbnKey)
+        }
+    }
+
     private fun forgetSelfDismissedSourceKey(sbnKey: String) {
         synchronized(selfDismissLock) {
+            selfDismissedSourceKeys.remove(sbnKey)
             val record = selfDismissedSourcesByKey[sbnKey] ?: return
             removeProtectedDismissalLocked(record)
         }
@@ -1374,9 +1451,6 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
     }
 
     companion object {
-        @Volatile
-        private var activeInstance: LiveUpdateNotificationListenerService? = null
-
         fun isConnected(): Boolean = activeInstance?.listenerConnected == true
 
         internal fun invalidateSnapshotCache() {
