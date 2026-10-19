@@ -62,6 +62,8 @@ class ReplyProxyService : Service() {
         const val EXTRA_SOURCE_KEY = "source_key"
         const val EXTRA_REPLY_LABEL = "reply_label"
         const val EXTRA_REPLY_HINT = "reply_hint"
+        const val EXTRA_REPLY_CONVERSATION = "reply_conversation"
+        const val EXTRA_REPLY_CONTEXT_TEXT = "reply_context_text"
 
         private const val INTENT_DELAY_MS = 500L
         private const val DISMISS_DELAY_MS = 1_500L
