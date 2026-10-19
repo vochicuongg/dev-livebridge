@@ -9151,6 +9151,21 @@ object LiveUpdateNotifier {
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
                 )
             }
+            // Show the conversation context inside the reply editor: the
+            // system collapses the Now Bar card when the editor opens, so
+            // the editor itself displays who/what is being replied to.
+            val sourceNotification = synchronized(stateLock) {
+                sourceSnapshotsByMirrorKey[mirrorKey]?.notification
+            }
+            val conversationTitle = sourceNotification?.extras?.let { extras ->
+                extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)?.toString()
+                    ?: extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()
+            }?.takeIf { it.isNotBlank() }
+            val latestMessageText = sourceNotification?.let { notification ->
+                rawNotificationMessages(notification).lastOrNull()?.text?.toString()
+                    ?: notification.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()
+            }?.takeIf { it.isNotBlank() }?.take(200)
+
             // Target the activity directly: an activity PendingIntent fired
             // from a notification action is exempt from background-activity
             // launch restrictions, while a broadcast receiver that then tries
@@ -9169,6 +9184,8 @@ object LiveUpdateNotifier {
                 putExtra(ReplyProxyService.EXTRA_SOURCE_KEY, sourceKey)
                 putExtra(ReplyProxyService.EXTRA_REPLY_LABEL, replyLabel)
                 putExtra(ReplyProxyService.EXTRA_REPLY_HINT, replyHint)
+                putExtra(ReplyProxyService.EXTRA_REPLY_CONVERSATION, conversationTitle)
+                putExtra(ReplyProxyService.EXTRA_REPLY_CONTEXT_TEXT, latestMessageText)
             }
             PendingIntent.getActivity(
                 context,

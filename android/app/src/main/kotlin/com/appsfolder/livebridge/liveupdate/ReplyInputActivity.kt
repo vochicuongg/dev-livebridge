@@ -58,9 +58,13 @@ class ReplyInputActivity : Activity() {
             ?.takeIf { it.isNotBlank() }
         val hint = intent.getStringExtra(ReplyProxyService.EXTRA_REPLY_HINT)
             ?.takeIf { it.isNotBlank() }
+        val conversation = intent.getStringExtra(ReplyProxyService.EXTRA_REPLY_CONVERSATION)
+            ?.takeIf { it.isNotBlank() }
+        val contextText = intent.getStringExtra(ReplyProxyService.EXTRA_REPLY_CONTEXT_TEXT)
+            ?.takeIf { it.isNotBlank() }
 
         val vi = NativeAppStrings.language(this) == "vi"
-        val titleText = label ?: if (vi) "Trả lời" else "Reply"
+        val titleText = conversation ?: label ?: if (vi) "Trả lời" else "Reply"
         val hintText = hint ?: if (vi) "Trả lời" else "Reply"
         val sendText = if (vi) "Gửi" else "Send"
 
@@ -99,6 +103,23 @@ class ReplyInputActivity : Activity() {
             ).apply { bottomMargin = dp(6) }
         }
         card.addView(title)
+
+        // The message being replied to, kept visible while typing (the
+        // system collapses the Now Bar card when this editor opens).
+        if (contextText != null) {
+            val context = TextView(this).apply {
+                text = contextText
+                textSize = 15f
+                setTextColor(Color.WHITE)
+                maxLines = 2
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = dp(10) }
+            }
+            card.addView(context)
+        }
 
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
