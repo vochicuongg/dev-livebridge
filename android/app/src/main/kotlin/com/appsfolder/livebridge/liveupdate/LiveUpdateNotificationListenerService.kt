@@ -2,6 +2,7 @@ package com.kakao.taxi.liveupdate
 
 import android.app.Notification
 import android.content.BroadcastReceiver
+import android.app.NotificationManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -23,6 +24,14 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
     private val prefs by lazy { ConverterPrefs(applicationContext) }
     private val flashlightController by lazy { FlashlightController(applicationContext) }
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val processingHandler = NotificationProcessing.handler
+    private val refreshPolicy = SnapshotRefreshPolicy()
+    private val sourceLifecycle = NotificationProcessing.sourceLifecycle
+    private val originalRemovalPolicy = NotificationProcessing.originalRemovalPolicy
+    private var lastSettings: Map<String, *>? = null
+    private var lastInterruptionFilter: Int? = null
+    @Volatile
+    private var destroyed = false
     private val selfDismissLock = Any()
     private val selfDismissedSourcesByKey = mutableMapOf<String, ProtectedSourceDismissal>()
     private val protectedMirrorDismissalsById = mutableMapOf<Int, ProtectedSourceDismissal>()
@@ -110,49 +119,63 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         }
     }
 
+    @Volatile
+    private var listenerConnected = false
+
+    private val rebindRunnable = object : Runnable {
+        override fun run() {
+            rebindScheduled = false
+            if (listenerConnected || !isListenerEnabled(applicationContext)) {
+                return
+            }
+            requestRebindIfEnabled(applicationContext, "listener_disconnected")
+            rebindAttempts++
+            scheduleRebind("retry")
+        }
+    }
+
     private val snapshotSyncRunnable = object : Runnable {
         override fun run() {
             snapshotSyncScheduled = false
-            recordHeartbeat()
-            if (isUnsupportedDevice()) {
-                FlashlightSourceState.clear()
-                FlashlightForegroundService.stop(applicationContext)
-                NetworkSpeedForegroundService.stop(applicationContext)
-                LiveUpdateNotifier.cancelAllMirrored(applicationContext)
+            if (!listenerConnected) {
                 return
             }
-
-            val snapshots = try {
-                activeNotifications?.toList().orEmpty()
-            } catch (error: Throwable) {
-                Log.w(TAG, "Snapshot sync failed while reading active notifications", error)
-                scheduleRebind("snapshot_sync_failed")
-                scheduleSnapshotSync()
-                return
-            }
-
-            syncFlashlightMirror(snapshots)
-            syncChargingInfoMonitoring(snapshots)
-
-            if (!prefs.getConverterEnabled()) {
-                LiveUpdateNotifier.cancelAllMirrored(applicationContext)
-                scheduleSnapshotSync()
-                return
-            }
-
-            for (sbn in snapshots) {
-                if (sbn.packageName == packageName || isFlashlightSourceNotification(sbn)) {
-                    continue
-                }
+            processingHandler.post {
+                if (destroyed || !listenerConnected) return@post
                 try {
-                    processIncomingNotification(sbn)
+                    val settings = prefs.runtimeSettingsSnapshot()
+                    val filter = (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+                        .currentInterruptionFilter
+                    if (settings != lastSettings || filter != lastInterruptionFilter) {
+                        refreshPolicy.invalidate()
+                        lastSettings = settings
+                        lastInterruptionFilter = filter
+                    }
+                    if (!prefs.getConverterEnabled()) {
+                        refreshPolicy.invalidate()
+                        mainHandler.post { if (!destroyed) scheduleSnapshotSync() }
+                        return@post
+                    }
+                    val snapshots = activeNotifications?.toList()
+                        ?: throw IllegalStateException("Notification snapshot unavailable")
+                    reconcileSources(snapshots)
+                    refreshPolicy.retain(snapshots.mapTo(mutableSetOf()) { it.key })
+                    for (sbn in snapshots) {
+                        if (sbn.packageName == packageName) continue
+                        if (!refreshPolicy.needsRefresh(
+                                sbn.key, sbn.postTime, SystemClock.elapsedRealtime(),
+                                LiveUpdateNotifier.needsPeriodicRefresh(sbn.notification)
+                            )) continue
+                        processSafely(sbn)
+                    }
                 } catch (error: Throwable) {
-                    Log.e(TAG, "Snapshot sync processing failed: ${sbn.key}", error)
+                    Log.w(TAG, "Snapshot sync failed", error)
+                    listenerConnected = false
+                    mainHandler.post { scheduleRebind("snapshot_sync_failed") }
                 }
+                mainHandler.post { if (!destroyed) scheduleSnapshotSync() }
             }
-
-            refreshNotificationCapsule(snapshots)
-            scheduleSnapshotSync()
+            return
         }
     }
 
@@ -182,9 +205,13 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
 
     override fun onListenerConnected() {
         super.onListenerConnected()
-        recordHeartbeat()
+        listenerConnected = true
+        mainHandler.removeCallbacks(rebindRunnable)
         rebindAttempts = 0
         rebindScheduled = false
+        KeepAliveForegroundService.sync(applicationContext, prefs)
+        syncNetworkSpeedService()
+        scheduleSnapshotSync()
 
         if (isUnsupportedDevice()) {
             FlashlightSourceState.clear()
@@ -194,108 +221,64 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
             return
         }
 
-        syncNetworkSpeedService()
-        syncTorchMonitoring()
-        val snapshots = try {
-            activeNotifications?.toList().orEmpty()
-        } catch (error: Throwable) {
-            Log.w(TAG, "Unable to read active notifications on connect", error)
-            emptyList()
-        }
-
-        syncChargingInfoMonitoring(snapshots)
-        syncFlashlightMirror(snapshots)
-        drainPendingReplySourceCancels()
-
-        if (!prefs.getConverterEnabled()) {
-            LiveUpdateNotifier.cancelAllMirrored(applicationContext)
-            scheduleSnapshotSync()
-            return
-        }
-
-        if (snapshots.isEmpty()) {
-            refreshNotificationCapsule(snapshots)
-            scheduleSnapshotSync()
-            return
-        }
-
-        for (sbn in snapshots) {
-            if (sbn.packageName == packageName || isFlashlightSourceNotification(sbn)) {
-                continue
-            }
-            try {
-                processIncomingNotification(sbn)
+        processingHandler.post {
+            if (destroyed || !listenerConnected) return@post
+            refreshPolicy.invalidate()
+            val snapshots = try {
+                activeNotifications?.toList()
             } catch (error: Throwable) {
-                Log.e(TAG, "Failed to restore active notification: ${sbn.key}", error)
+                Log.w(TAG, "Unable to read active notifications on connect", error)
+                null
+            } ?: return@post
+            reconcileSources(snapshots)
+            for (sbn in snapshots) {
+                if (sbn.packageName != packageName) processSafely(sbn)
             }
         }
-        refreshNotificationCapsule(snapshots)
-        scheduleSnapshotSync()
     }
 
     override fun onListenerDisconnected() {
         super.onListenerDisconnected()
-        Log.w(TAG, "Listener disconnected - initiating immediate rebind to prevent idle death")
-
-        if (isUnsupportedDevice()) {
-            return
-        }
-
+        listenerConnected = false
+        mainHandler.removeCallbacks(snapshotSyncRunnable)
+        snapshotSyncScheduled = false
+        // Fork additions: drop the capsule and re-sync network speed on disconnect.
         LiveUpdateNotifier.cancelNotificationCapsule(applicationContext)
         syncNetworkSpeedService()
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            try {
-                requestRebind(ComponentName(this, this::class.java))
-                Log.i(TAG, "Immediate rebind requested in onListenerDisconnected()")
-            } catch (error: Throwable) {
-                Log.e(TAG, "Immediate rebind failed in onListenerDisconnected()", error)
-            }
-        }
-
         scheduleRebind("listener_disconnected")
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
-        recordHeartbeat()
-        try {
-            sbn ?: return
-            if (isUnsupportedDevice()) {
-                return
+        sbn ?: return
+        if (sbn.packageName == packageName) {
+            return
+        }
+        processingHandler.post {
+            if (!destroyed) {
+                sourceLifecycle.posted(sbn.key)
+                processSafely(sbn)
             }
-            if (sbn.packageName == packageName) {
-                return
-            }
-            if (isFlashlightSourceNotification(sbn)) {
-                syncFlashlightMirror(listOf(sbn))
-                refreshChargingInfoFromActiveNotifications()
-                refreshNotificationCapsuleFromActiveNotifications()
-                return
-            }
-            refreshChargingInfoFromActiveNotifications(sbn)
-            if (!prefs.getConverterEnabled()) {
-                LiveUpdateNotifier.cancelMirrored(applicationContext, sbn)
-                refreshNotificationCapsuleFromActiveNotifications()
-                return
-            }
-
-            // FIX: DISABLED early dismiss để phone giữ notification gốc → có âm thanh
-            // WearOS sẽ nhận cả gốc + mirror, user cần tắt notification gốc trong WearOS settings
-            // maybeEarlyDismissSourceForWearRace(sbn)
-
-            processIncomingNotification(sbn)
-            refreshNotificationCapsuleFromActiveNotifications()
-        } catch (e: Exception) {
-            Log.e(TAG, "onNotificationPosted: unhandled exception for ${sbn?.key}", e)
         }
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification?) {
-        recordHeartbeat()
-        try {
-            handleNotificationRemoved(sbn, reason = null)
-        } catch (e: Exception) {
-            Log.e(TAG, "onNotificationRemoved: unhandled exception for ${sbn?.key}", e)
+        sbn ?: return
+        processingHandler.post {
+            if (destroyed) return@post
+            if (sbn.packageName == packageName) {
+                LiveUpdateNotifier.handleMirroredRemoved(applicationContext, sbn)
+                return@post
+            }
+            if (consumeSelfDismissedSourceKey(sbn.key)) return@post
+            if (!sourceLifecycle.removed(sbn.key)) return@post
+            // Rebuild any remaining members of an aggregate on the next snapshot.
+            refreshPolicy.invalidate()
+            refreshPolicy.remove(sbn.key)
+            try {
+                LiveUpdateNotifier.cancelMirrored(applicationContext, sbn)
+            } catch (error: Throwable) {
+                Log.e(TAG, "Failed to process removed notification: ${sbn.key}", error)
+            }
         }
     }
 
@@ -588,6 +571,8 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         unregisterLockscreenStateReceiver()
         unregisterTorchCallbackIfNeeded()
         unregisterChargingInfoReceiverIfNeeded()
+        destroyed = true
+        listenerConnected = false
         mainHandler.removeCallbacksAndMessages(null)
         rebindScheduled = false
         snapshotSyncScheduled = false
@@ -598,8 +583,44 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         super.onDestroy()
     }
 
-    private fun processIncomingNotification(sbn: StatusBarNotification) {
+    private fun isSourceNotificationActive(key: String): Boolean? {
+        return try {
+            activeNotifications?.any { it.key == key } ?: false
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    private fun reconcileSources(snapshots: List<StatusBarNotification>) {
+        val activeKeys = snapshots.asSequence().filter { it.packageName != packageName }.map { it.key }.toSet()
+        val missing = sourceLifecycle.reconcile(activeKeys, LiveUpdateNotifier.trackedSourceKeys())
+        if (missing.isNotEmpty()) refreshPolicy.invalidate()
+        for (key in missing) {
+            refreshPolicy.remove(key)
+            LiveUpdateNotifier.cancelMirroredSourceKey(applicationContext, key)
+        }
+    }
+
+    private fun processSafely(sbn: StatusBarNotification) {
+        try {
+            if (processIncomingNotification(sbn)) {
+                refreshPolicy.record(sbn.key, sbn.postTime, SystemClock.elapsedRealtime())
+            } else {
+                refreshPolicy.remove(sbn.key)
+            }
+        } catch (error: Throwable) {
+            Log.e(TAG, "Failed to process notification: ${sbn.key}", error)
+        }
+    }
+
+    private fun processIncomingNotification(sbn: StatusBarNotification): Boolean {
+        val ranking = Ranking()
+        val channelName = try {
+            if (currentRanking.getRanking(sbn.key, ranking)) ranking.channel?.name?.toString() else null
+        } catch (_: Exception) { null }
+        SourceChannelStore.observe(applicationContext, sbn.packageName, sbn.notification.channelId, channelName)
         val result = LiveUpdateNotifier.maybeMirror(applicationContext, prefs, sbn)
+        if (!prefs.getConverterEnabled()) return false
         if (result.mirrored) {
             ConversionLogStore.upsertMirroredNotification(
                 context = applicationContext,
@@ -610,6 +631,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
             )
         }
         maybeDismissOriginalSource(sbn, result)
+        return !result.retryNeeded
     }
 
     private fun extractLogTitle(sbn: StatusBarNotification): String {
@@ -618,11 +640,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
             ?.takeIf { it.isNotEmpty() }
             ?: extras.getCharSequence(Notification.EXTRA_TITLE_BIG)?.toString()?.trim()
                 ?.takeIf { it.isNotEmpty() }
-            ?: runCatching {
-                val appInfo = packageManager.getApplicationInfo(sbn.packageName, 0)
-                packageManager.getApplicationLabel(appInfo)?.toString()?.trim()
-            }.getOrNull().takeUnless { it.isNullOrBlank() }
-            ?: sbn.packageName
+            ?: AppMetadataCache.get(applicationContext, sbn.packageName).label
     }
 
     private fun extractLogText(notification: Notification): String {
@@ -1005,7 +1023,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         if (!result.mirrored) {
             return
         }
-        if (!result.removeSource && !sbn.isClearable) {
+        if (!sbn.isClearable || result.retainOriginal) {
             return
         }
         val appPresentationRemoveOriginal = AppPresentationOverridesLoader
@@ -1042,88 +1060,23 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
             return
         }
 
-        // Nếu đã early-dismiss thành công thì bỏ schedule trễ.
-        val stillActive = runCatching {
-            activeNotifications?.any { it.key == sbn.key } == true
-        }.getOrDefault(true)
-        if (!stillActive) {
-            Log.v(TAG, "Skip delayed original dismissal: already early-dismissed ${sbn.key}")
-            return
-        }
-
-        val mirrorNotificationId = result.notificationId
-        if (mirrorNotificationId == null) {
-            Log.w(TAG, "Skip original notification dismissal: missing mirror id for ${sbn.key}")
-            return
-        }
-        scheduleOriginalSourceDismissal(
-            sourceSbn = sbn,
-            mirrorNotificationId = mirrorNotificationId,
-            mirrorKey = result.mirrorKey,
-            attempt = 0
-        )
-    }
-
-    private fun scheduleOriginalSourceDismissal(
-        sourceSbn: StatusBarNotification,
-        mirrorNotificationId: Int,
-        mirrorKey: String?,
-        attempt: Int
-    ) {
-        val delayMs = if (attempt == 0) {
-            ORIGINAL_DISMISS_INITIAL_GRACE_MS
-        } else {
-            ORIGINAL_DISMISS_RETRY_DELAY_MS
-        }
-        mainHandler.postDelayed(
-            {
-                dismissOriginalSourceWhenMirrorActive(
-                    sourceSbn = sourceSbn,
-                    mirrorNotificationId = mirrorNotificationId,
-                    mirrorKey = mirrorKey,
-                    attempt = attempt
-                )
-            },
-            delayMs
-        )
-    }
-
-    private fun dismissOriginalSourceWhenMirrorActive(
-        sourceSbn: StatusBarNotification,
-        mirrorNotificationId: Int,
-        mirrorKey: String?,
-        attempt: Int
-    ) {
-        val sourceKey = sourceSbn.key
-        val active = try {
-            activeNotifications
+        val persistent = sbn.notification.flags and
+            (Notification.FLAG_ONGOING_EVENT or Notification.FLAG_FOREGROUND_SERVICE) != 0 ||
+            sbn.notification.category == Notification.CATEGORY_SERVICE ||
+            sbn.packageName == "com.android.bluetooth"
+        // Limit identical reposts, not a burst of different messages in the same app/channel.
+        val title = sbn.notification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
+        val contentRevision = (title + "\n" + extractLogText(sbn.notification)).hashCode()
+        val removalKey = "${sbn.packageName}|${sbn.notification.channelId}|${sbn.id}|$contentRevision"
+        if (!originalRemovalPolicy.mayRemove(removalKey, SystemClock.elapsedRealtime(), persistent)) return
+        rememberSelfDismissedSourceKey(sbn.key)
+        sourceLifecycle.retainMirrorAfterRemoval(sbn.key)
+        try {
+            cancelNotification(sbn.key)
         } catch (error: Throwable) {
-            Log.w(TAG, "Failed to verify mirror before original dismissal: $sourceKey", error)
-            retryOriginalSourceDismissal(sourceSbn, mirrorNotificationId, mirrorKey, attempt)
-            return
-        }
-        if (active == null) {
-            retryOriginalSourceDismissal(sourceSbn, mirrorNotificationId, mirrorKey, attempt)
-            return
-        }
-
-        val snapshots = active.toList()
-        if (snapshots.none { it.key == sourceKey }) {
-            Log.v(TAG, "Skip original notification dismissal: source is no longer active: $sourceKey")
-            return
-        }
-        if (snapshots.none { isExpectedMirrorNotification(it, mirrorNotificationId) }) {
-            retryOriginalSourceDismissal(sourceSbn, mirrorNotificationId, mirrorKey, attempt)
-            return
-        }
-
-        rememberSelfDismissedSource(sourceSbn, mirrorNotificationId, mirrorKey)
-        val dismissRequested = requestDismissOrSnoozeSourceNotification(
-            sourceKey = sourceKey,
-            label = "original notification"
-        )
-        if (!dismissRequested) {
-            forgetSelfDismissedSourceKey(sourceKey)
+            sourceLifecycle.cancelRetention(sbn.key)
+            forgetSelfDismissedSourceKey(sbn.key)
+            Log.e(TAG, "Failed to auto-dismiss original notification: ${sbn.key}", error)
         }
     }
 
@@ -1399,24 +1352,21 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
             return
         }
-        if (rebindScheduled) {
+        if (listenerConnected || rebindScheduled || !isListenerEnabled(applicationContext)) {
+            return
+        }
+        if (rebindAttempts >= MAX_REBIND_ATTEMPTS) {
+            Log.w(TAG, "Listener rebind attempts exhausted ($reason)")
             return
         }
 
         val delayMs = min(MAX_REBIND_DELAY_MS, INITIAL_REBIND_DELAY_MS shl rebindAttempts)
         rebindScheduled = true
-        mainHandler.postDelayed({
-            rebindScheduled = false
-            val requested = requestRebindIfEnabled(applicationContext, reason)
-            if (!requested) {
-                return@postDelayed
-            }
-            rebindAttempts = min(rebindAttempts + 1, MAX_REBIND_ATTEMPTS)
-        }, delayMs)
+        mainHandler.postDelayed(rebindRunnable, delayMs)
     }
 
     private fun scheduleSnapshotSync() {
-        if (snapshotSyncScheduled) {
+        if (!listenerConnected || snapshotSyncScheduled) {
             return
         }
         snapshotSyncScheduled = true
@@ -1424,6 +1374,20 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
     }
 
     companion object {
+        @Volatile
+        private var activeInstance: LiveUpdateNotificationListenerService? = null
+
+        fun isConnected(): Boolean = activeInstance?.listenerConnected == true
+
+        internal fun invalidateSnapshotCache() {
+            val listener = activeInstance ?: return
+            listener.processingHandler.post { listener.refreshPolicy.invalidate() }
+        }
+
+        fun isSourceNotificationActive(key: String): Boolean? {
+            val listener = activeInstance ?: return null
+            return if (listener.listenerConnected) listener.isSourceNotificationActive(key) else null
+        }
         private const val TAG = "LiveUpdateListener"
         private const val INITIAL_REBIND_DELAY_MS = 1_000L
         private const val MAX_REBIND_DELAY_MS = 30_000L
@@ -1566,7 +1530,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
             listener.requestTrackedFlashlightSourceDismissal()
         }
 
-        private fun requestRebindIfEnabled(context: Context, reason: String): Boolean {
+        fun requestRebindIfEnabled(context: Context, reason: String): Boolean {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
                 return false
             }
@@ -1651,7 +1615,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
             expiredKeys.forEach(pendingReplySourceCancels::remove)
         }
 
-        private fun isListenerEnabled(context: Context): Boolean {
+        fun isListenerEnabled(context: Context): Boolean {
             val enabled = Settings.Secure.getString(
                 context.contentResolver,
                 "enabled_notification_listeners"

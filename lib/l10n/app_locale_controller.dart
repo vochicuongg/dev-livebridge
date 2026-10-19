@@ -19,6 +19,8 @@ class AppLanguageOption {
 const List<AppLanguageOption> appLanguageOptions = <AppLanguageOption>[
   AppLanguageOption(id: appLanguageSystemId, label: 'Auto', locale: null),
   AppLanguageOption(id: 'en', label: 'English', locale: Locale('en')),
+  AppLanguageOption(id: 'es', label: 'Español', locale: Locale('es')),
+  AppLanguageOption(id: 'de', label: 'Deutsch', locale: Locale('de')),
   AppLanguageOption(id: 'ru', label: 'Русский', locale: Locale('ru')),
   AppLanguageOption(id: 'tr', label: 'Türkçe', locale: Locale('tr')),
   AppLanguageOption(

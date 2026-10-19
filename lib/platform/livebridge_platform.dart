@@ -1,5 +1,6 @@
 import 'package:flutter/services.dart';
 import '../models/app_models.dart';
+import '../models/promoted_notification_access.dart';
 
 class LiveBridgePlatform {
   static const MethodChannel _channel = MethodChannel('livebridge/platform');
@@ -7,28 +8,32 @@ class LiveBridgePlatform {
   static List<InstalledApp>? _appsBox;
   static DateTime? _appsTs;
 
+  // Untyped invokes + `is` checks: after the upstream merge the native side
+  // and test mocks may answer a method with a fallback value of another
+  // type; a typed invokeMethod<T> would throw a cast error instead of
+  // falling back to the default.
   static Future<bool> _askBool(
     String method, [
     Map<String, dynamic>? args,
   ]) async {
-    final bool? res = await _channel.invokeMethod<bool>(method, args);
-    return res ?? false;
+    final Object? res = await _channel.invokeMethod<Object?>(method, args);
+    return res is bool ? res : false;
   }
 
   static Future<String> _askStr(
     String method, [
     Map<String, dynamic>? args,
   ]) async {
-    final String? res = await _channel.invokeMethod<String>(method, args);
-    return res ?? '';
+    final Object? res = await _channel.invokeMethod<Object?>(method, args);
+    return res is String ? res : '';
   }
 
   static Future<int> _askInt(
     String method, [
     Map<String, dynamic>? args,
   ]) async {
-    final num? res = await _channel.invokeMethod<num>(method, args);
-    return res?.toInt() ?? 0;
+    final Object? res = await _channel.invokeMethod<Object?>(method, args);
+    return res is num ? res.toInt() : 0;
   }
 
   static Future<bool> isNotificationListenerEnabled() =>
@@ -39,6 +44,26 @@ class LiveBridgePlatform {
       _askBool('isNotificationPermissionGranted');
   static Future<bool> requestNotificationPermission() =>
       _askBool('requestNotificationPermission');
+  static Future<PromotedNotificationAccess>
+  getPromotedNotificationAccess() async {
+    final value = await _channel.invokeMapMethod<Object?, Object?>(
+      'getPromotedNotificationAccess',
+    );
+    return PromotedNotificationAccess.fromMap(value);
+  }
+
+  static Future<bool> isWearOsLiveUpdatesAvailable() =>
+      _askBool('isWearOsLiveUpdatesAvailable');
+  static Future<bool> getWearOsLiveUpdatesEnabled() =>
+      _askBool('getWearOsLiveUpdatesEnabled');
+  static Future<bool> setWearOsLiveUpdatesEnabled(bool value) =>
+      _askBool('setWearOsLiveUpdatesEnabled', {'value': value});
+
+  static Future<bool> getNetworkSpeedHideWhenLocked() =>
+      _askBool('getNetworkSpeedHideWhenLocked');
+  static Future<bool> setNetworkSpeedHideWhenLocked(bool value) =>
+      _askBool('setNetworkSpeedHideWhenLocked', {'value': value});
+
   static Future<bool> canPostPromotedNotifications() =>
       _askBool('canPostPromotedNotifications');
   static Future<bool> openPromotedNotificationSettings() =>
@@ -51,6 +76,30 @@ class LiveBridgePlatform {
       _askStr('saveLiveBridgeSettingsBackupToDownloads');
   static Future<bool> importLiveBridgeSettingsBackup(String value) =>
       _askBool('importLiveBridgeSettingsBackup', {'value': value});
+
+  static Future<String> getNotificationTextFilters() =>
+      _askStr('getNotificationTextFilters');
+  static Future<bool> setNotificationTextFilters(String value) =>
+      _askBool('setNotificationTextFilters', {'value': value});
+  static Future<String> getDictionaryWordAdditions() =>
+      _askStr('getDictionaryWordAdditions');
+  static Future<bool> setDictionaryWordAdditions(String value) =>
+      _askBool('setDictionaryWordAdditions', {'value': value});
+
+  static Future<bool> getHideFromRecentsEnabled() =>
+      _askBool('getHideFromRecentsEnabled');
+  static Future<bool> setHideFromRecentsEnabled(bool value) =>
+      _askBool('setHideFromRecentsEnabled', {'value': value});
+  static Future<String> getSourceChannels() => _askStr('getSourceChannels');
+  static Future<bool> setSourceChannelEnabled(
+    String packageName,
+    String channelId,
+    bool enabled,
+  ) => _askBool('setSourceChannelEnabled', {
+    'packageName': packageName,
+    'channelId': channelId,
+    'enabled': enabled,
+  });
 
   static Future<String> getPackageRules() => _askStr('getPackageRules');
   static Future<bool> setPackageRules(String value) =>
@@ -93,6 +142,14 @@ class LiveBridgePlatform {
       _askBool('getHideLockscreenContentEnabled');
   static Future<bool> setHideLockscreenContentEnabled(bool value) =>
       _askBool('setHideLockscreenContentEnabled', {'value': value});
+  static Future<bool> getConvertedNotificationSoundEnabled() =>
+      _askBool('getConvertedNotificationSoundEnabled');
+  static Future<bool> setConvertedNotificationSoundEnabled(bool value) =>
+      _askBool('setConvertedNotificationSoundEnabled', {'value': value});
+  static Future<bool> getConvertedNotificationVibrationEnabled() =>
+      _askBool('getConvertedNotificationVibrationEnabled');
+  static Future<bool> setConvertedNotificationVibrationEnabled(bool value) =>
+      _askBool('setConvertedNotificationVibrationEnabled', {'value': value});
   static Future<bool> getHintsDisabled() => _askBool('getHintsDisabled');
   static Future<bool> setHintsDisabled(bool value) =>
       _askBool('setHintsDisabled', {'value': value});
