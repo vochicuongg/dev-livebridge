@@ -177,6 +177,17 @@ proxy PendingIntent, so when Samsung's editor delivers the reply,
 echo/dismissal pipeline runs; the editor UI remains only as a fallback
 for surfaces that still provide no editor.
 
+## Post-merge change (20/10/2026, round 6): round 5 reverted
+
+The maintainer tested round 5 and rejected the trade-off: messaging-app
+notifications must become Now Bar again. All round-5 changes are
+reverted — chat mirrors are genuine Now Bar Live notifications exactly
+like every other kind (ongoing, promoted, Samsung ongoing-activity
+extras, Now Bar eligibility marking). The reply editor
+(`ReplyInputActivity`, combined card + blue strip unit) remains the
+reply UI for surfaces that fire the action intent without their own
+editor.
+
 ## Known issues / verify on device
 
 - **Kotlin/Android was NOT compiled.** This environment cannot run Gradle.
