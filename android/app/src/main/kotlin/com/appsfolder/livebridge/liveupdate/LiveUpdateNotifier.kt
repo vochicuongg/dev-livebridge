@@ -9186,6 +9186,10 @@ object LiveUpdateNotifier {
                 putExtra(ReplyProxyService.EXTRA_REPLY_HINT, replyHint)
                 putExtra(ReplyProxyService.EXTRA_REPLY_CONVERSATION, conversationTitle)
                 putExtra(ReplyProxyService.EXTRA_REPLY_CONTEXT_TEXT, latestMessageText)
+                putExtra(
+                    ReplyProxyService.EXTRA_REPLY_SOURCE_PACKAGE,
+                    synchronized(stateLock) { sourceSnapshotsByMirrorKey[mirrorKey]?.packageName }
+                )
             }
             PendingIntent.getActivity(
                 context,

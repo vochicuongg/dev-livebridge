@@ -3,6 +3,7 @@ package com.kakao.taxi.liveupdate
 import android.app.Activity
 import android.app.RemoteInput
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
@@ -12,6 +13,7 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 
@@ -25,11 +27,13 @@ import android.widget.TextView
  *   which is forwarded straight to ReplyProxyService and the activity
  *   finishes without UI.
  * - The host fired the action with no editor (notably the Samsung Now
- *   Bar): this activity shows a blue reply bar anchored to the top of the
- *   screen, right where the expanded Now Bar card sits, mimicking the
- *   system's own inline reply frame (input field + Send). The typed text
- *   is handed to ReplyProxyService exactly like a host-provided
- *   RemoteInput result, so the rest of the reply pipeline is unchanged.
+ *   Bar): this activity shows a combined unit at the top of the screen —
+ *   a dark card with the conversation (app icon, name, latest message)
+ *   and, attached directly below it, a blue reply strip with the input
+ *   field and Send — mirroring how the Now Bar card and the system's
+ *   inline reply frame look together. The typed text is handed to
+ *   ReplyProxyService exactly like a host-provided RemoteInput result,
+ *   so the rest of the reply pipeline is unchanged.
  */
 class ReplyInputActivity : Activity() {
 
@@ -62,6 +66,8 @@ class ReplyInputActivity : Activity() {
             ?.takeIf { it.isNotBlank() }
         val contextText = intent.getStringExtra(ReplyProxyService.EXTRA_REPLY_CONTEXT_TEXT)
             ?.takeIf { it.isNotBlank() }
+        val sourcePackage = intent.getStringExtra(ReplyProxyService.EXTRA_REPLY_SOURCE_PACKAGE)
+            ?.takeIf { it.isNotBlank() }
 
         val vi = NativeAppStrings.language(this) == "vi"
         val titleText = conversation ?: label ?: if (vi) "Trả lời" else "Reply"
@@ -70,18 +76,12 @@ class ReplyInputActivity : Activity() {
 
         val density = resources.displayMetrics.density
         fun dp(value: Int): Int = (value * density).toInt()
+        val radius = dp(24).toFloat()
 
-        // Samsung-style reply bar: solid One UI blue, white text.
-        val barBlue = Color.rgb(10, 108, 255)
-        val fieldBlue = Color.argb(46, 255, 255, 255)
-
-        val card = LinearLayout(this).apply {
+        // One combined unit: dark conversation card on top, blue reply
+        // strip attached below, sharing the same width and corner radius.
+        val unit = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(12), dp(12), dp(12))
-            background = GradientDrawable().apply {
-                setColor(barBlue)
-                cornerRadius = dp(18).toFloat()
-            }
             elevation = dp(8).toFloat()
             layoutParams = ViewGroup.MarginLayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -92,38 +92,85 @@ class ReplyInputActivity : Activity() {
             }
         }
 
+        // --- Dark conversation card (icon + name + latest message) ---
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            background = GradientDrawable().apply {
+                setColor(Color.rgb(13, 18, 24))
+                cornerRadii = floatArrayOf(
+                    radius, radius, radius, radius, // top-left, top-right
+                    0f, 0f, 0f, 0f // bottom corners square: strip attaches here
+                )
+            }
+        }
+
+        if (sourcePackage != null) {
+            val iconView = ImageView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(dp(46), dp(46)).apply {
+                    rightMargin = dp(12)
+                }
+                scaleType = ImageView.ScaleType.FIT_CENTER
+            }
+            val icon = try {
+                packageManager.getApplicationIcon(sourcePackage)
+            } catch (error: PackageManager.NameNotFoundException) {
+                null
+            }
+            if (icon != null) {
+                iconView.setImageDrawable(icon)
+                header.addView(iconView)
+            }
+        }
+
+        val headerTexts = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f
+            )
+        }
         val title = TextView(this).apply {
             text = titleText
-            textSize = 13f
+            textSize = 17f
             setTextColor(Color.WHITE)
-            alpha = 0.85f
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = dp(6) }
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
         }
-        card.addView(title)
-
-        // The message being replied to, kept visible while typing (the
-        // system collapses the Now Bar card when this editor opens).
+        headerTexts.addView(title)
         if (contextText != null) {
-            val context = TextView(this).apply {
+            val message = TextView(this).apply {
                 text = contextText
                 textSize = 15f
                 setTextColor(Color.WHITE)
+                alpha = 0.92f
                 maxLines = 2
                 ellipsize = android.text.TextUtils.TruncateAt.END
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply { bottomMargin = dp(10) }
+                ).apply { topMargin = dp(2) }
             }
-            card.addView(context)
+            headerTexts.addView(message)
         }
+        header.addView(headerTexts)
+        unit.addView(header)
 
-        val row = LinearLayout(this).apply {
+        // --- Blue reply strip (input field + Send), attached below ---
+        val strip = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12), dp(10), dp(10), dp(10))
+            background = GradientDrawable().apply {
+                setColor(Color.rgb(10, 108, 255))
+                cornerRadii = floatArrayOf(
+                    0f, 0f, 0f, 0f, // top corners square: attaches to the card
+                    radius, radius, radius, radius // bottom-left, bottom-right
+                )
+            }
         }
 
         input = EditText(this).apply {
@@ -133,35 +180,35 @@ class ReplyInputActivity : Activity() {
             setHintTextColor(Color.argb(190, 255, 255, 255))
             minLines = 1
             maxLines = 4
-            setPadding(dp(6), dp(8), dp(6), dp(8))
+            setPadding(dp(14), dp(9), dp(14), dp(9))
             background = GradientDrawable().apply {
-                setColor(fieldBlue)
-                cornerRadius = dp(14).toFloat()
+                setColor(Color.argb(46, 255, 255, 255))
+                cornerRadius = dp(20).toFloat()
             }
             layoutParams = LinearLayout.LayoutParams(
                 0,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 1f
-            ).apply { rightMargin = dp(8) }
+            ).apply { rightMargin = dp(6) }
         }
-        row.addView(input)
+        strip.addView(input)
 
         val send = TextView(this).apply {
             text = sendText
             textSize = 16f
             setTextColor(Color.WHITE)
-            alpha = 0.9f
-            setPadding(dp(10), dp(8), dp(6), dp(8))
+            alpha = 0.95f
+            setPadding(dp(10), dp(8), dp(8), dp(8))
             setOnClickListener { submit() }
         }
-        row.addView(send)
-        card.addView(row)
+        strip.addView(send)
+        unit.addView(strip)
 
-        setContentView(card)
+        setContentView(unit)
         setFinishOnTouchOutside(true)
 
-        // Anchor the window to the top edge, just below the status bar,
-        // directly under where the expanded Now Bar card is displayed.
+        // Anchor the unit to the top edge, just below the status bar,
+        // where the expanded Now Bar card is displayed.
         val statusBarHeight = resources.getIdentifier("status_bar_height", "dimen", "android")
             .takeIf { it > 0 }
             ?.let { resources.getDimensionPixelSize(it) }
