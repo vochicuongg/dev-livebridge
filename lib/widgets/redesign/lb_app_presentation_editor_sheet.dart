@@ -136,9 +136,9 @@ class _LbAppPresentationEditorSheetState
     final LbPalette palette = LbPalette.of(context);
     final Color groupedBackground = palette.surfaceSoft;
 
-    return SingleChildScrollView(
-      physics: const BouncingScrollPhysics(),
-      child: Column(
+    // The modal sheet (upstream v2.2) provides the SingleChildScrollView;
+    // this content must not add a second one (nested scroll views).
+    return Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
@@ -389,7 +389,6 @@ class _LbAppPresentationEditorSheetState
             extendDividersToEnd: true,
           ),
         ],
-      ),
     );
   }
 }

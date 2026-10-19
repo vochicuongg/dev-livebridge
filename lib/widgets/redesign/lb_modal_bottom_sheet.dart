@@ -54,13 +54,13 @@ class LbModalBottomSheetSurface extends StatelessWidget {
     final LbPalette palette = LbPalette.of(context);
     final MediaQueryData mediaQuery = MediaQuery.of(context);
     final double bottomInset = mediaQuery.padding.bottom;
-    final double maxSheetHeight =
-        mediaQuery.size.height - mediaQuery.padding.top - LbSpacing.md;
 
-    return ConstrainedBox(
-      constraints: BoxConstraints(maxHeight: maxSheetHeight),
-      child: Material(
-        color: Colors.transparent,
+    return Material(
+      color: Colors.transparent,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * 0.88,
+        ),
         child: Container(
           width: double.infinity,
           padding: EdgeInsets.fromLTRB(
@@ -80,9 +80,12 @@ class LbModalBottomSheetSurface extends StatelessWidget {
                 onVerticalDragStart: onHandleDragStart,
                 onVerticalDragUpdate: onHandleDragUpdate,
                 onVerticalDragEnd: onHandleDragEnd,
-                behavior: HitTestBehavior.translucent,
+                behavior: HitTestBehavior.opaque,
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: LbSpacing.xs),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: LbSpacing.xl,
+                    vertical: LbSpacing.xs,
+                  ),
                   child: Container(
                     width: LbSpacing.modalSheetHandleWidth,
                     height: LbSpacing.modalSheetHandleHeight,
@@ -94,7 +97,12 @@ class LbModalBottomSheetSurface extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: LbSpacing.modalSheetContentTopGap),
-              Flexible(child: child),
+              Flexible(
+                child: SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  child: child,
+                ),
+              ),
             ],
           ),
         ),
