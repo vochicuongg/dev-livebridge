@@ -113,6 +113,23 @@ machine (`app-release.apk`, 66.1MB) and installs and runs on the Z Flip5.
   like a host-provided result. `ReplyProxyReceiver` remains for
   already-posted notifications that still carry the old broadcast intent.
 
+## Post-merge fixes (20/10/2026, later)
+
+- **Sound/vibration regression fixed:** upstream's converted-notification
+  sound/vibration preferences default to OFF and the publish path forces
+  `setSilent(true)` when both are off, which muted every converted
+  notification after the merge. Defaults are now ON (the fork's established
+  behavior), and the ALERTS channel is always created with the default
+  notification sound and the fork's vibration pattern, as in the fork's
+  original channel setup.
+- **Native inline reply attempt:** phone-facing reply actions now keep
+  `showsUserInterface=true` (the flag the fork set to false for Wear), so
+  One UI can render its native inline reply editor in the shade / Now Bar
+  like a normal notification. Wear-facing action copies (WearableExtender)
+  still pass `showsUserInterface=false`, preserving the watch's inline
+  keyboard behavior. If the host still shows no editor, the intent fires
+  and `ReplyInputActivity` remains the fallback.
+
 ## Known issues / verify on device
 
 - **Kotlin/Android was NOT compiled.** This environment cannot run Gradle.
