@@ -82,3 +82,9 @@ v2.2.1 + UI hotfix). 17 files conflicted; every hunk was resolved by hand.
 - 4 upstream promo screenshots under `output/promo/` (watch-*.png) are not
   in this branch — they are binary marketing assets that could not be
   pushed through the API used for this merge; they exist in upstream.
+- `.github/workflows/android.yml` (upstream's CI workflow) is also not in
+  this branch: the API integration used for the push lacks the workflows
+  permission (403). To enable GitHub Actions builds of this branch, add
+  that file manually via the GitHub web UI (copy it from
+  appsfolder/livebridge). Everything else in the branch tree is identical
+  to the locally verified merge tree.
