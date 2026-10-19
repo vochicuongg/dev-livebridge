@@ -8523,8 +8523,14 @@ object LiveUpdateNotifier {
             // a local-echo "Me" message before forwarding to the original app.
             val hasRemoteInputs = !frameworkAction.remoteInputs.isNullOrEmpty()
             val effectiveIntent = if (hasRemoteInputs && mirrorKey != null && actionIntent != null && context != null) {
-                createProxyReplyPendingIntent(context, actionIntent, mirrorKey, frameworkAction.remoteInputs!!.first().resultKey)
-                    ?: actionIntent
+                createProxyReplyPendingIntent(
+                    context,
+                    actionIntent,
+                    mirrorKey,
+                    frameworkAction.remoteInputs!!.first().resultKey,
+                    actionTitle,
+                    frameworkAction.remoteInputs!!.first().label?.toString()
+                ) ?: actionIntent
             } else {
                 actionIntent
             }
@@ -9086,7 +9092,9 @@ object LiveUpdateNotifier {
         context: Context,
         originalIntent: PendingIntent,
         mirrorKey: String,
-        resultKey: String
+        resultKey: String,
+        replyLabel: String? = null,
+        replyHint: String? = null
     ): PendingIntent? {
         return try {
             val threadKey = resolveThreadKeyForMirror(mirrorKey)
@@ -9104,6 +9112,8 @@ object LiveUpdateNotifier {
                 putExtra(ReplyProxyService.EXTRA_THREAD_KEY, threadKey)
                 putExtra(ReplyProxyService.EXTRA_MIRROR_NOTIFICATION_ID, mirrorNotificationId)
                 putExtra(ReplyProxyService.EXTRA_SOURCE_KEY, sourceKey)
+                putExtra(ReplyProxyService.EXTRA_REPLY_LABEL, replyLabel)
+                putExtra(ReplyProxyService.EXTRA_REPLY_HINT, replyHint)
             }
             PendingIntent.getBroadcast(
                 context,

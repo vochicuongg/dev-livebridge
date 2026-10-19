@@ -122,6 +122,15 @@
             android:exported="false"
         />
 
+        <activity
+            android:name=".liveupdate.ReplyInputActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:theme="@style/ReplyInputTheme"
+            android:windowSoftInputMode="adjustResize|stateVisible"
+        />
+
         <meta-data
             android:name="com.samsung.android.support.ongoing_activity"
             android:value="true"

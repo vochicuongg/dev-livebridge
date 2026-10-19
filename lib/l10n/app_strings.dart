@@ -63,30 +63,35 @@ class AppStrings {
     es: 'No disponible en este firmware',
     de: 'In dieser Firmware nicht verfügbar',
     ru: 'Недоступно в этой прошивке',
+      vi: 'Không khả dụng trên firmware này',
   );
   String get promotionUnknownStatus => tr(
     en: 'Could not check access',
     es: 'No se pudo comprobar el acceso',
     de: 'Zugriff konnte nicht geprüft werden',
     ru: 'Не удалось проверить доступ',
+      vi: 'Không kiểm tra được quyền truy cập',
   );
   String get promotionUnavailableHelp => tr(
     en: 'The system does not expose a working Live Updates permission check or settings page. This is not an overlay permission. Notification conversion can stay enabled, but the firmware decides whether to show a live capsule.',
     es: 'El sistema no ofrece una comprobación de permisos ni una página de ajustes funcional para Live Updates. Este permiso no sirve para mostrar elementos sobre otras aplicaciones. La conversión de notificaciones puede seguir activada, pero el firmware decide si muestra una cápsula.',
     de: 'Das System bietet keine funktionierende Berechtigungsprüfung oder Einstellungsseite für Live Updates. Dies ist keine Berechtigung zum Einblenden über anderen Apps. Die Umwandlung von Benachrichtigungen kann aktiviert bleiben; ob eine Kapsel angezeigt wird, entscheidet die Firmware.',
     ru: 'Система не предоставляет рабочую проверку или настройку доступа к Live Updates. Это не разрешение на показ поверх других приложений. Конвертация уведомлений может оставаться включённой, но показ капсулы зависит от прошивки.',
+      vi: 'Hệ thống không cung cấp cách kiểm tra quyền Live Updates hay trang cài đặt nào hoạt động được. Đây không phải quyền hiển thị trên ứng dụng khác. Bạn vẫn có thể bật chuyển đổi thông báo, nhưng firmware sẽ quyết định có hiển thị viên nang trực tiếp hay không.',
   );
   String get networkSpeedHideWhenLocked => tr(
     en: 'Hide speed when locked',
     es: 'Ocultar velocidad al bloquear',
     de: 'Geschwindigkeit bei Sperre ausblenden',
     ru: 'Скрывать скорость при блокировке',
+      vi: 'Ẩn tốc độ khi khóa máy',
   );
   String get networkSpeedHideWhenLockedHelp => tr(
     en: 'Hide the speed capsule while the screen is off or locked. It returns after unlocking. The background service notification stays in the notification panel.',
     es: 'Oculta la cápsula de velocidad cuando la pantalla está apagada o bloqueada. Vuelve a aparecer al desbloquear. La notificación del servicio en segundo plano permanece en el panel de notificaciones.',
     de: 'Blendet die Geschwindigkeitskapsel bei ausgeschaltetem oder gesperrtem Bildschirm aus. Nach dem Entsperren erscheint sie wieder. Die Benachrichtigung des Hintergrunddienstes bleibt in der Benachrichtigungsleiste.',
     ru: 'Скрывать капсулу скорости при выключенном или заблокированном экране. После разблокировки она возвращается. Уведомление фоновой службы остаётся в шторке.',
+      vi: 'Ẩn viên nang tốc độ khi màn hình tắt hoặc đang khóa. Sau khi mở khóa, nó sẽ hiện lại. Thông báo của dịch vụ nền vẫn nằm trong bảng thông báo.',
   );
 
   String get textFiltersTitle => tr(
@@ -94,72 +99,84 @@ class AppStrings {
     es: 'Filtros de texto de notificaciones',
     de: 'Textfilter für Benachrichtigungen',
     ru: 'Фильтры по тексту уведомлений',
+      vi: 'Bộ lọc văn bản thông báo',
   );
   String get textFiltersDescription => tr(
     en: 'Choose notifications by words in their title or text. Excluded notifications keep their originals.',
     es: 'Selecciona notificaciones según las palabras de su título o texto. Las notificaciones excluidas conservan sus originales.',
     de: 'Wählt Benachrichtigungen anhand von Wörtern im Titel oder Text aus. Die Originale ausgeschlossener Benachrichtigungen bleiben erhalten.',
     ru: 'Выбирайте уведомления по словам в заголовке или тексте. Оригиналы исключённых уведомлений сохраняются.',
+      vi: 'Chọn thông báo theo từ trong tiêu đề hoặc nội dung. Thông báo bị loại sẽ giữ nguyên bản gốc.',
   );
   String get filterTemplateTitle => tr(
     en: 'Custom island text (optional)',
     es: 'Texto personalizado de la cápsula (opcional)',
     de: 'Eigener Kapseltext (optional)',
     ru: 'Свой текст на островке (необязательно)',
+      vi: 'Văn bản đảo tùy chỉnh (không bắt buộc)',
   );
   String get filterTemplateHelp => tr(
     en: 'Use {title}, {text}, and {app}, or write your own text. Empty app templates use the global template. Call controls, media players and OTP codes keep their original presentation.',
     es: 'Usa {title}, {text} y {app}, o escribe tu propio texto. Si la plantilla de una aplicación está vacía, se usa la global. Las llamadas, los reproductores y los códigos OTP conservan su presentación original.',
     de: 'Verwende {title}, {text} und {app} oder eigenen Text. Leere App-Vorlagen verwenden die globale Vorlage. Anrufe, Medienplayer und OTP-Codes behalten ihre ursprüngliche Darstellung.',
     ru: 'Используйте {title}, {text} и {app} или напишите свой текст. Пустой шаблон приложения использует общий шаблон. Звонки, плеер и OTP сохраняют своё отображение.',
+      vi: 'Dùng {title}, {text} và {app}, hoặc tự viết văn bản của riêng bạn. Mẫu của ứng dụng để trống sẽ dùng mẫu chung. Cuộc gọi, trình phát media và mã OTP giữ nguyên cách hiển thị gốc.',
   );
   String get filterAllApps => tr(
     en: 'All apps',
     es: 'Todas las aplicaciones',
     de: 'Alle Apps',
     ru: 'Все приложения',
+      vi: 'Tất cả ứng dụng',
   );
   String get filterAllowWords => tr(
     en: 'Must contain (one word or phrase per line)',
     es: 'Debe contener (una palabra o frase por línea)',
     de: 'Muss enthalten (ein Wort oder Ausdruck pro Zeile)',
     ru: 'Должно содержать (слово или фраза на строку)',
+      vi: 'Phải chứa (mỗi dòng một từ hoặc cụm từ)',
   );
   String get filterDenyWords => tr(
     en: 'Do not convert if it contains',
     es: 'No convertir si contiene',
     de: 'Nicht umwandeln, wenn enthalten',
     ru: 'Не конвертировать, если содержит',
+      vi: 'Không chuyển đổi nếu chứa',
   );
   String get filterMatchAll => tr(
     en: 'Require all allowed phrases',
     es: 'Exigir todas las frases permitidas',
     de: 'Alle erlaubten Ausdrücke verlangen',
     ru: 'Требовать все разрешённые фразы',
+      vi: 'Yêu cầu khớp tất cả cụm từ đã cho',
   );
   String get filterHelp => tr(
     en: 'Matching ignores case. Exclusions win. Leave the allowed list empty to allow any text. Global and app filters both apply, including always-convert apps.',
     es: 'No se distingue entre mayúsculas y minúsculas. Las exclusiones tienen prioridad. Deja vacía la lista de palabras permitidas para aceptar cualquier texto. Se aplican tanto los filtros globales como los de cada aplicación, incluso a las aplicaciones que siempre se convierten.',
     de: 'Groß- und Kleinschreibung wird ignoriert. Ausschlüsse haben Vorrang. Eine leere Liste erlaubter Ausdrücke lässt jeden Text zu. Globale Filter und App-Filter gelten gemeinsam, auch für Apps mit erzwungener Umwandlung.',
     ru: 'Регистр не учитывается. Запрет имеет приоритет. Пустой разрешённый список пропускает любой текст. Общий фильтр и фильтр приложения действуют вместе, в том числе для «всегда конвертировать».',
+      vi: 'So khớp không phân biệt chữ hoa và chữ thường. Loại trừ được ưu tiên hơn. Để trống danh sách cho phép nếu muốn chấp nhận mọi văn bản. Bộ lọc chung và bộ lọc theo ứng dụng đều áp dụng, kể cả với các ứng dụng luôn chuyển đổi.',
   );
   String get wordEditorHelp => tr(
     en: 'Add recognition words and app hints, one per line. Built-in dictionaries and imported rules are kept. Remove your additions here to return to built-in recognition.',
     es: 'Añade palabras de reconocimiento e identificadores de aplicaciones, uno por línea. Se conservan los diccionarios integrados y las reglas importadas. Elimina tus añadidos para volver al reconocimiento original.',
     de: 'Füge Erkennungswörter und App-Kennungen hinzu, jeweils eines pro Zeile. Integrierte Wörterbücher und importierte Regeln bleiben erhalten. Entferne deine Ergänzungen, um zur ursprünglichen Erkennung zurückzukehren.',
     ru: 'Добавляйте слова распознавания и подсказки приложений, по одному на строку. Встроенные словари и импортированные правила сохраняются. Удалите добавленные слова, чтобы вернуть исходное распознавание.',
+      vi: 'Thêm từ nhận diện và gợi ý ứng dụng, mỗi dòng một mục. Từ điển tích hợp sẵn và các quy tắc đã nhập vẫn được giữ lại. Xóa phần bạn đã thêm tại đây để quay về nhận diện mặc định.',
   );
   String get editorClear => tr(
     en: 'Clear additions',
     es: 'Borrar añadidos',
     de: 'Ergänzungen löschen',
     ru: 'Очистить добавления',
+      vi: 'Xóa phần đã thêm',
   );
   String get editorLimit => tr(
     en: 'Use at most 100 entries per field, up to 200 characters each.',
     es: 'Máximo de 100 entradas por campo, de hasta 200 caracteres cada una.',
     de: 'Höchstens 100 Einträge pro Feld mit jeweils bis zu 200 Zeichen.',
     ru: 'Не более 100 строк в поле, до 200 символов в каждой.',
+      vi: 'Mỗi trường tối đa 100 mục, mỗi mục tối đa 200 ký tự.',
   );
   String dictionaryWordField(String key) {
     const labels = <String, List<String>>{
@@ -256,6 +273,7 @@ class AppStrings {
     zhHans: "无法保存设置，请重试。",
     zhHant: "無法儲存設定，請重試。",
     ko: "설정을 저장하지 못했습니다. 다시 시도하세요.",
+      vi: 'Không lưu được cài đặt. Vui lòng thử lại.',
   );
   String get hideFromRecentsTitle => tr(
     en: "Hide from recent apps",
@@ -267,6 +285,7 @@ class AppStrings {
     zhHans: "在最近使用的应用中隐藏",
     zhHant: "在最近使用的應用程式中隱藏",
     ko: "최근 앱에서 숨기기",
+      vi: 'Ẩn khỏi ứng dụng gần đây',
   );
   String get hideFromRecentsDescription => tr(
     en: "Hide LiveBridge in the app switcher. This does not keep it running in the background.",
@@ -279,6 +298,7 @@ class AppStrings {
     zhHans: "在最近使用的应用列表中隐藏 LiveBridge。这不能保证后台运行。",
     zhHant: "在最近使用的應用程式列表中隱藏 LiveBridge。這不能保證背景執行。",
     ko: "최근 앱 목록에서 LiveBridge를 숨깁니다. 백그라운드 실행을 보장하지는 않습니다.",
+      vi: 'Ẩn LiveBridge khỏi màn hình chuyển ứng dụng. Việc này không giữ cho ứng dụng chạy nền.',
   );
   String get sourceChannelsTitle => tr(
     en: "Source notification channels",
@@ -290,6 +310,7 @@ class AppStrings {
     zhHans: "源通知渠道",
     zhHant: "來源通知管道",
     ko: "원본 알림 채널",
+      vi: 'Kênh thông báo của ứng dụng nguồn',
   );
   String get sourceChannelsDescription => tr(
     en: "Choose which channels LiveBridge can convert. Original notifications are unaffected.",
@@ -302,6 +323,7 @@ class AppStrings {
     zhHans: "选择 LiveBridge 可以转换的渠道。原始通知不受影响。",
     zhHant: "選擇 LiveBridge 可以轉換的管道。原始通知不受影響。",
     ko: "LiveBridge가 변환할 채널을 선택하세요. 원본 알림에는 영향을 주지 않습니다.",
+      vi: 'Chọn những kênh mà LiveBridge được phép chuyển đổi. Thông báo gốc không bị ảnh hưởng.',
   );
   String get sourceChannelsEmpty => tr(
     en: "Channels appear after their apps post notifications while notification access is enabled. Refresh this list after receiving a notification.",
@@ -314,6 +336,7 @@ class AppStrings {
     zhHans: "启用通知访问权限后，应用发送通知时会出现渠道。收到通知后请刷新列表。",
     zhHant: "啟用通知存取權後，應用程式傳送通知時會出現管道。收到通知後請重新整理列表。",
     ko: "알림 접근 권한이 켜진 상태에서 앱이 알림을 보내면 채널이 표시됩니다. 알림을 받은 뒤 목록을 새로고침하세요.",
+      vi: 'Kênh sẽ xuất hiện sau khi các ứng dụng gửi thông báo trong lúc quyền truy cập thông báo đang bật. Hãy làm mới danh sách này sau khi nhận được một thông báo.',
   );
   String get sourceChannelsSearch => tr(
     en: "Search apps and channels",
@@ -325,6 +348,7 @@ class AppStrings {
     zhHans: "搜索应用和渠道",
     zhHant: "搜尋應用程式和管道",
     ko: "앱 및 채널 검색",
+      vi: 'Tìm ứng dụng và kênh',
   );
   String get sourceChannelsError => tr(
     en: "Could not load or save channels. Please try again.",
@@ -336,6 +360,7 @@ class AppStrings {
     zhHans: "无法加载或保存渠道，请重试。",
     zhHant: "無法載入或儲存管道，請重試。",
     ko: "채널을 불러오거나 저장하지 못했습니다. 다시 시도하세요.",
+      vi: 'Không tải hoặc lưu được kênh. Vui lòng thử lại.',
   );
   String get sourceChannelsRefresh => tr(
     en: "Refresh",
@@ -347,6 +372,7 @@ class AppStrings {
     zhHans: "刷新",
     zhHant: "重新整理",
     ko: "새로고침",
+      vi: 'Làm mới',
   );
 
   static AppStrings of(BuildContext context) {
@@ -2487,6 +2513,7 @@ class AppStrings {
     zhHans: '转换通知声音',
     zhHant: '轉換通知聲音',
     ko: '변환된 알림 소리',
+      vi: 'Âm thanh thông báo đã chuyển đổi',
   );
 
   String get convertedNotificationVibrationTitle => tr(
@@ -2499,6 +2526,7 @@ class AppStrings {
     zhHans: '转换通知振动',
     zhHant: '轉換通知震動',
     ko: '변환된 알림 진동',
+      vi: 'Rung thông báo đã chuyển đổi',
   );
 
   String get convertedNotificationVibrationDescription => tr(
@@ -2512,6 +2540,7 @@ class AppStrings {
     zhHans: '转换通知首次出现时振动；系统通知渠道设置优先',
     zhHant: '轉換通知首次出現時震動；系統通知管道設定優先',
     ko: '변환된 알림이 처음 표시될 때 진동합니다. 시스템 채널 설정이 우선합니다.',
+      vi: 'Rung khi thông báo đã chuyển đổi xuất hiện lần đầu; cài đặt kênh của hệ thống được ưu tiên hơn',
   );
 
   String get disableHintsTitle => tr(
@@ -3828,6 +3857,7 @@ class AppStrings {
     zhHans: '转换通知首次出现时播放声音',
     zhHant: '轉換通知首次出現時播放聲音',
     ko: '변환된 알림이 처음 표시될 때 소리를 재생합니다.',
+      vi: 'Phát âm thanh khi thông báo đã chuyển đổi xuất hiện lần đầu',
   );
 
   String get disableHintsDescription => tr(
@@ -4000,6 +4030,7 @@ class AppStrings {
     zhHans: "Wear OS 实时更新",
     zhHant: "Wear OS 即時更新",
     ko: "Wear OS 실시간 업데이트",
+      vi: 'Live Updates trên Wear OS',
   );
 
   String get wearOsLiveUpdatesUnavailable => tr(
@@ -4012,6 +4043,7 @@ class AppStrings {
     zhHans: "需要 Android 17",
     zhHant: "需要 Android 17",
     ko: "Android 17 필요",
+      vi: 'Yêu cầu Android 17',
   );
 
   String get wearOsLiveUpdatesDescription => tr(
@@ -4027,6 +4059,7 @@ class AppStrings {
     zhHant:
         "允許 Android 將轉換後的即時更新轉送至手錶。需要 Android 17、Wear OS 7 及手錶廠商支援。原應用程式通知也可能顯示在手錶上。",
     ko: "Android가 변환된 실시간 업데이트를 시계로 전달하도록 허용합니다. Android 17, Wear OS 7 및 시계 제조사의 지원이 필요합니다. 원래 앱 알림도 시계에 표시될 수 있습니다.",
+      vi: 'Cho phép Android chuyển tiếp các Live Updates đã chuyển đổi tới đồng hồ của bạn. Yêu cầu Android 17, Wear OS 7 và đồng hồ được nhà sản xuất hỗ trợ. Thông báo gốc của ứng dụng cũng có thể xuất hiện trên đồng hồ.',
   );
   String get searchNoResults => tr(
     en: 'No results',
@@ -4038,5 +4071,6 @@ class AppStrings {
     zhHans: '没有结果',
     zhHant: '沒有結果',
     ko: '검색 결과 없음',
+      vi: 'Không có kết quả',
   );
 }

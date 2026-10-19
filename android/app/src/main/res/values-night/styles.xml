@@ -15,4 +15,6 @@
     <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">
         <item name="android:windowBackground">?android:colorBackground</item>
     </style>
+    <!-- Dialog theme for the native reply editor (ReplyInputActivity). -->
+    <style name="ReplyInputTheme" parent="@android:style/Theme.DeviceDefault.Dialog.Alert" />
 </resources>

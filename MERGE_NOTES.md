@@ -89,6 +89,26 @@ at JDK 25 — fixed by pointing Flutter at Temurin 17). Round-1 fixes:
   subpackage, so the auto-merge dropped these two files that upstream's
   subpackage service/builder still reference.
 
+## Post-merge work (20/10/2026)
+
+The merged branch now builds successfully on the maintainer's Windows
+machine (`app-release.apk`, 66.1MB) and installs and runs on the Z Flip5.
+
+- **Vietnamese localization completed for the App Configuration area:**
+  34 strings in `app_strings.dart` that previously fell back to English
+  now have `vi:` translations (text filters, source channels, Wear OS
+  Live Updates, converted-notification sound/vibration, hide-from-recents,
+  network-speed hide-when-locked, promotion status, dictionary editor).
+- **Now Bar reply fix:** tapping "Reply" on the Samsung Now Bar fired the
+  proxy broadcast with no RemoteInput results (the Now Bar shows no reply
+  editor), and the reply pipeline silently dropped the empty reply. The
+  proxy PendingIntent now also carries the reply label/hint;
+  `ReplyProxyReceiver` opens the new `ReplyInputActivity` (a small native
+  dialog editor) when the broadcast has no reply text, and the typed text
+  is forwarded to `ReplyProxyService` exactly like a host-provided
+  RemoteInput result. Hosts that do provide an editor (Wear OS, the
+  notification shade) keep the original direct path.
+
 ## Known issues / verify on device
 
 - **Kotlin/Android was NOT compiled.** This environment cannot run Gradle.
