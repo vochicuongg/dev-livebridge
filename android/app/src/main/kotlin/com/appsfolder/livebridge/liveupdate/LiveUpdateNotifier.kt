@@ -9207,6 +9207,7 @@ object LiveUpdateNotifier {
         }
         val manager = NotificationManagerCompat.from(context)
         notifyMirroredNotification(
+            context = context,
             manager = manager,
             notificationId = mirrorIdForKey(mirrorKey),
             notification = notification,
