@@ -3,11 +3,15 @@ package com.kakao.taxi.liveupdate
 import android.app.Activity
 import android.app.RemoteInput
 import android.content.Intent
+import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.util.TypedValue
 import android.view.Gravity
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
-import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -22,9 +26,11 @@ import android.widget.TextView
  *   which is forwarded straight to ReplyProxyService and the activity
  *   finishes without UI.
  * - The host fired the action with no editor (notably the Samsung Now
- *   Bar): this activity shows a small editor; the typed text is handed to
- *   ReplyProxyService exactly like a host-provided RemoteInput result, so
- *   the rest of the reply pipeline is unchanged.
+ *   Bar): this activity shows a compact chat bar anchored to the bottom
+ *   of the screen (visually where the Now Bar sits, like the system's own
+ *   inline reply frame); the typed text is handed to ReplyProxyService
+ *   exactly like a host-provided RemoteInput result, so the rest of the
+ *   reply pipeline is unchanged.
  */
 class ReplyInputActivity : Activity() {
 
@@ -48,6 +54,7 @@ class ReplyInputActivity : Activity() {
             finish()
             return
         }
+
         val label = intent.getStringExtra(ReplyProxyService.EXTRA_REPLY_LABEL)
             ?.takeIf { it.isNotBlank() }
         val hint = intent.getStringExtra(ReplyProxyService.EXTRA_REPLY_HINT)
@@ -55,64 +62,106 @@ class ReplyInputActivity : Activity() {
 
         val vi = NativeAppStrings.language(this) == "vi"
         val titleText = label ?: if (vi) "Trả lời" else "Reply"
-        val hintText = hint ?: if (vi) "Nhập tin nhắn" else "Type a message"
+        val hintText = hint ?: if (vi) "Trả lời…" else "Reply…"
         val sendText = if (vi) "Gửi" else "Send"
-        val cancelText = if (vi) "Hủy" else "Cancel"
 
-        val padding = (20 * resources.displayMetrics.density).toInt()
-        val root = LinearLayout(this).apply {
+        val density = resources.displayMetrics.density
+        fun dp(value: Int): Int = (value * density).toInt()
+
+        val cardColor = themeColor(android.R.attr.colorBackground, Color.WHITE)
+        val accentColor = themeColor(android.R.attr.colorAccent, Color.rgb(0, 105, 255))
+        val fieldColor = themeColor(android.R.attr.colorControlHighlight, Color.rgb(230, 230, 230))
+
+        val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(padding, padding, padding, padding)
-            layoutParams = ViewGroup.LayoutParams(
+            setPadding(dp(16), dp(12), dp(12), dp(12))
+            background = GradientDrawable().apply {
+                setColor(cardColor)
+                cornerRadius = dp(24).toFloat()
+            }
+            elevation = dp(8).toFloat()
+            layoutParams = ViewGroup.MarginLayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
-            )
+            ).apply {
+                leftMargin = dp(10)
+                rightMargin = dp(10)
+                bottomMargin = dp(10)
+            }
         }
 
         val title = TextView(this).apply {
             text = titleText
-            textSize = 18f
+            textSize = 13f
+            alpha = 0.65f
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = padding / 2 }
+            ).apply { bottomMargin = dp(6) }
         }
-        root.addView(title)
+        card.addView(title)
+
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
 
         input = EditText(this).apply {
             this.hint = hintText
+            textSize = 16f
             minLines = 1
             maxLines = 4
+            setPadding(dp(14), dp(8), dp(14), dp(8))
+            background = GradientDrawable().apply {
+                setColor(fieldColor)
+                cornerRadius = dp(20).toFloat()
+            }
             layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = padding / 2 }
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f
+            ).apply { rightMargin = dp(8) }
         }
-        root.addView(input)
+        row.addView(input)
 
-        val buttons = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.END
-        }
-        val cancelButton = Button(this).apply {
-            text = cancelText
-            setOnClickListener { finish() }
-        }
-        val sendButton = Button(this).apply {
+        val send = TextView(this).apply {
             text = sendText
+            textSize = 16f
+            setTextColor(accentColor)
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(dp(10), dp(8), dp(6), dp(8))
             setOnClickListener { submit() }
         }
-        buttons.addView(cancelButton)
-        buttons.addView(sendButton)
-        root.addView(buttons)
+        row.addView(send)
+        card.addView(row)
 
-        setContentView(root)
+        setContentView(card)
+        setFinishOnTouchOutside(true)
+
+        // Anchor the window to the bottom edge, full width, like a chat bar.
+        window?.apply {
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            setLayout(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.WRAP_CONTENT
+            )
+            attributes = attributes.apply {
+                gravity = Gravity.BOTTOM
+                dimAmount = 0.35f
+            }
+            addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+        }
 
         input.requestFocus()
         input.post {
             val imm = getSystemService(InputMethodManager::class.java)
             imm?.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT)
         }
+    }
+
+    private fun themeColor(attr: Int, fallback: Int): Int {
+        val value = TypedValue()
+        return if (theme.resolveAttribute(attr, value, true)) value.data else fallback
     }
 
     /** Forwards this activity's launch intent (extras + RemoteInput results) to ReplyProxyService. */

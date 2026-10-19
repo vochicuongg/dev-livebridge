@@ -130,6 +130,24 @@ machine (`app-release.apk`, 66.1MB) and installs and runs on the Z Flip5.
   keyboard behavior. If the host still shows no editor, the intent fires
   and `ReplyInputActivity` remains the fallback.
 
+## Post-merge fixes (20/10/2026, round 3)
+
+- **Sound/vibration, take 2:** the defaults change alone was not enough on
+  the maintainer's device — the ALERTS channel had already been created
+  silent by an early merged build (after an uninstall during the version
+  downgrade dance), and Android does not let an app change an existing
+  channel. The ALERTS channel id is bumped to `livebridge_alerts_v3`
+  (created with sound + vibration pattern; v2 is deleted on channel
+  ensure), and chat-app mirrors are exempt from the
+  converted-notification `setSilent(true)` gate — their alerting is
+  governed by the ALERTS channel's own system settings.
+- **Reply editor restyled:** the system's inline reply frame (as in the
+  Now Bar for normal notifications) is drawn by Samsung's SystemUI and
+  cannot be injected into a Live notification by the app. The fallback
+  editor is therefore now a compact chat bar anchored to the bottom of
+  the screen (rounded card, single-line field + Send), visually matching
+  the Now Bar reply frame instead of a large centered dialog.
+
 ## Known issues / verify on device
 
 - **Kotlin/Android was NOT compiled.** This environment cannot run Gradle.
