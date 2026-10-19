@@ -159,6 +159,24 @@ machine (`app-release.apk`, 66.1MB) and installs and runs on the Z Flip5.
   replies. Phone-facing actions keep the activity PendingIntent +
   `ReplyInputActivity` editor.
 
+## Post-merge change (20/10/2026, round 5): chat mirrors as normal notifications
+
+Per the maintainer's decision: Samsung only renders its own inline reply
+frame (Reply field + Send under the card) for NORMAL notifications; Live
+Update mirrors only ever fire the action intent, so any in-Now Bar reply
+UI would have to be app-drawn, which the maintainer rejected. Chat-app
+mirrors (CHAT_APP_PACKAGES) are therefore now posted as normal messaging
+notifications: `CATEGORY_MESSAGE`, not ongoing, no promoted-ongoing
+request, no Samsung ongoing-activity extras (`SamsungNowBarApplier`
+skipped), and `notifyMirroredNotification` no longer marks
+`CATEGORY_MESSAGE` notifications Now Bar eligible. All other kinds
+(progress, media, calls, OTP, capsule, charging, network speed…) keep
+the genuine Now Bar Live treatment unchanged. The reply action keeps the
+proxy PendingIntent, so when Samsung's editor delivers the reply,
+`ReplyInputActivity` forwards it invisibly and the existing
+echo/dismissal pipeline runs; the editor UI remains only as a fallback
+for surfaces that still provide no editor.
+
 ## Known issues / verify on device
 
 - **Kotlin/Android was NOT compiled.** This environment cannot run Gradle.

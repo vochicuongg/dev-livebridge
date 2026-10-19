@@ -4695,6 +4695,14 @@ object LiveUpdateNotifier {
         // FIX: Chỉ alert mỗi lần có tin nhắn mới từ các ứng dụng nhắn tin
         // Các app khác (download, progress) vẫn giữ onlyAlertOnce = true để tránh spam
         val isChatApp = CHAT_APP_PACKAGES.contains(sourcePackageNameLower)
+
+        // Chat mirrors are posted as NORMAL messaging notifications, not
+        // Live Updates: Samsung renders its own inline reply frame (Reply
+        // field + Send under the card) only for normal notifications,
+        // while Live/ongoing mirrors only ever fire the action intent.
+        // All other notification kinds keep the genuine Now Bar Live
+        // treatment (promoted ongoing, Samsung ongoing-activity extras).
+        val chatAsNormalNotification = isChatApp
         
         // FIX: Chat apps MUST use ALERTS channel to get sound/vibration
         val effectiveChannel = if (isChatApp) {
@@ -4712,7 +4720,7 @@ object LiveUpdateNotifier {
             .setDefaults(0)
             .setSound(notificationSoundUri)  // FIX: Ép buộc sound URI tường minh
             .setVibrate(longArrayOf(0, 200, 100, 200))  // FIX: Ép buộc vibration pattern
-            .setOngoing(true)
+            .setOngoing(!chatAsNormalNotification)
             .setAutoCancel(true)
             .setWhen(callChronometerStart ?: resolveStableWhen(source, sbn.postTime))
             .setShowWhen(callChronometerStart != null)
@@ -4720,6 +4728,8 @@ object LiveUpdateNotifier {
             .setCategory(
                 if (callMirrorActive) {
                     Notification.CATEGORY_CALL
+                } else if (chatAsNormalNotification) {
+                    Notification.CATEGORY_MESSAGE
                 } else if (hasProgress && !suppressFrameworkProgressBody) {
                     Notification.CATEGORY_PROGRESS
                 } else {
@@ -4767,7 +4777,7 @@ object LiveUpdateNotifier {
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
             applySmallIcon(context, publicBuilder, preferredPrimaryIcon)
-            if (samsungBridge.enabled) {
+            if (samsungBridge.enabled && !chatAsNormalNotification) {
                 val hiddenTexts = hiddenSamsungBridgeTexts()
                 SamsungNowBarApplier.apply(
                     context = context,
@@ -4791,7 +4801,7 @@ object LiveUpdateNotifier {
             builder.setPublicVersion(publicBuilder.build())
         }
 
-        if (requestPromoted) {
+        if (requestPromoted && !chatAsNormalNotification) {
             builder.setRequestPromotedOngoing(true)
         }
 
@@ -5217,7 +5227,7 @@ object LiveUpdateNotifier {
             }
         }
 
-        if (samsungBridge.enabled) {
+        if (samsungBridge.enabled && !chatAsNormalNotification) {
             val samsungTexts = if (redactSamsungNowBarContent) {
                 hiddenSamsungBridgeTexts()
             } else {
@@ -9335,7 +9345,15 @@ object LiveUpdateNotifier {
             (prefs.getSyncDndEnabled() && isDoNotDisturbActive(context))) return
         if (isUserDismissedMirror(mirrorKey)) return
         applyWearOsBridging(notification, prefs)
-        manager.notify(notificationId, SamsungOneUi7NowBarCompat.markEligible(notification))
+        // Messaging mirrors stay normal notifications so Samsung renders
+        // its own inline reply frame for them; everything else is marked
+        // eligible for the Now Bar Live treatment.
+        val eligibleNotification = if (notification.category == Notification.CATEGORY_MESSAGE) {
+            notification
+        } else {
+            SamsungOneUi7NowBarCompat.markEligible(notification)
+        }
+        manager.notify(notificationId, eligibleNotification)
         // Disabling can race with background construction; never leave a late mirror behind.
         if (!prefs.getConverterEnabled() || isUserDismissedMirror(mirrorKey)) {
             cancelMirroredNotification(manager, notificationId)
