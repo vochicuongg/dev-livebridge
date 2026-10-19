@@ -163,7 +163,10 @@ class ConverterPrefs(context: Context) {
     }
 
     fun getConvertedNotificationSoundEnabled(): Boolean {
-        return prefs.getBoolean(KEY_CONVERTED_NOTIFICATION_SOUND_ENABLED, false)
+        // Default ON: the fork's established behavior is that converted
+        // (chat) notifications alert with sound; upstream's OFF default
+        // silently muted every mirror after the merge.
+        return prefs.getBoolean(KEY_CONVERTED_NOTIFICATION_SOUND_ENABLED, true)
     }
 
     fun setConvertedNotificationSoundEnabled(value: Boolean) {
@@ -171,7 +174,7 @@ class ConverterPrefs(context: Context) {
     }
 
     fun getConvertedNotificationVibrationEnabled(): Boolean =
-        prefs.getBoolean(KEY_CONVERTED_NOTIFICATION_VIBRATION_ENABLED, false)
+        prefs.getBoolean(KEY_CONVERTED_NOTIFICATION_VIBRATION_ENABLED, true)
 
     fun setConvertedNotificationVibrationEnabled(value: Boolean) {
         prefs.edit().putBoolean(KEY_CONVERTED_NOTIFICATION_VIBRATION_ENABLED, value).apply()

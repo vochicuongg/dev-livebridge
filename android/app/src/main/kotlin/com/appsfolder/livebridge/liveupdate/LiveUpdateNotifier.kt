@@ -935,6 +935,11 @@ object LiveUpdateNotifier {
         audible: Boolean,
         vibrating: Boolean
     ): NotificationChannel {
+        // The ALERTS channel exists to make chat notifications ring and
+        // vibrate (the fork's original design); it must never be created
+        // silent, even for the base (non-variant) id that publish paths use.
+        val effectiveAudible = audible || channel == MirrorNotificationChannel.ALERTS
+        val effectiveVibrating = vibrating || channel == MirrorNotificationChannel.ALERTS
         val channelText = mirrorChannelText(context, channel, audible, vibrating)
         return NotificationChannel(
             channel.id(audible, vibrating),
@@ -942,8 +947,11 @@ object LiveUpdateNotifier {
             NotificationManager.IMPORTANCE_HIGH
         ).apply {
             description = channelText.description
-            enableVibration(vibrating)
-            if (audible) {
+            enableVibration(effectiveVibrating)
+            if (effectiveVibrating && channel == MirrorNotificationChannel.ALERTS) {
+                vibrationPattern = longArrayOf(0, 200, 100, 200)
+            }
+            if (effectiveAudible) {
                 setSound(
                     RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
                     AudioAttributes.Builder()
@@ -5357,7 +5365,7 @@ object LiveUpdateNotifier {
                 // Add actions to WearableExtender
                 val wearableExtender = NotificationCompat.WearableExtender()
                 source.actions?.forEach { action ->
-                    val compatAction = toCompatAction(action)
+                    val compatAction = toCompatAction(action, showsUserInterface = false)
                     if (compatAction != null) {
                         wearableExtender.addAction(compatAction)
                     }
@@ -5413,7 +5421,7 @@ object LiveUpdateNotifier {
                 // Add actions to WearableExtender
                 val wearableExtender = NotificationCompat.WearableExtender()
                 source.actions?.forEach { action ->
-                    val compatAction = toCompatAction(action)
+                    val compatAction = toCompatAction(action, showsUserInterface = false)
                     if (compatAction != null) {
                         wearableExtender.addAction(compatAction)
                     }
@@ -8504,7 +8512,8 @@ object LiveUpdateNotifier {
         frameworkAction: Notification.Action,
         titleOverride: String? = null,
         mirrorKey: String? = null,
-        context: Context? = null
+        context: Context? = null,
+        showsUserInterface: Boolean = true
     ): NotificationCompat.Action? {
         if (frameworkAction.actionIntent == null) {
             return null
@@ -8553,10 +8562,14 @@ object LiveUpdateNotifier {
                 builder.addRemoteInput(compatRemoteInput.build())
             }
 
-            // ponytail: Wear OS reply action flags – without these, the watch
-            // assumes the intent opens a phone Activity and kills the inline UI.
+            // Reply action flags: Wear-facing copies pass
+            // showsUserInterface=false (without it the watch assumes the
+            // intent opens a phone Activity and kills its inline UI), while
+            // phone-facing copies keep true so One UI can render its native
+            // inline reply editor in the shade / Now Bar like a normal
+            // notification instead of just firing the intent.
             if (hasRemoteInputs) {
-                builder.setShowsUserInterface(false)
+                builder.setShowsUserInterface(showsUserInterface)
                 builder.setAllowGeneratedReplies(true)
                 builder.setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_REPLY)
             }
@@ -8587,7 +8600,7 @@ object LiveUpdateNotifier {
             }
 
             if (fallbackHasRemoteInputs) {
-                builder.setShowsUserInterface(false)
+                builder.setShowsUserInterface(showsUserInterface)
                 builder.setAllowGeneratedReplies(true)
                 builder.setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_REPLY)
             }
