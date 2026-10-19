@@ -27,7 +27,6 @@ import android.icu.text.BreakIterator
 import android.media.RingtoneManager
 import android.media.MediaMetadata
 import android.media.AudioAttributes
-import android.media.RingtoneManager
 import android.media.session.MediaController
 import android.media.session.MediaSession
 import android.media.session.MediaSessionManager
@@ -3423,6 +3422,9 @@ object LiveUpdateNotifier {
             MirrorNotificationChannel.NETWORK_CONNECTIONS -> MirrorChannelText(NativeAppStrings.text(context, base.name, base.name, "Red y conexiones", "Netzwerk und Verbindungen"), NativeAppStrings.text(context, base.description, base.description, "VPN y dispositivos externos", "VPNs und externe Geräte"))
             MirrorNotificationChannel.MISCELLANEOUS -> MirrorChannelText(NativeAppStrings.text(context, base.name, base.name, "Otras conversiones", "Sonstige Umwandlungen"), NativeAppStrings.text(context, base.description, base.description, "Navegación, tiempo y otras conversiones", "Navigation, Wetter und andere Umwandlungen"))
             MirrorNotificationChannel.BYPASS -> MirrorChannelText(NativeAppStrings.text(context, base.name, base.name, "Aplicaciones que siempre se convierten", "Apps mit erzwungener Umwandlung"), NativeAppStrings.text(context, base.description, base.description, "Notificaciones de aplicaciones que omiten los filtros", "Benachrichtigungen von Apps ohne Regelfilter"))
+            MirrorNotificationChannel.NOTIFICATION_CAPSULE -> notificationCapsuleChannelText(context)
+            MirrorNotificationChannel.CHARGING_INFO -> chargingInfoChannelText(context)
+            MirrorNotificationChannel.ALERTS -> MirrorChannelText(NativeAppStrings.text(context, base.name, base.name, "Alertas", "Warnungen"), NativeAppStrings.text(context, base.description, base.description, "Notificaciones de chat que siempre alertan", "Chat-Benachrichtigungen, die immer alarmieren"))
         }
         val effects = buildList {
             if (audible) add(NativeAppStrings.text(context, "sound", "звук", "sonido", "Ton"))
@@ -8390,7 +8392,7 @@ object LiveUpdateNotifier {
             )
             .take(safeMaxActions)
             .forEach { (_, frameworkAction) ->
-            val compatAction = toCompatAction(context, frameworkAction) ?: return@forEach
+            val compatAction = toCompatAction(frameworkAction = frameworkAction, context = context) ?: return@forEach
             builder.addAction(compatAction)
         }
     }
@@ -8499,7 +8501,6 @@ object LiveUpdateNotifier {
     }
 
     private fun toCompatAction(
-        context: Context,
         frameworkAction: Notification.Action,
         titleOverride: String? = null,
         mirrorKey: String? = null,
@@ -8522,8 +8523,14 @@ object LiveUpdateNotifier {
             // a local-echo "Me" message before forwarding to the original app.
             val hasRemoteInputs = !frameworkAction.remoteInputs.isNullOrEmpty()
             val effectiveIntent = if (hasRemoteInputs && mirrorKey != null && actionIntent != null && context != null) {
-                createProxyReplyPendingIntent(context, actionIntent, mirrorKey, frameworkAction.remoteInputs!!.first().resultKey)
-                    ?: actionIntent
+                createProxyReplyPendingIntent(
+                    context,
+                    actionIntent,
+                    mirrorKey,
+                    frameworkAction.remoteInputs!!.first().resultKey,
+                    actionTitle,
+                    frameworkAction.remoteInputs!!.first().label?.toString()
+                ) ?: actionIntent
             } else {
                 actionIntent
             }
@@ -9085,7 +9092,9 @@ object LiveUpdateNotifier {
         context: Context,
         originalIntent: PendingIntent,
         mirrorKey: String,
-        resultKey: String
+        resultKey: String,
+        replyLabel: String? = null,
+        replyHint: String? = null
     ): PendingIntent? {
         return try {
             val threadKey = resolveThreadKeyForMirror(mirrorKey)
@@ -9095,16 +9104,26 @@ object LiveUpdateNotifier {
             val mirrorNotificationId = synchronized(stateLock) {
                 mirrorNotificationIdsByKey[mirrorKey]?.firstOrNull()
             } ?: mirrorIdForKey(mirrorKey)
-            val proxyIntent = Intent(context, ReplyProxyReceiver::class.java).apply {
+            // Target the activity directly: an activity PendingIntent fired
+            // from a notification action is exempt from background-activity
+            // launch restrictions, while a broadcast receiver that then tries
+            // to open the reply editor gets blocked silently on modern
+            // Android/One UI. ReplyInputActivity forwards host-provided
+            // RemoteInput results straight to ReplyProxyService and only
+            // shows its editor when the host provided no reply UI.
+            val proxyIntent = Intent(context, ReplyInputActivity::class.java).apply {
                 action = ReplyProxyService.ACTION_PROXY_REPLY
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
                 putExtra(ReplyProxyService.EXTRA_ORIGINAL_PENDING_INTENT, originalIntent)
                 putExtra(ReplyProxyService.EXTRA_MIRROR_KEY, mirrorKey)
                 putExtra(ReplyProxyService.EXTRA_RESULT_KEY, resultKey)
                 putExtra(ReplyProxyService.EXTRA_THREAD_KEY, threadKey)
                 putExtra(ReplyProxyService.EXTRA_MIRROR_NOTIFICATION_ID, mirrorNotificationId)
                 putExtra(ReplyProxyService.EXTRA_SOURCE_KEY, sourceKey)
+                putExtra(ReplyProxyService.EXTRA_REPLY_LABEL, replyLabel)
+                putExtra(ReplyProxyService.EXTRA_REPLY_HINT, replyHint)
             }
-            PendingIntent.getBroadcast(
+            PendingIntent.getActivity(
                 context,
                 (mirrorKey + resultKey).hashCode(),
                 proxyIntent,
@@ -9206,6 +9225,7 @@ object LiveUpdateNotifier {
         }
         val manager = NotificationManagerCompat.from(context)
         notifyMirroredNotification(
+            context = context,
             manager = manager,
             notificationId = mirrorIdForKey(mirrorKey),
             notification = notification,
@@ -9386,6 +9406,16 @@ object LiveUpdateNotifier {
             .keys
             .toList()
         expiredIds.forEach(programmaticMirrorCancelDeadlines::remove)
+    }
+
+    private fun isUserDismissedMirrorLocked(mirrorKey: String): Boolean {
+        return userDismissedMirrorKeys.contains(mirrorKey)
+    }
+
+    private fun isUserDismissedMirror(mirrorKey: String): Boolean {
+        return synchronized(stateLock) {
+            isUserDismissedMirrorLocked(mirrorKey)
+        }
     }
 
     private fun limitIslandText(value: String?, enabled: Boolean, maxLength: Int): String {

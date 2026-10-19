@@ -59,6 +59,60 @@ v2.2.1 + UI hotfix). 17 files conflicted; every hunk was resolved by hand.
   manifest and its `NetworkSpeedController.sync` call sites were routed to
   the fork's `syncNetworkSpeedService()`.
 
+## Build fix round 1 (after first Windows build attempt)
+
+The merged code reached Kotlin compilation on the maintainer's machine
+(the earlier "25.0.3" failure was the machine's Flutter jdk-dir pointing
+at JDK 25 — fixed by pointing Flutter at Temurin 17). Round-1 fixes:
+
+- Removed duplicated imports produced by union-resolved import blocks
+  (MainActivity, LiveUpdateNotifier).
+- Listener: removed the duplicated `activeInstance` companion declaration
+  (upstream `private` vs fork `internal` — kept `internal`, which
+  ReplyInterceptReceiver/ReplyProxyService use); restored the fork's
+  delayed original-dismissal chain (`scheduleOriginalSourceDismissal`,
+  `dismissOriginalSourceWhenMirrorActive`) that `retryOriginalSourceDismissal`
+  calls; added upstream's key-based self-dismissed set
+  (`rememberSelfDismissedSourceKey` / `consumeSelfDismissedSourceKey`)
+  alongside the fork's record-based tracking, with
+  `forgetSelfDismissedSourceKey` clearing both.
+- Notifier: added the missing `isUserDismissedMirror` /
+  `isUserDismissedMirrorLocked` helpers (upstream); completed the
+  `mirrorChannelText` localization `when` with the fork's
+  NOTIFICATION_CAPSULE / CHARGING_INFO / ALERTS branches; restored the
+  fork's `toCompatAction(frameworkAction, titleOverride, mirrorKey,
+  context)` signature (the union had stitched in a duplicate `context`
+  parameter) and converted one upstream positional call site to named
+  arguments.
+- Restored upstream `networkspeed/NetworkSpeedDataSource.kt` and
+  `networkspeed/NetworkSpeedFormatter.kt` — the fork had deleted the whole
+  subpackage, so the auto-merge dropped these two files that upstream's
+  subpackage service/builder still reference.
+
+## Post-merge work (20/10/2026)
+
+The merged branch now builds successfully on the maintainer's Windows
+machine (`app-release.apk`, 66.1MB) and installs and runs on the Z Flip5.
+
+- **Vietnamese localization completed for the App Configuration area:**
+  34 strings in `app_strings.dart` that previously fell back to English
+  now have `vi:` translations (text filters, source channels, Wear OS
+  Live Updates, converted-notification sound/vibration, hide-from-recents,
+  network-speed hide-when-locked, promotion status, dictionary editor).
+- **Now Bar reply fix:** tapping "Reply" on the Samsung Now Bar fired the
+  proxy broadcast with no RemoteInput results (the Now Bar shows no reply
+  editor), and the reply pipeline silently dropped the empty reply. The
+  reply PendingIntent now targets the new `ReplyInputActivity` directly
+  (an activity intent fired from a notification action is exempt from
+  background-launch restrictions, whereas a broadcast receiver opening an
+  activity gets blocked silently — the first attempt via
+  `ReplyProxyReceiver` still showed nothing on device). The activity
+  forwards host-provided RemoteInput results straight to
+  `ReplyProxyService`, and only shows its small native editor when the
+  host provided no reply UI; typed text re-enters the pipeline exactly
+  like a host-provided result. `ReplyProxyReceiver` remains for
+  already-posted notifications that still carry the old broadcast intent.
+
 ## Known issues / verify on device
 
 - **Kotlin/Android was NOT compiled.** This environment cannot run Gradle.

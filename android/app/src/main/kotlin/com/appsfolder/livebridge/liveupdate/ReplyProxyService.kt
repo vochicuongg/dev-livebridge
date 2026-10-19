@@ -60,6 +60,8 @@ class ReplyProxyService : Service() {
         const val EXTRA_THREAD_KEY = "thread_key"
         const val EXTRA_MIRROR_NOTIFICATION_ID = "mirror_notification_id"
         const val EXTRA_SOURCE_KEY = "source_key"
+        const val EXTRA_REPLY_LABEL = "reply_label"
+        const val EXTRA_REPLY_HINT = "reply_hint"
 
         private const val INTENT_DELAY_MS = 500L
         private const val DISMISS_DELAY_MS = 1_500L
