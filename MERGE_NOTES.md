@@ -148,6 +148,17 @@ machine (`app-release.apk`, 66.1MB) and installs and runs on the Z Flip5.
   the screen (rounded card, single-line field + Send), visually matching
   the Now Bar reply frame instead of a large centered dialog.
 
+## Post-merge fixes (20/10/2026, round 4)
+
+- **Watch replies did not dismiss the Now Bar mirror:** the WearableExtender
+  action copies carried the source app's raw reply intent, so a reply sent
+  from the watch never passed through LiveBridge's interception and the
+  mirror stayed up. Wear-facing copies now route through the broadcast
+  proxy (`ReplyInterceptReceiver`) with mirror key + context, restoring
+  the intercept → local echo → forward → dismiss pipeline for watch
+  replies. Phone-facing actions keep the activity PendingIntent +
+  `ReplyInputActivity` editor.
+
 ## Known issues / verify on device
 
 - **Kotlin/Android was NOT compiled.** This environment cannot run Gradle.

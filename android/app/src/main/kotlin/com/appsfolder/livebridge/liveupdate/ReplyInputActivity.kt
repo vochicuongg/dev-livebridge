@@ -7,7 +7,6 @@ import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
-import android.util.TypedValue
 import android.view.Gravity
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -26,11 +25,11 @@ import android.widget.TextView
  *   which is forwarded straight to ReplyProxyService and the activity
  *   finishes without UI.
  * - The host fired the action with no editor (notably the Samsung Now
- *   Bar): this activity shows a compact chat bar anchored to the bottom
- *   of the screen (visually where the Now Bar sits, like the system's own
- *   inline reply frame); the typed text is handed to ReplyProxyService
- *   exactly like a host-provided RemoteInput result, so the rest of the
- *   reply pipeline is unchanged.
+ *   Bar): this activity shows a blue reply bar anchored to the top of the
+ *   screen, right where the expanded Now Bar card sits, mimicking the
+ *   system's own inline reply frame (input field + Send). The typed text
+ *   is handed to ReplyProxyService exactly like a host-provided
+ *   RemoteInput result, so the rest of the reply pipeline is unchanged.
  */
 class ReplyInputActivity : Activity() {
 
@@ -62,38 +61,38 @@ class ReplyInputActivity : Activity() {
 
         val vi = NativeAppStrings.language(this) == "vi"
         val titleText = label ?: if (vi) "Trả lời" else "Reply"
-        val hintText = hint ?: if (vi) "Trả lời…" else "Reply…"
+        val hintText = hint ?: if (vi) "Trả lời" else "Reply"
         val sendText = if (vi) "Gửi" else "Send"
 
         val density = resources.displayMetrics.density
         fun dp(value: Int): Int = (value * density).toInt()
 
-        val cardColor = themeColor(android.R.attr.colorBackground, Color.WHITE)
-        val accentColor = themeColor(android.R.attr.colorAccent, Color.rgb(0, 105, 255))
-        val fieldColor = themeColor(android.R.attr.colorControlHighlight, Color.rgb(230, 230, 230))
+        // Samsung-style reply bar: solid One UI blue, white text.
+        val barBlue = Color.rgb(10, 108, 255)
+        val fieldBlue = Color.argb(46, 255, 255, 255)
 
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(12), dp(12), dp(12))
             background = GradientDrawable().apply {
-                setColor(cardColor)
-                cornerRadius = dp(24).toFloat()
+                setColor(barBlue)
+                cornerRadius = dp(18).toFloat()
             }
             elevation = dp(8).toFloat()
             layoutParams = ViewGroup.MarginLayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply {
-                leftMargin = dp(10)
-                rightMargin = dp(10)
-                bottomMargin = dp(10)
+                leftMargin = dp(8)
+                rightMargin = dp(8)
             }
         }
 
         val title = TextView(this).apply {
             text = titleText
             textSize = 13f
-            alpha = 0.65f
+            setTextColor(Color.WHITE)
+            alpha = 0.85f
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
@@ -109,12 +108,14 @@ class ReplyInputActivity : Activity() {
         input = EditText(this).apply {
             this.hint = hintText
             textSize = 16f
+            setTextColor(Color.WHITE)
+            setHintTextColor(Color.argb(190, 255, 255, 255))
             minLines = 1
             maxLines = 4
-            setPadding(dp(14), dp(8), dp(14), dp(8))
+            setPadding(dp(6), dp(8), dp(6), dp(8))
             background = GradientDrawable().apply {
-                setColor(fieldColor)
-                cornerRadius = dp(20).toFloat()
+                setColor(fieldBlue)
+                cornerRadius = dp(14).toFloat()
             }
             layoutParams = LinearLayout.LayoutParams(
                 0,
@@ -127,8 +128,8 @@ class ReplyInputActivity : Activity() {
         val send = TextView(this).apply {
             text = sendText
             textSize = 16f
-            setTextColor(accentColor)
-            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            alpha = 0.9f
             setPadding(dp(10), dp(8), dp(6), dp(8))
             setOnClickListener { submit() }
         }
@@ -138,7 +139,12 @@ class ReplyInputActivity : Activity() {
         setContentView(card)
         setFinishOnTouchOutside(true)
 
-        // Anchor the window to the bottom edge, full width, like a chat bar.
+        // Anchor the window to the top edge, just below the status bar,
+        // directly under where the expanded Now Bar card is displayed.
+        val statusBarHeight = resources.getIdentifier("status_bar_height", "dimen", "android")
+            .takeIf { it > 0 }
+            ?.let { resources.getDimensionPixelSize(it) }
+            ?: dp(24)
         window?.apply {
             setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
             setLayout(
@@ -146,8 +152,9 @@ class ReplyInputActivity : Activity() {
                 WindowManager.LayoutParams.WRAP_CONTENT
             )
             attributes = attributes.apply {
-                gravity = Gravity.BOTTOM
-                dimAmount = 0.35f
+                gravity = Gravity.TOP
+                y = statusBarHeight + dp(6)
+                dimAmount = 0.2f
             }
             addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
         }
@@ -157,11 +164,6 @@ class ReplyInputActivity : Activity() {
             val imm = getSystemService(InputMethodManager::class.java)
             imm?.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT)
         }
-    }
-
-    private fun themeColor(attr: Int, fallback: Int): Int {
-        val value = TypedValue()
-        return if (theme.resolveAttribute(attr, value, true)) value.data else fallback
     }
 
     /** Forwards this activity's launch intent (extras + RemoteInput results) to ReplyProxyService. */

@@ -5374,7 +5374,7 @@ object LiveUpdateNotifier {
                 // Add actions to WearableExtender
                 val wearableExtender = NotificationCompat.WearableExtender()
                 source.actions?.forEach { action ->
-                    val compatAction = toCompatAction(action, showsUserInterface = false)
+                    val compatAction = toCompatAction(action, showsUserInterface = false, mirrorKey = sbn.key, context = context, useWearProxy = true)
                     if (compatAction != null) {
                         wearableExtender.addAction(compatAction)
                     }
@@ -5430,7 +5430,7 @@ object LiveUpdateNotifier {
                 // Add actions to WearableExtender
                 val wearableExtender = NotificationCompat.WearableExtender()
                 source.actions?.forEach { action ->
-                    val compatAction = toCompatAction(action, showsUserInterface = false)
+                    val compatAction = toCompatAction(action, showsUserInterface = false, mirrorKey = sbn.key, context = context, useWearProxy = true)
                     if (compatAction != null) {
                         wearableExtender.addAction(compatAction)
                     }
@@ -8522,7 +8522,8 @@ object LiveUpdateNotifier {
         titleOverride: String? = null,
         mirrorKey: String? = null,
         context: Context? = null,
-        showsUserInterface: Boolean = true
+        showsUserInterface: Boolean = true,
+        useWearProxy: Boolean = false
     ): NotificationCompat.Action? {
         if (frameworkAction.actionIntent == null) {
             return null
@@ -8547,7 +8548,8 @@ object LiveUpdateNotifier {
                     mirrorKey,
                     frameworkAction.remoteInputs!!.first().resultKey,
                     actionTitle,
-                    frameworkAction.remoteInputs!!.first().label?.toString()
+                    frameworkAction.remoteInputs!!.first().label?.toString(),
+                    useWearProxy
                 ) ?: actionIntent
             } else {
                 actionIntent
@@ -9116,7 +9118,8 @@ object LiveUpdateNotifier {
         mirrorKey: String,
         resultKey: String,
         replyLabel: String? = null,
-        replyHint: String? = null
+        replyHint: String? = null,
+        wearProxy: Boolean = false
     ): PendingIntent? {
         return try {
             val threadKey = resolveThreadKeyForMirror(mirrorKey)
@@ -9126,6 +9129,28 @@ object LiveUpdateNotifier {
             val mirrorNotificationId = synchronized(stateLock) {
                 mirrorNotificationIdsByKey[mirrorKey]?.firstOrNull()
             } ?: mirrorIdForKey(mirrorKey)
+            if (wearProxy) {
+                // Wear OS path: the watch fires a broadcast PendingIntent and
+                // ReplyInterceptReceiver handles the reply (local echo, then
+                // forward + dismiss mirror/source). An activity PendingIntent
+                // is not delivered properly for watch inline replies, which
+                // left the Now Bar mirror up after replying from the watch.
+                val wearIntent = Intent(context, ReplyInterceptReceiver::class.java).apply {
+                    action = ReplyInterceptReceiver.ACTION_PROXY_REPLY
+                    putExtra(ReplyInterceptReceiver.EXTRA_ORIGINAL_PENDING_INTENT, originalIntent)
+                    putExtra(ReplyInterceptReceiver.EXTRA_MIRROR_KEY, mirrorKey)
+                    putExtra(ReplyInterceptReceiver.EXTRA_RESULT_KEY, resultKey)
+                    putExtra(ReplyInterceptReceiver.EXTRA_THREAD_KEY, threadKey)
+                    putExtra(ReplyInterceptReceiver.EXTRA_MIRROR_NOTIFICATION_ID, mirrorNotificationId)
+                    putExtra(ReplyInterceptReceiver.EXTRA_SOURCE_KEY, sourceKey)
+                }
+                return PendingIntent.getBroadcast(
+                    context,
+                    (mirrorKey + resultKey + "|wear").hashCode(),
+                    wearIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+                )
+            }
             // Target the activity directly: an activity PendingIntent fired
             // from a notification action is exempt from background-activity
             // launch restrictions, while a broadcast receiver that then tries
