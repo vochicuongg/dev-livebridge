@@ -13,12 +13,18 @@ import android.widget.LinearLayout
 import android.widget.TextView
 
 /**
- * Fallback reply editor for surfaces that fire a notification's reply action
- * without providing their own RemoteInput UI (notably the Samsung Now Bar):
- * the proxy broadcast arrives with no reply text, and ReplyProxyReceiver
- * opens this activity so the user can type the reply. The typed text is
- * handed to ReplyProxyService exactly like a host-provided RemoteInput
- * result, so the rest of the reply pipeline is unchanged.
+ * Entry point for mirrored notifications' reply actions. The reply
+ * PendingIntent targets this activity directly (notification-fired activity
+ * intents are exempt from background-launch restrictions). Two cases:
+ *
+ * - The host surface provided its own RemoteInput editor (Wear OS, the
+ *   notification shade): the launch intent already carries the reply text,
+ *   which is forwarded straight to ReplyProxyService and the activity
+ *   finishes without UI.
+ * - The host fired the action with no editor (notably the Samsung Now
+ *   Bar): this activity shows a small editor; the typed text is handed to
+ *   ReplyProxyService exactly like a host-provided RemoteInput result, so
+ *   the rest of the reply pipeline is unchanged.
  */
 class ReplyInputActivity : Activity() {
 
@@ -29,6 +35,19 @@ class ReplyInputActivity : Activity() {
         super.onCreate(savedInstanceState)
 
         resultKey = intent.getStringExtra(ReplyProxyService.EXTRA_RESULT_KEY).orEmpty()
+
+        // The host surface provided its own reply editor (Wear OS, the
+        // notification shade): forward its RemoteInput results to the reply
+        // pipeline immediately, without showing this editor.
+        val hostText = RemoteInput.getResultsFromIntent(intent)
+            ?.getCharSequence(resultKey)
+            ?.toString()
+            ?.trim()
+        if (!hostText.isNullOrBlank()) {
+            forwardIntentToService()
+            finish()
+            return
+        }
         val label = intent.getStringExtra(ReplyProxyService.EXTRA_REPLY_LABEL)
             ?.takeIf { it.isNotBlank() }
         val hint = intent.getStringExtra(ReplyProxyService.EXTRA_REPLY_HINT)
@@ -93,6 +112,20 @@ class ReplyInputActivity : Activity() {
         input.post {
             val imm = getSystemService(InputMethodManager::class.java)
             imm?.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT)
+        }
+    }
+
+    /** Forwards this activity's launch intent (extras + RemoteInput results) to ReplyProxyService. */
+    private fun forwardIntentToService() {
+        val serviceIntent = Intent(this, ReplyProxyService::class.java).apply {
+            action = ReplyProxyService.ACTION_PROXY_REPLY
+            intent.extras?.let { putExtras(it) }
+            clipData = intent.clipData
+        }
+        try {
+            startService(serviceIntent)
+        } catch (error: Exception) {
+            // Nothing sensible to fall back to here; the editor path logs its own failures.
         }
     }
 

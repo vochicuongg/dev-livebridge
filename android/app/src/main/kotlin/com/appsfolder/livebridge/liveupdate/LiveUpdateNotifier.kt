@@ -9104,8 +9104,16 @@ object LiveUpdateNotifier {
             val mirrorNotificationId = synchronized(stateLock) {
                 mirrorNotificationIdsByKey[mirrorKey]?.firstOrNull()
             } ?: mirrorIdForKey(mirrorKey)
-            val proxyIntent = Intent(context, ReplyProxyReceiver::class.java).apply {
+            // Target the activity directly: an activity PendingIntent fired
+            // from a notification action is exempt from background-activity
+            // launch restrictions, while a broadcast receiver that then tries
+            // to open the reply editor gets blocked silently on modern
+            // Android/One UI. ReplyInputActivity forwards host-provided
+            // RemoteInput results straight to ReplyProxyService and only
+            // shows its editor when the host provided no reply UI.
+            val proxyIntent = Intent(context, ReplyInputActivity::class.java).apply {
                 action = ReplyProxyService.ACTION_PROXY_REPLY
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
                 putExtra(ReplyProxyService.EXTRA_ORIGINAL_PENDING_INTENT, originalIntent)
                 putExtra(ReplyProxyService.EXTRA_MIRROR_KEY, mirrorKey)
                 putExtra(ReplyProxyService.EXTRA_RESULT_KEY, resultKey)
@@ -9115,7 +9123,7 @@ object LiveUpdateNotifier {
                 putExtra(ReplyProxyService.EXTRA_REPLY_LABEL, replyLabel)
                 putExtra(ReplyProxyService.EXTRA_REPLY_HINT, replyHint)
             }
-            PendingIntent.getBroadcast(
+            PendingIntent.getActivity(
                 context,
                 (mirrorKey + resultKey).hashCode(),
                 proxyIntent,

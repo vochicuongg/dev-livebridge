@@ -102,12 +102,16 @@ machine (`app-release.apk`, 66.1MB) and installs and runs on the Z Flip5.
 - **Now Bar reply fix:** tapping "Reply" on the Samsung Now Bar fired the
   proxy broadcast with no RemoteInput results (the Now Bar shows no reply
   editor), and the reply pipeline silently dropped the empty reply. The
-  proxy PendingIntent now also carries the reply label/hint;
-  `ReplyProxyReceiver` opens the new `ReplyInputActivity` (a small native
-  dialog editor) when the broadcast has no reply text, and the typed text
-  is forwarded to `ReplyProxyService` exactly like a host-provided
-  RemoteInput result. Hosts that do provide an editor (Wear OS, the
-  notification shade) keep the original direct path.
+  reply PendingIntent now targets the new `ReplyInputActivity` directly
+  (an activity intent fired from a notification action is exempt from
+  background-launch restrictions, whereas a broadcast receiver opening an
+  activity gets blocked silently — the first attempt via
+  `ReplyProxyReceiver` still showed nothing on device). The activity
+  forwards host-provided RemoteInput results straight to
+  `ReplyProxyService`, and only shows its small native editor when the
+  host provided no reply UI; typed text re-enters the pipeline exactly
+  like a host-provided result. `ReplyProxyReceiver` remains for
+  already-posted notifications that still carry the old broadcast intent.
 
 ## Known issues / verify on device
 
