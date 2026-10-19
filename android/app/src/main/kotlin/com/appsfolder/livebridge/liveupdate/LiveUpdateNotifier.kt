@@ -905,6 +905,10 @@ object LiveUpdateNotifier {
         // newly-created channel with correct sound/vibration config.
         if (channel == MirrorNotificationChannel.ALERTS) {
             runCatching { manager.deleteNotificationChannel("livebridge_alerts_v1") }
+            // v2 may have been created silent by early merged builds; the
+            // app cannot change an existing channel's sound settings, so
+            // drop it and let v3 be created with the alert configuration.
+            runCatching { manager.deleteNotificationChannel("livebridge_alerts_v2") }
         }
         val lockscreenVisibility = mirrorChannelLockscreenVisibility(context)
         val channelId = channel.id(audible, vibrating)
@@ -4726,7 +4730,12 @@ object LiveUpdateNotifier {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
         var deterministicMessagingThreadKey: String? = null
 
-        if (!convertedNotificationSound && !convertedNotificationVibration) {
+        // Chat apps alert through the dedicated ALERTS channel (whose own
+        // system settings govern sound/vibration); the converted-notification
+        // sound/vibration preferences must not silence them.
+        if (effectiveChannel != MirrorNotificationChannel.ALERTS &&
+            !convertedNotificationSound && !convertedNotificationVibration
+        ) {
             builder.setSilent(true).setDefaults(0)
         } else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             builder.setDefaults(
@@ -9668,7 +9677,7 @@ object LiveUpdateNotifier {
         MISCELLANEOUS("livebridge_miscellaneous_conversions"),
         NOTIFICATION_CAPSULE("livebridge_notification_capsule"),
         CHARGING_INFO("livebridge_charging_info"),
-        ALERTS("livebridge_alerts_v2"),
+        ALERTS("livebridge_alerts_v3"),
         BYPASS("livebridge_bypass_applications");
 
         fun id(audible: Boolean, vibrating: Boolean = false): String =
