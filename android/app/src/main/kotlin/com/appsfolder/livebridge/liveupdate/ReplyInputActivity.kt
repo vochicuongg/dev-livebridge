@@ -9,10 +9,12 @@ import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -133,13 +135,17 @@ class ReplyInputActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(16), dp(14), dp(16), dp(14))
+            // Gradient like the expanded Now Bar content surface, mixed
+            // 50-50: the accent tint and the near-black end color meet at
+            // an exact halfway blend in the middle of the card.
+            val headerStart = blendColor(accentColor, Color.rgb(13, 18, 24), 0.5f)
+            val headerEnd = Color.rgb(8, 11, 15)
             background = GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
                 intArrayOf(
-                    // Gradient like the expanded Now Bar content surface:
-                    // a dark tint of the app's accent fading to near-black.
-                    blendColor(accentColor, Color.rgb(13, 18, 24), 0.45f),
-                    Color.rgb(8, 11, 15)
+                    headerStart,
+                    blendColor(headerStart, headerEnd, 0.5f),
+                    headerEnd
                 )
             ).apply {
                 cornerRadii = floatArrayOf(
@@ -200,9 +206,14 @@ class ReplyInputActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(12), dp(10), dp(10), dp(10))
+            val stripEnd = darkenColor(accentColor, 0.86f)
             background = GradientDrawable(
                 GradientDrawable.Orientation.TOP_BOTTOM,
-                intArrayOf(accentColor, darkenColor(accentColor, 0.86f))
+                intArrayOf(
+                    accentColor,
+                    blendColor(accentColor, stripEnd, 0.5f),
+                    stripEnd
+                )
             ).apply {
                 cornerRadii = floatArrayOf(
                     0f, 0f, 0f, 0f, // top corners square: attaches to the card
@@ -242,29 +253,55 @@ class ReplyInputActivity : Activity() {
         strip.addView(send)
         unit.addView(strip)
 
-        setContentView(unit)
-        setFinishOnTouchOutside(true)
-
-        // Anchor the unit just below the status/info bar with a small
-        // breathing gap, where the expanded Now Bar card is displayed.
+        // Full-screen transparent root so the window's blur-behind covers
+        // the whole backdrop (a window only as tall as the unit would hide
+        // the blur behind the opaque card). The unit floats at the top;
+        // tapping anywhere below it dismisses the editor.
         val statusBarHeight = resources.getIdentifier("status_bar_height", "dimen", "android")
             .takeIf { it > 0 }
             ?.let { resources.getDimensionPixelSize(it) }
             ?: dp(24)
+        val root = FrameLayout(this).apply {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            addView(
+                unit,
+                FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    Gravity.TOP
+                ).apply {
+                    // Just under the status/info bar, with a 4dp gap.
+                    topMargin = statusBarHeight + dp(4)
+                }
+            )
+            setOnTouchListener { _, event ->
+                if (event.action == MotionEvent.ACTION_DOWN && event.y > unit.bottom) {
+                    finish()
+                    true
+                } else {
+                    false
+                }
+            }
+        }
+        setContentView(root)
+        setFinishOnTouchOutside(true)
+
         window?.apply {
-            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            // A faint dark veil over the blurred backdrop (frosted glass).
+            setBackgroundDrawable(ColorDrawable(Color.argb(36, 8, 10, 14)))
             setLayout(
                 WindowManager.LayoutParams.MATCH_PARENT,
-                WindowManager.LayoutParams.WRAP_CONTENT
+                WindowManager.LayoutParams.MATCH_PARENT
             )
             attributes = attributes.apply {
                 gravity = Gravity.TOP
-                // Just under the status/info bar, with a 4dp gap so the
-                // unit does not sit on top of it.
-                y = statusBarHeight + dp(4)
-                dimAmount = 0.2f
-                // Frosted-glass backdrop like the system's reply frame.
-                blurBehindRadius = dp(28)
+                y = 0
+                dimAmount = 0.15f
+                // Frosted-glass backdrop like the Now Bar reading view.
+                blurBehindRadius = dp(40)
             }
             addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
             addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN)
