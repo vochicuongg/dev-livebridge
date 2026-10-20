@@ -12,6 +12,7 @@ import android.view.Choreographer
 import android.view.GestureDetector
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.View
 import android.view.animation.DecelerateInterpolator
 import android.view.animation.OvershootInterpolator
 import android.view.ViewGroup
@@ -48,6 +49,9 @@ class ReplyInputActivity : Activity() {
     private var currentUnit: LinearLayout? = null
     private var switchingSession = false
     private var nextPreview: LinearLayout? = null
+    private var currentCard: CardUnit? = null
+    private var rootView: FrameLayout? = null
+    private var cardTopMargin: Int = 0
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private var pendingSwitchCompletion: Runnable? = null
     private var switchFadeAnimator: android.animation.Animator? = null
@@ -94,56 +98,21 @@ class ReplyInputActivity : Activity() {
             return
         }
 
-        val label = intent.getStringExtra(ReplyProxyService.EXTRA_REPLY_LABEL)
-            ?.takeIf { it.isNotBlank() }
-        val hint = intent.getStringExtra(ReplyProxyService.EXTRA_REPLY_HINT)
-            ?.takeIf { it.isNotBlank() }
-        val conversation = intent.getStringExtra(ReplyProxyService.EXTRA_REPLY_CONVERSATION)
-            ?.takeIf { it.isNotBlank() }
-        val contextText = intent.getStringExtra(ReplyProxyService.EXTRA_REPLY_CONTEXT_TEXT)
-            ?.takeIf { it.isNotBlank() }
-        val sourcePackage = intent.getStringExtra(ReplyProxyService.EXTRA_REPLY_SOURCE_PACKAGE)
-            ?.takeIf { it.isNotBlank() }
-
-        val vi = NativeAppStrings.language(this) == "vi"
-        val titleText = conversation ?: label ?: if (vi) "Trả lời" else "Reply"
-        val hintText = hint ?: if (vi) "Trả lời" else "Reply"
-        val sendText = if (vi) "Gửi" else "Send"
-
-        val sourceIcon = sourcePackage?.let { pkg ->
-            try {
-                packageManager.getApplicationIcon(pkg)
-            } catch (error: PackageManager.NameNotFoundException) {
-                null
-            }
-        }
-        // The strip wears the same accent color as this app's collapsed
-        // Now Bar pill (computed by the notifier with the same precedence
-        // as the mirror itself). Falls back to Samsung blue when the
-        // notifier did not provide one.
-        val accentColor = if (intent.hasExtra(ReplyProxyService.EXTRA_REPLY_ACCENT_COLOR)) {
-            val provided = intent.getIntExtra(
-                ReplyProxyService.EXTRA_REPLY_ACCENT_COLOR,
-                Color.rgb(10, 108, 255)
-            )
-            Color.argb(255, Color.red(provided), Color.green(provided), Color.blue(provided))
-        } else {
-            Color.rgb(10, 108, 255)
-        }
-
+        val display = sessionDisplay(intent)
 
         val card = buildCardUnit(
-            titleText = titleText,
-            contextText = contextText,
-            sourceIcon = sourceIcon,
-            accentColor = accentColor,
-            hintText = hintText,
-            sendText = sendText,
+            titleText = display.titleText,
+            contextText = display.contextText,
+            sourceIcon = display.sourceIcon,
+            accentColor = display.accentColor,
+            hintText = display.hintText,
+            sendText = display.sendText,
             interactive = true
         )
         val unit = card.unit
         input = card.inputField!!
         currentUnit = unit
+        currentCard = card
         attachSwipeGesture(card.header, unit)
 
         // Full-screen transparent root so the window's blur-behind covers
@@ -185,21 +154,9 @@ class ReplyInputActivity : Activity() {
         // The NEXT replyable conversation's card, stacked behind the
         // current one (invisible at rest): the pull-down drag reveals it
         // as it scales up to take the front, like the Now Bar card stack.
-        val preview = buildNextPreview()
-        if (preview != null) {
-            root.addView(
-                preview,
-                0,
-                FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    Gravity.TOP
-                ).apply {
-                    topMargin = statusBarHeight + dp(4)
-                }
-            )
-            nextPreview = preview
-        }
+        rootView = root
+        cardTopMargin = statusBarHeight + dp(4)
+        refreshNextPreview()
 
         window?.apply {
             // A faint dark veil over the blurred backdrop (frosted glass).
@@ -254,6 +211,10 @@ class ReplyInputActivity : Activity() {
     private data class CardUnit(
         val unit: LinearLayout,
         val header: LinearLayout,
+        val strip: LinearLayout,
+        val iconView: ImageView,
+        val titleView: TextView,
+        val messageView: TextView,
         val inputField: EditText?
     )
 
@@ -295,36 +256,23 @@ class ReplyInputActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(16), dp(14), dp(16), dp(14))
-            // Gradient like the expanded Now Bar content surface, mixed
-            // 50-50: the accent tint and the near-black end color meet at
-            // an exact halfway blend in the middle of the card.
-            val headerStart = blendColor(accentColor, Color.rgb(13, 18, 24), 0.5f)
-            val headerEnd = Color.rgb(8, 11, 15)
-            background = GradientDrawable(
-                GradientDrawable.Orientation.TL_BR,
-                intArrayOf(
-                    headerStart,
-                    blendColor(headerStart, headerEnd, 0.5f),
-                    headerEnd
-                )
-            ).apply {
-                cornerRadii = floatArrayOf(
-                    radius, radius, radius, radius, // top-left, top-right
-                    0f, 0f, 0f, 0f // bottom corners square: strip attaches here
-                )
-            }
+            background = headerBackground(accentColor, radius)
         }
 
-        if (sourceIcon != null) {
-            val iconView = ImageView(this).apply {
-                layoutParams = LinearLayout.LayoutParams(dp(46), dp(46)).apply {
-                    rightMargin = dp(12)
-                }
-                scaleType = ImageView.ScaleType.FIT_CENTER
+        // Always created (hidden when the app has no icon) so a session
+        // switch can rebind it in place.
+        val iconView = ImageView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(46), dp(46)).apply {
+                rightMargin = dp(12)
             }
-            iconView.setImageDrawable(sourceIcon)
-            header.addView(iconView)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            if (sourceIcon != null) {
+                setImageDrawable(sourceIcon)
+            } else {
+                visibility = View.GONE
+            }
         }
+        header.addView(iconView)
 
         val headerTexts = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -343,21 +291,22 @@ class ReplyInputActivity : Activity() {
             ellipsize = android.text.TextUtils.TruncateAt.END
         }
         headerTexts.addView(title)
-        if (contextText != null) {
-            val message = TextView(this).apply {
-                text = contextText
-                textSize = 15f
-                setTextColor(Color.WHITE)
-                alpha = 0.92f
-                maxLines = 2
-                ellipsize = android.text.TextUtils.TruncateAt.END
-                layoutParams = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply { topMargin = dp(2) }
-            }
-            headerTexts.addView(message)
+        // Always created (hidden when there is no message to show) so a
+        // session switch can rebind it in place.
+        val message = TextView(this).apply {
+            text = contextText ?: ""
+            textSize = 15f
+            setTextColor(Color.WHITE)
+            alpha = 0.92f
+            maxLines = 2
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(2) }
+            visibility = if (contextText != null) View.VISIBLE else View.GONE
         }
+        headerTexts.addView(message)
         header.addView(headerTexts)
         unit.addView(header)
 
@@ -366,20 +315,7 @@ class ReplyInputActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(12), dp(10), dp(10), dp(10))
-            val stripEnd = darkenColor(accentColor, 0.86f)
-            background = GradientDrawable(
-                GradientDrawable.Orientation.TOP_BOTTOM,
-                intArrayOf(
-                    accentColor,
-                    blendColor(accentColor, stripEnd, 0.5f),
-                    stripEnd
-                )
-            ).apply {
-                cornerRadii = floatArrayOf(
-                    0f, 0f, 0f, 0f, // top corners square: attaches to the card
-                    radius, radius, radius, radius // bottom-left, bottom-right
-                )
-            }
+            background = stripBackground(accentColor, radius)
         }
 
         val field = EditText(this).apply {
@@ -418,7 +354,174 @@ class ReplyInputActivity : Activity() {
             field.isEnabled = false
             field.isFocusable = false
         }
-        return CardUnit(unit, header, if (interactive) field else null)
+        return CardUnit(unit, header, strip, iconView, title, message, if (interactive) field else null)
+    }
+
+    /** Display data for one reply session, parsed from its intent extras. */
+    private data class SessionDisplay(
+        val titleText: String,
+        val contextText: String?,
+        val sourceIcon: android.graphics.drawable.Drawable?,
+        val accentColor: Int,
+        val hintText: String,
+        val sendText: String
+    )
+
+    private fun sessionDisplay(source: Intent): SessionDisplay {
+        val label = source.getStringExtra(ReplyProxyService.EXTRA_REPLY_LABEL)
+            ?.takeIf { it.isNotBlank() }
+        val hint = source.getStringExtra(ReplyProxyService.EXTRA_REPLY_HINT)
+            ?.takeIf { it.isNotBlank() }
+        val conversation = source.getStringExtra(ReplyProxyService.EXTRA_REPLY_CONVERSATION)
+            ?.takeIf { it.isNotBlank() }
+        val contextText = source.getStringExtra(ReplyProxyService.EXTRA_REPLY_CONTEXT_TEXT)
+            ?.takeIf { it.isNotBlank() }
+        val sourcePackage = source.getStringExtra(ReplyProxyService.EXTRA_REPLY_SOURCE_PACKAGE)
+            ?.takeIf { it.isNotBlank() }
+        val vi = NativeAppStrings.language(this) == "vi"
+        val sourceIcon = sourcePackage?.let { pkg ->
+            try {
+                packageManager.getApplicationIcon(pkg)
+            } catch (error: PackageManager.NameNotFoundException) {
+                null
+            }
+        }
+        // The strip wears the same accent color as this app's collapsed
+        // Now Bar pill (computed by the notifier with the same precedence
+        // as the mirror itself). Falls back to Samsung blue when the
+        // notifier did not provide one.
+        val accentColor = if (source.hasExtra(ReplyProxyService.EXTRA_REPLY_ACCENT_COLOR)) {
+            val provided = source.getIntExtra(
+                ReplyProxyService.EXTRA_REPLY_ACCENT_COLOR,
+                Color.rgb(10, 108, 255)
+            )
+            Color.argb(255, Color.red(provided), Color.green(provided), Color.blue(provided))
+        } else {
+            Color.rgb(10, 108, 255)
+        }
+        return SessionDisplay(
+            titleText = conversation ?: label ?: if (vi) "Trả lời" else "Reply",
+            contextText = contextText,
+            sourceIcon = sourceIcon,
+            accentColor = accentColor,
+            hintText = hint ?: if (vi) "Trả lời" else "Reply",
+            sendText = if (vi) "Gửi" else "Send"
+        )
+    }
+
+    /**
+     * The header card's gradient, like the expanded Now Bar content
+     * surface, mixed 50-50: the accent tint and the near-black end
+     * color meet at an exact halfway blend in the middle of the card.
+     */
+    private fun headerBackground(accentColor: Int, radius: Float): GradientDrawable {
+        val headerStart = blendColor(accentColor, Color.rgb(13, 18, 24), 0.5f)
+        val headerEnd = Color.rgb(8, 11, 15)
+        return GradientDrawable(
+            GradientDrawable.Orientation.TL_BR,
+            intArrayOf(
+                headerStart,
+                blendColor(headerStart, headerEnd, 0.5f),
+                headerEnd
+            )
+        ).apply {
+            cornerRadii = floatArrayOf(
+                radius, radius, radius, radius, // top-left, top-right
+                0f, 0f, 0f, 0f // bottom corners square: strip attaches here
+            )
+        }
+    }
+
+    /** The reply strip's vertical 50-50 gradient in the session accent. */
+    private fun stripBackground(accentColor: Int, radius: Float): GradientDrawable {
+        val stripEnd = darkenColor(accentColor, 0.86f)
+        return GradientDrawable(
+            GradientDrawable.Orientation.TOP_BOTTOM,
+            intArrayOf(
+                accentColor,
+                blendColor(accentColor, stripEnd, 0.5f),
+                stripEnd
+            )
+        ).apply {
+            cornerRadii = floatArrayOf(
+                0f, 0f, 0f, 0f, // top corners square: attaches to the card
+                radius, radius, radius, radius // bottom-left, bottom-right
+            )
+        }
+    }
+
+    /** Rebinds the live card's views to another session, in place. */
+    private fun bindSession(display: SessionDisplay) {
+        val card = currentCard ?: return
+        val radius = dp(24).toFloat()
+        card.titleView.text = display.titleText
+        card.messageView.text = display.contextText ?: ""
+        card.messageView.visibility =
+            if (display.contextText != null) View.VISIBLE else View.GONE
+        if (display.sourceIcon != null) {
+            card.iconView.setImageDrawable(display.sourceIcon)
+            card.iconView.visibility = View.VISIBLE
+        } else {
+            card.iconView.setImageDrawable(null)
+            card.iconView.visibility = View.GONE
+        }
+        card.header.background = headerBackground(display.accentColor, radius)
+        card.strip.background = stripBackground(display.accentColor, radius)
+        card.inputField?.hint = display.hintText
+        card.inputField?.text?.clear()
+    }
+
+    /** (Re)builds the next-card preview stacked behind the live card. */
+    private fun refreshNextPreview() {
+        val root = rootView ?: return
+        nextPreview?.let { preview ->
+            (preview.parent as? ViewGroup)?.removeView(preview)
+        }
+        nextPreview = null
+        val preview = buildNextPreview() ?: return
+        root.addView(
+            preview,
+            0,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP
+            ).apply { topMargin = cardTopMargin }
+        )
+        nextPreview = preview
+    }
+
+    /**
+     * Completes a switch IN PLACE: the same views stay on screen and
+     * are rebound to the new session, so a gesture stream is never
+     * orphaned. Runs when the release animation's timer fires — or
+     * instantly when a fresh pull interrupts it, which keeps rapid
+     * pull-release cycles fluid instead of locked out.
+     */
+    private fun completeSwitchInPlace(targetIntent: Intent) {
+        pendingSwitchCompletion?.let { mainHandler.removeCallbacks(it) }
+        pendingSwitchCompletion = null
+        switchFadeAnimator?.cancel()
+        switchFadeAnimator = null
+        if (isFinishing) {
+            switchingSession = false
+            return
+        }
+        setIntent(targetIntent)
+        resultKey = targetIntent.getStringExtra(ReplyProxyService.EXTRA_RESULT_KEY).orEmpty()
+        val unit = currentUnit ?: run {
+            switchingSession = false
+            return
+        }
+        unit.animate().cancel()
+        unit.translationY = 0f
+        unit.translationZ = 0f
+        unit.alpha = 1f
+        unit.scaleX = 1f
+        unit.scaleY = 1f
+        bindSession(sessionDisplay(targetIntent))
+        refreshNextPreview()
+        switchingSession = false
     }
 
     /**
@@ -439,40 +542,14 @@ class ReplyInputActivity : Activity() {
             this,
             keys[(index + 1) % keys.size]
         ) ?: return null
-        val conversation = nextIntent.getStringExtra(ReplyProxyService.EXTRA_REPLY_CONVERSATION)
-            ?.takeIf { it.isNotBlank() }
-        val label = nextIntent.getStringExtra(ReplyProxyService.EXTRA_REPLY_LABEL)
-            ?.takeIf { it.isNotBlank() }
-        val hint = nextIntent.getStringExtra(ReplyProxyService.EXTRA_REPLY_HINT)
-            ?.takeIf { it.isNotBlank() }
-        val contextText = nextIntent.getStringExtra(ReplyProxyService.EXTRA_REPLY_CONTEXT_TEXT)
-            ?.takeIf { it.isNotBlank() }
-        val sourcePackage = nextIntent.getStringExtra(ReplyProxyService.EXTRA_REPLY_SOURCE_PACKAGE)
-            ?.takeIf { it.isNotBlank() }
-        val sourceIcon = sourcePackage?.let { pkg ->
-            try {
-                packageManager.getApplicationIcon(pkg)
-            } catch (error: PackageManager.NameNotFoundException) {
-                null
-            }
-        }
-        val accentColor = if (nextIntent.hasExtra(ReplyProxyService.EXTRA_REPLY_ACCENT_COLOR)) {
-            val provided = nextIntent.getIntExtra(
-                ReplyProxyService.EXTRA_REPLY_ACCENT_COLOR,
-                Color.rgb(10, 108, 255)
-            )
-            Color.argb(255, Color.red(provided), Color.green(provided), Color.blue(provided))
-        } else {
-            Color.rgb(10, 108, 255)
-        }
-        val vi = NativeAppStrings.language(this) == "vi"
+        val display = sessionDisplay(nextIntent)
         val card = buildCardUnit(
-            titleText = conversation ?: label ?: if (vi) "Trả lời" else "Reply",
-            contextText = contextText,
-            sourceIcon = sourceIcon,
-            accentColor = accentColor,
-            hintText = hint ?: if (vi) "Trả lời" else "Reply",
-            sendText = if (vi) "Gửi" else "Send",
+            titleText = display.titleText,
+            contextText = display.contextText,
+            sourceIcon = display.sourceIcon,
+            accentColor = display.accentColor,
+            hintText = display.hintText,
+            sendText = display.sendText,
             interactive = false
         )
         return card.unit.apply {
@@ -560,6 +637,14 @@ class ReplyInputActivity : Activity() {
             this,
             object : GestureDetector.SimpleOnGestureListener() {
                 override fun onDown(e: MotionEvent): Boolean {
+                    // A switch still animating? Commit it instantly —
+                    // the swap is in place on these very views, so this
+                    // gesture continues seamlessly on the new card.
+                    // No lockout: rapid pull-release cycles stay fluid.
+                    pendingSwitchCompletion?.let { completion ->
+                        mainHandler.removeCallbacks(completion)
+                        completion.run()
+                    }
                     rawPull = 0f
                     dampedPull = 0f
                     axisLocked = false
@@ -624,10 +709,6 @@ class ReplyInputActivity : Activity() {
             }
         )
         gestureView.setOnTouchListener { _, event ->
-            // While a switch is animating, swallow touches whole: a
-            // fresh drag here would cancel the in-flight animator and
-            // wedge the switch half-done.
-            if (switchingSession) return@setOnTouchListener true
             val handled = detector.onTouchEvent(event)
             if (event.action == MotionEvent.ACTION_UP ||
                 event.action == MotionEvent.ACTION_CANCEL
@@ -673,7 +754,7 @@ class ReplyInputActivity : Activity() {
     }
 
     /**
-     * Glides the current card down and out, then rebuilds the editor
+     * Glides the current card down and out, then switches the editor
      * for the NEXT reply session in
      * [LiveUpdateNotifier.replyableMirrorKeys] order, wrapping from
      * the last card back to the first like the Now Bar card stack.
@@ -700,9 +781,9 @@ class ReplyInputActivity : Activity() {
         // card's Z drops below the next card's at once, then it POPS
         // UP past the slot and settles back into the EXACT original
         // position — full size, one layer behind — while the next
-        // card takes the front. Then the editor rebuilds onto the
-        // next conversation, seamlessly, because the preview already
-        // holds the front pose and the filed card has faded in place.
+        // card takes the front. Then the editor switches onto the
+        // next conversation in place, seamlessly, because the preview
+        // already holds the front pose and the filed card has faded.
         val hadPreview = nextPreview != null
         nextPreview?.let { preview ->
             preview.animate()
@@ -713,44 +794,11 @@ class ReplyInputActivity : Activity() {
                 .setInterpolator(DecelerateInterpolator())
                 .start()
         }
-        val oldHeight = unit.height
-        val rebuild = {
-            pendingSwitchCompletion?.let { mainHandler.removeCallbacks(it) }
-            pendingSwitchCompletion = null
-            switchFadeAnimator?.cancel()
-            switchFadeAnimator = null
-            if (isFinishing) {
-                switchingSession = false
-            } else {
-            setIntent(targetIntent)
-            onLaunch()
-            val newUnit = currentUnit
-            if (newUnit == null) {
-                switchingSession = false
-            } else if (hadPreview) {
-                // The preview already showed this card in place at full
-                // size: the rebuilt editor simply takes over.
-                newUnit.translationY = 0f
-                newUnit.alpha = 1f
-                switchingSession = false
-            } else {
-                val travel = oldHeight + 40f * resources.displayMetrics.density
-                newUnit.translationY = -travel * 0.6f
-                newUnit.alpha = 0f
-                newUnit.animate()
-                    .translationY(0f)
-                    .alpha(1f)
-                    .setDuration(200)
-                    .withEndAction { switchingSession = false }
-                    .start()
-            }
-            }
-        }
         // Completion is TIMER-driven, never hung off an animator's end
         // action: if anything cancels the visuals mid-flight, the
         // switch still completes and the editor can never wedge in a
         // half-switched, invisible, gesture-dead state.
-        val completion = Runnable { rebuild() }
+        val completion = Runnable { completeSwitchInPlace(targetIntent) }
         pendingSwitchCompletion = completion
         if (hadPreview) {
             mainHandler.postDelayed(completion, 380)
@@ -767,7 +815,7 @@ class ReplyInputActivity : Activity() {
             // The fade runs on its own animator (a second animate()
             // call would reconfigure the same animator, not run in
             // parallel): it fades only while settling into the back
-            // slot, hiding the rebuild seam.
+            // slot, hiding the switch seam.
             switchFadeAnimator =
                 android.animation.ObjectAnimator.ofFloat(unit, "alpha", unit.alpha, 0f)
                     .apply {

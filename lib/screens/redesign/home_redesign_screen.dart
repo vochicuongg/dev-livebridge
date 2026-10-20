@@ -1099,6 +1099,27 @@ class _HomeRedesignScreenState extends State<HomeRedesignScreen>
           items: settingsItems,
           rowHeight: LbSpacing.recentRowHeight,
         ),
+        const SizedBox(height: LbSpacing.lg),
+        // Fork branding: this build is Võ Chí Cường's mod.
+        Center(
+          child: GestureDetector(
+            onTap: () => unawaited(
+              launchUrl(
+                Uri.parse('https://github.com/vochicuongg'),
+                mode: LaunchMode.externalApplication,
+              ),
+            ),
+            child: Text(
+              'Mod by Võ Chí Cường\ngithub.com/vochicuongg',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: palette.textSecondary,
+                fontSize: 12.5,
+                height: 1.5,
+              ),
+            ),
+          ),
+        ),
       ],
     );
   }
