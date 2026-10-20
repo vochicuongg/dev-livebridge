@@ -8,6 +8,7 @@ import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.view.GestureDetector
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.ViewGroup
@@ -41,6 +42,8 @@ class ReplyInputActivity : Activity() {
 
     private lateinit var input: EditText
     private var resultKey: String = ""
+    private var currentUnit: LinearLayout? = null
+    private var switchingSession = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -252,6 +255,8 @@ class ReplyInputActivity : Activity() {
         }
         strip.addView(send)
         unit.addView(strip)
+        currentUnit = unit
+        attachSwipeGesture(header, unit)
 
         // Full-screen transparent root so the window's blur-behind covers
         // the whole backdrop (a window only as tall as the unit would hide
@@ -334,6 +339,123 @@ class ReplyInputActivity : Activity() {
             (Color.green(color) * factor).toInt().coerceIn(0, 255),
             (Color.blue(color) * factor).toInt().coerceIn(0, 255)
         )
+    }
+
+    /**
+     * Swipe-to-switch between replyable Now Bar cards, mirroring the
+     * system's card-stack gesture: drag the card sideways and it follows
+     * the finger; release past a quarter of its width (or fling) and it
+     * glides out while the next/previous conversation glides in.
+     * Attached to the header card so it never fights the text field.
+     */
+    private fun attachSwipeGesture(gestureView: LinearLayout, unit: LinearLayout) {
+        val detector = GestureDetector(
+            this,
+            object : GestureDetector.SimpleOnGestureListener() {
+                override fun onDown(e: MotionEvent): Boolean = true
+
+                override fun onScroll(
+                    e1: MotionEvent?,
+                    e2: MotionEvent,
+                    distanceX: Float,
+                    distanceY: Float
+                ): Boolean {
+                    if (switchingSession || unit.width == 0) return false
+                    val startX = e1?.x ?: e2.x
+                    val startY = e1?.y ?: e2.y
+                    if (Math.abs(e2.x - startX) > Math.abs(e2.y - startY)) {
+                        unit.translationX = (unit.translationX - distanceX)
+                            .coerceIn(-unit.width.toFloat(), unit.width.toFloat())
+                    }
+                    return true
+                }
+
+                override fun onFling(
+                    e1: MotionEvent?,
+                    e2: MotionEvent,
+                    velocityX: Float,
+                    velocityY: Float
+                ): Boolean {
+                    if (Math.abs(velocityX) > Math.abs(velocityY) &&
+                        Math.abs(velocityX) > 400f
+                    ) {
+                        switchSession(if (velocityX < 0) 1 else -1, unit)
+                        return true
+                    }
+                    return false
+                }
+            }
+        )
+        gestureView.setOnTouchListener { _, event ->
+            val handled = detector.onTouchEvent(event)
+            if (event.action == MotionEvent.ACTION_UP ||
+                event.action == MotionEvent.ACTION_CANCEL
+            ) {
+                if (!switchingSession && unit.width > 0) {
+                    val threshold = unit.width * 0.25f
+                    when {
+                        unit.translationX <= -threshold -> switchSession(1, unit)
+                        unit.translationX >= threshold -> switchSession(-1, unit)
+                        else -> snapBack(unit)
+                    }
+                }
+            }
+            handled
+        }
+    }
+
+    /** Animates back to rest when a swipe does not commit to a switch. */
+    private fun snapBack(unit: LinearLayout) {
+        if (unit.translationX != 0f) {
+            unit.animate().translationX(0f).alpha(1f).setDuration(150).start()
+        }
+    }
+
+    /**
+     * Glides the current card out and rebuilds the editor for the
+     * neighbouring reply session ([direction] +1 = next, -1 = previous)
+     * in [LiveUpdateNotifier.replyableMirrorKeys] order.
+     */
+    private fun switchSession(direction: Int, unit: LinearLayout) {
+        if (switchingSession) return
+        val keys = LiveUpdateNotifier.replyableMirrorKeys()
+        val currentKey = intent.getStringExtra(ReplyProxyService.EXTRA_MIRROR_KEY).orEmpty()
+        val index = keys.indexOf(currentKey)
+        val targetIndex = index + direction
+        if (index < 0 || keys.size < 2 || targetIndex !in keys.indices) {
+            snapBack(unit)
+            return
+        }
+        val targetIntent = LiveUpdateNotifier.replyEditorIntent(this, keys[targetIndex])
+        if (targetIntent == null) {
+            snapBack(unit)
+            return
+        }
+        switchingSession = true
+        val travel = unit.width + 40f * resources.displayMetrics.density
+        val outX = if (direction > 0) -travel else travel
+        unit.animate()
+            .translationX(outX)
+            .alpha(0f)
+            .setDuration(180)
+            .withEndAction {
+                setIntent(targetIntent)
+                onLaunch()
+                val newUnit = currentUnit
+                if (newUnit == null) {
+                    switchingSession = false
+                    return@withEndAction
+                }
+                newUnit.translationX = -outX * 0.6f
+                newUnit.alpha = 0f
+                newUnit.animate()
+                    .translationX(0f)
+                    .alpha(1f)
+                    .setDuration(200)
+                    .withEndAction { switchingSession = false }
+                    .start()
+            }
+            .start()
     }
 
     /** Forwards this activity's launch intent (extras + RemoteInput results) to ReplyProxyService. */
