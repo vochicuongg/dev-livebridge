@@ -121,8 +121,10 @@ class ReplyInputActivity : Activity() {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply {
-                leftMargin = dp(8)
-                rightMargin = dp(8)
+                // Inset from both screen edges like the system's own
+                // Now Bar reply frame.
+                leftMargin = dp(16)
+                rightMargin = dp(16)
             }
         }
 
@@ -252,9 +254,12 @@ class ReplyInputActivity : Activity() {
                 // unit does not sit on top of it.
                 y = statusBarHeight + dp(4)
                 dimAmount = 0.2f
+                // Frosted-glass backdrop like the system's reply frame.
+                blurBehindRadius = dp(28)
             }
             addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
             addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN)
+            addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
         }
 
         input.requestFocus()
