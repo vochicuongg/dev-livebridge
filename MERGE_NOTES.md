@@ -188,6 +188,19 @@ extras, Now Bar eligibility marking). The reply editor
 reply UI for surfaces that fire the action intent without their own
 editor.
 
+## Post-merge change (21/10/2026, round 7): reply theming, position, APK size
+
+- The reply editor's strip now takes the dominant saturated color of the
+  source app's icon (extracted at runtime in `ReplyInputActivity`,
+  clamped so white text stays readable), falling back to Samsung blue.
+- The combined reply unit sits snug under the status bar (2dp gap).
+- APK size: release builds now package arm64-v8a native libraries only
+  (`ndk.abiFilters` in `android/app/build.gradle.kts`) — both target
+  devices are arm64, so this removes the armeabi-v7a/x86_64 engine and
+  plugin libraries without touching any feature. R8/minify remains off
+  on purpose (reflection-heavy Samsung bridging); enabling it is a
+  separate, test-first experiment.
+
 ## Known issues / verify on device
 
 - **Kotlin/Android was NOT compiled.** This environment cannot run Gradle.

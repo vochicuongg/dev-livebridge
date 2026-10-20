@@ -45,6 +45,14 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        ndk {
+            // Both target devices (Galaxy Z Flip5 and Galaxy A36) are
+            // arm64. Shipping only arm64-v8a native libraries cuts the
+            // universal APK size substantially without changing any
+            // feature; remove this filter to build a universal APK again.
+            abiFilters += listOf("arm64-v8a")
+        }
     }
 
     signingConfigs {
