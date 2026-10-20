@@ -13,6 +13,7 @@ import android.view.GestureDetector
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.animation.DecelerateInterpolator
+import android.view.animation.OvershootInterpolator
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
@@ -492,11 +493,12 @@ class ReplyInputActivity : Activity() {
             if (unit.height > 0) {
                 val progress = (unit.translationY / (unit.height * 0.55f))
                     .coerceIn(0f, 1f)
-                unit.scaleX = 1f - 0.04f * progress
-                unit.scaleY = 1f - 0.04f * progress
+                // The dragged card keeps its full size; the next card
+                // behind it stays a touch smaller the whole drag, like
+                // the Now Bar stack.
                 nextPreview?.let { preview ->
                     preview.alpha = progress
-                    val scale = 0.94f + 0.06f * progress
+                    val scale = 0.94f + 0.03f * progress
                     preview.scaleX = scale
                     preview.scaleY = scale
                 }
@@ -576,14 +578,18 @@ class ReplyInputActivity : Activity() {
                     }
                     if (!axisVertical) return true
                     // Downward only: upward finger movement just unwinds
-                    // the pull, never below zero.
+                    // the pull, never below zero. The travel range is
+                    // capped like the Now Bar card's: the card can be
+                    // pulled at most ~55% of its own height, with the
+                    // rubber band stiffening towards that limit.
                     rawPull = (rawPull - distanceY).coerceAtLeast(0f)
                     val cap = unit.height * 0.6f
-                    dampedPull = if (rawPull <= cap) {
+                    val damped = if (rawPull <= cap) {
                         rawPull * 0.55f
                     } else {
-                        cap * 0.55f + (rawPull - cap) * 0.18f
+                        cap * 0.55f + (rawPull - cap) * 0.10f
                     }
+                    dampedPull = damped.coerceAtMost(unit.height * 0.55f)
                     // The frame loop eases the card (and the stacked
                     // preview behind it) toward this target.
                     followTargetY = dampedPull
@@ -674,20 +680,19 @@ class ReplyInputActivity : Activity() {
         }
         switchingSession = true
         // Release effect, copied from the Now Bar stack: the pulled
-        // card POPS UP and slips BEHIND the next card at FULL size —
-        // no shrinking: its Z drops below the next card's at once, then
-        // it springs upward, so the front card covers its lower part
-        // and it reads as filed behind the pile while the next card
-        // takes the front. Then the editor rebuilds onto the next
-        // conversation, seamlessly, because the preview already holds
-        // the front pose.
+        // card's Z drops below the next card's at once, then it POPS
+        // UP past the slot and settles back into the EXACT original
+        // position — full size, one layer behind — while the next
+        // card takes the front. Then the editor rebuilds onto the
+        // next conversation, seamlessly, because the preview already
+        // holds the front pose and the filed card has faded in place.
         val hadPreview = nextPreview != null
         nextPreview?.let { preview ->
             preview.animate()
                 .alpha(1f)
                 .scaleX(1f)
                 .scaleY(1f)
-                .setDuration(240)
+                .setDuration(380)
                 .setInterpolator(DecelerateInterpolator())
                 .start()
         }
@@ -717,22 +722,25 @@ class ReplyInputActivity : Activity() {
             }
         }
         if (hadPreview) {
-            // Behind from the very first frame of the release, then a
-            // clean upward pop at full size — the Now Bar stack move.
+            // Behind from the very first frame of the release; the
+            // overshoot spring carries the card up past the slot and
+            // settles it back into the exact original position, one
+            // layer behind the new front card — the Now Bar stack move.
             unit.translationZ = -12f * resources.displayMetrics.density
             unit.animate()
-                .translationY(-unit.height * 0.5f)
-                .setDuration(240)
-                .setInterpolator(DecelerateInterpolator())
+                .translationY(0f)
+                .setDuration(380)
+                .setInterpolator(OvershootInterpolator(1.3f))
                 .withEndAction { rebuild() }
                 .start()
             // The fade runs on its own animator (a second animate()
             // call would reconfigure the same animator, not run in
-            // parallel): the card fades once it is mostly behind.
+            // parallel): it fades only while settling into the back
+            // slot, hiding the rebuild seam.
             android.animation.ObjectAnimator.ofFloat(unit, "alpha", unit.alpha, 0f)
                 .apply {
-                    startDelay = 100
-                    duration = 140
+                    startDelay = 250
+                    duration = 130
                     start()
                 }
         } else {
