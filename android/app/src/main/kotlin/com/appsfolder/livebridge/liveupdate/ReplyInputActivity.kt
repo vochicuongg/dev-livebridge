@@ -639,6 +639,7 @@ class ReplyInputActivity : Activity() {
         if (unit.translationY != 0f || unit.scaleX != 1f) {
             unit.animate()
                 .translationY(0f)
+                .translationZ(0f)
                 .scaleX(1f)
                 .scaleY(1f)
                 .alpha(1f)
@@ -672,50 +673,78 @@ class ReplyInputActivity : Activity() {
             return
         }
         switchingSession = true
-        // The stacked preview becomes the front card; the current card
-        // glides down behind it and away.
+        // Release effect, copied from the Now Bar stack: the pulled
+        // card tucks itself BEHIND the stack — it drops, shrinks to the
+        // back-card scale and sinks below the next card's Z — while the
+        // next card rises to the front. Then the editor rebuilds onto
+        // the next conversation, seamlessly, because the preview already
+        // holds the front pose and the tucked card has faded at the
+        // back pose (where the new preview starts out invisible).
         val hadPreview = nextPreview != null
         nextPreview?.let { preview ->
             preview.animate()
                 .alpha(1f)
                 .scaleX(1f)
                 .scaleY(1f)
-                .setDuration(180)
+                .setDuration(280)
                 .setInterpolator(DecelerateInterpolator())
                 .start()
         }
-        val travel = unit.height + 40f * resources.displayMetrics.density
-        val outY = travel
-        unit.animate()
-            .translationY(outY)
-            .alpha(0f)
-            .setDuration(180)
-            .withEndAction {
-                setIntent(targetIntent)
-                onLaunch()
-                val newUnit = currentUnit
-                if (newUnit == null) {
-                    switchingSession = false
-                    return@withEndAction
-                }
-                if (hadPreview) {
-                    // The preview already showed this card in place at
-                    // full size: the rebuilt editor simply takes over.
-                    newUnit.translationY = 0f
-                    newUnit.alpha = 1f
-                    switchingSession = false
-                } else {
-                    newUnit.translationY = -outY * 0.6f
-                    newUnit.alpha = 0f
-                    newUnit.animate()
-                        .translationY(0f)
-                        .alpha(1f)
-                        .setDuration(200)
-                        .withEndAction { switchingSession = false }
-                        .start()
-                }
+        val oldHeight = unit.height
+        val rebuild = {
+            setIntent(targetIntent)
+            onLaunch()
+            val newUnit = currentUnit
+            if (newUnit == null) {
+                switchingSession = false
+            } else if (hadPreview) {
+                // The preview already showed this card in place at full
+                // size: the rebuilt editor simply takes over.
+                newUnit.translationY = 0f
+                newUnit.alpha = 1f
+                switchingSession = false
+            } else {
+                val travel = oldHeight + 40f * resources.displayMetrics.density
+                newUnit.translationY = -travel * 0.6f
+                newUnit.alpha = 0f
+                newUnit.animate()
+                    .translationY(0f)
+                    .alpha(1f)
+                    .setDuration(200)
+                    .withEndAction { switchingSession = false }
+                    .start()
             }
-            .start()
+        }
+        if (hadPreview) {
+            unit.animate()
+                .translationY(unit.height * 0.55f)
+                .scaleX(0.94f)
+                .scaleY(0.94f)
+                // Below the preview's Z, so the card visibly slips
+                // behind the rising front card.
+                .translationZ(-12f * resources.displayMetrics.density)
+                .setDuration(280)
+                .setInterpolator(DecelerateInterpolator())
+                .withEndAction { rebuild() }
+                .start()
+            // The fade runs on its own animator (a second animate()
+            // call would reconfigure the same animator, not run in
+            // parallel): the card fades only as it settles behind.
+            android.animation.ObjectAnimator.ofFloat(unit, "alpha", unit.alpha, 0f)
+                .apply {
+                    startDelay = 130
+                    duration = 150
+                    start()
+                }
+        } else {
+            val travel = unit.height + 40f * resources.displayMetrics.density
+            unit.animate()
+                .translationY(travel)
+                .alpha(0f)
+                .setDuration(180)
+                .withEndAction { rebuild() }
+                .start()
+        }
     }
 
     /** Forwards this activity's launch intent (extras + RemoteInput results) to ReplyProxyService. */
