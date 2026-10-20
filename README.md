@@ -1,6 +1,21 @@
 ﻿# LiveBridge
 > This app is a fork of the [livebridge](https://github.com/appsfolder/livebridge), which uses the Samsung whitelisted and closed API for the Now Bar and uses a spoof for com.locnall.KimGiSa to avoid whitelist
 
+---
+
+## Bản mod bởi Võ Chí Cường
+
+Đây là bản mod cá nhân của [LiveBridge](https://github.com/appsfolder/livebridge), do **[Võ Chí Cường](https://github.com/vochicuongg)** phát triển và duy trì, tập trung vào trải nghiệm **Samsung Now Bar** (thử nghiệm chính trên Galaxy Z Flip5, One UI 9):
+
+- **Khung trả lời Now Bar tự vẽ** khi bấm "Trả lời": thẻ cuộc trò chuyện kèm thanh nhập liệu mang **đúng màu của ứng dụng đó** (khớp màu viên Now Bar khi thu gọn), nền **gradient 50-50** và hiệu ứng **kính mờ** phía sau.
+- **Vuốt thẻ như chồng thẻ Now Bar**: kéo thẻ xuống để chuyển sang cuộc trò chuyện tiếp theo đang có nút Trả lời; thẻ được thả sẽ **bật lên và xếp ra phía sau** thẻ kế tiếp, đi vòng hết chồng thẻ.
+- **Trả lời từ đồng hồ Wear OS**: sau khi trả lời thành công, thông báo gương và thông báo gốc đều được dọn, giống thao tác trên điện thoại.
+- **Việt hoá** phần cài đặt cấu hình ứng dụng và từ điển thông báo.
+- Giữ nguyên định danh bản fork: gói ứng dụng `com.locnall.KimGiSa` (namespace `com.kakao.taxi`).
+
+> Dự án gốc thuộc về [appsfolder](https://github.com/appsfolder) — toàn bộ nội dung giới thiệu dưới đây là của dự án gốc.
+
+
 LiveBridge is a Flutter Android app with native Kotlin logic that converts regular notifications into Android Live Updates (Live Activity-like UX on Android 16+)
 
 ## Download
