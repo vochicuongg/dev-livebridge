@@ -4,8 +4,11 @@ import android.app.Activity
 import android.app.RemoteInput
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.Gravity
@@ -74,6 +77,18 @@ class ReplyInputActivity : Activity() {
         val hintText = hint ?: if (vi) "Trả lời" else "Reply"
         val sendText = if (vi) "Gửi" else "Send"
 
+        // Theme the reply strip with the source app's dominant icon color
+        // (Messenger blue, Zalo blue, WhatsApp green...). Falls back to the
+        // Samsung blue when no usable color can be extracted.
+        val sourceIcon = sourcePackage?.let { pkg ->
+            try {
+                packageManager.getApplicationIcon(pkg)
+            } catch (error: PackageManager.NameNotFoundException) {
+                null
+            }
+        }
+        val accentColor = extractAccentColor(sourceIcon) ?: Color.rgb(10, 108, 255)
+
         val density = resources.displayMetrics.density
         fun dp(value: Int): Int = (value * density).toInt()
         val radius = dp(24).toFloat()
@@ -106,22 +121,15 @@ class ReplyInputActivity : Activity() {
             }
         }
 
-        if (sourcePackage != null) {
+        if (sourceIcon != null) {
             val iconView = ImageView(this).apply {
                 layoutParams = LinearLayout.LayoutParams(dp(46), dp(46)).apply {
                     rightMargin = dp(12)
                 }
                 scaleType = ImageView.ScaleType.FIT_CENTER
             }
-            val icon = try {
-                packageManager.getApplicationIcon(sourcePackage)
-            } catch (error: PackageManager.NameNotFoundException) {
-                null
-            }
-            if (icon != null) {
-                iconView.setImageDrawable(icon)
-                header.addView(iconView)
-            }
+            iconView.setImageDrawable(sourceIcon)
+            header.addView(iconView)
         }
 
         val headerTexts = LinearLayout(this).apply {
@@ -165,7 +173,7 @@ class ReplyInputActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(12), dp(10), dp(10), dp(10))
             background = GradientDrawable().apply {
-                setColor(Color.rgb(10, 108, 255))
+                setColor(accentColor)
                 cornerRadii = floatArrayOf(
                     0f, 0f, 0f, 0f, // top corners square: attaches to the card
                     radius, radius, radius, radius // bottom-left, bottom-right
@@ -221,7 +229,8 @@ class ReplyInputActivity : Activity() {
             )
             attributes = attributes.apply {
                 gravity = Gravity.TOP
-                y = statusBarHeight + dp(6)
+                // Sit snug against the status/notification bar.
+                y = statusBarHeight + dp(2)
                 dimAmount = 0.2f
             }
             addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
@@ -232,6 +241,64 @@ class ReplyInputActivity : Activity() {
             val imm = getSystemService(InputMethodManager::class.java)
             imm?.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT)
         }
+    }
+
+    /**
+     * Extracts the dominant saturated color from an app icon: renders it
+     * tiny, averages the pixels that carry real color (skipping
+     * transparent, near-gray, near-black and near-white ones, weighted by
+     * saturation), then clamps the result into a range where white text
+     * stays readable. Returns null when the icon has no usable color.
+     */
+    private fun extractAccentColor(icon: Drawable?): Int? {
+        if (icon == null) {
+            return null
+        }
+        val size = 24
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        icon.setBounds(0, 0, size, size)
+        icon.draw(canvas)
+
+        var weightSum = 0.0
+        var rSum = 0.0
+        var gSum = 0.0
+        var bSum = 0.0
+        for (x in 0 until size) {
+            for (y in 0 until size) {
+                val pixel = bitmap.getPixel(x, y)
+                if (Color.alpha(pixel) < 160) {
+                    continue
+                }
+                val r = Color.red(pixel)
+                val g = Color.green(pixel)
+                val b = Color.blue(pixel)
+                val max = maxOf(r, g, b)
+                val min = minOf(r, g, b)
+                if (max - min < 30 || max < 25 || min > 235) {
+                    continue
+                }
+                val weight = (max - min).toDouble() / 255.0
+                weightSum += weight
+                rSum += r * weight
+                gSum += g * weight
+                bSum += b * weight
+            }
+        }
+        bitmap.recycle()
+        if (weightSum <= 0.0) {
+            return null
+        }
+        val hsv = FloatArray(3)
+        Color.RGBToHSV(
+            (rSum / weightSum).toInt().coerceIn(0, 255),
+            (gSum / weightSum).toInt().coerceIn(0, 255),
+            (bSum / weightSum).toInt().coerceIn(0, 255),
+            hsv
+        )
+        hsv[1] = hsv[1].coerceIn(0.55f, 0.92f)
+        hsv[2] = hsv[2].coerceIn(0.5f, 0.82f)
+        return Color.HSVToColor(hsv)
     }
 
     /** Forwards this activity's launch intent (extras + RemoteInput results) to ReplyProxyService. */
