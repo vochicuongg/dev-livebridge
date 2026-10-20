@@ -223,10 +223,6 @@ class ReplyInputActivity : Activity() {
 
         // Anchor the unit to the top edge, just below the status bar,
         // where the expanded Now Bar card is displayed.
-        val statusBarHeight = resources.getIdentifier("status_bar_height", "dimen", "android")
-            .takeIf { it > 0 }
-            ?.let { resources.getDimensionPixelSize(it) }
-            ?: dp(24)
         window?.apply {
             setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
             setLayout(
@@ -235,10 +231,10 @@ class ReplyInputActivity : Activity() {
             )
             attributes = attributes.apply {
                 gravity = Gravity.TOP
-                // Hug the bottom edge of the status/info bar: laid out in
-                // the full screen, starting exactly one status-bar height
-                // from the top edge.
-                y = statusBarHeight
+                // Window anchored to the very top of the screen; the
+                // system-bar inset of the (now non-floating) theme places
+                // the unit flush under the status/info bar.
+                y = 0
                 dimAmount = 0.2f
             }
             addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
