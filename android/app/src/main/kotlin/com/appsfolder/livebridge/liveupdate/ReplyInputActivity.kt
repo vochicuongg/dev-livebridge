@@ -343,10 +343,11 @@ class ReplyInputActivity : Activity() {
 
     /**
      * Swipe-to-switch between replyable Now Bar cards, mirroring the
-     * system's card-stack gesture: drag the card sideways and it follows
-     * the finger; release past a quarter of its width (or fling) and it
-     * glides out while the next/previous conversation glides in.
-     * Attached to the header card so it never fights the text field.
+     * system's card-stack gesture: pull the card DOWN (or push it UP)
+     * and it follows the finger; release past a quarter of its height
+     * (or fling) and it glides out while the next/previous
+     * conversation glides in. Attached to the header card so it never
+     * fights the text field.
      */
     private fun attachSwipeGesture(gestureView: LinearLayout, unit: LinearLayout) {
         val detector = GestureDetector(
@@ -360,12 +361,12 @@ class ReplyInputActivity : Activity() {
                     distanceX: Float,
                     distanceY: Float
                 ): Boolean {
-                    if (switchingSession || unit.width == 0) return false
+                    if (switchingSession || unit.height == 0) return false
                     val startX = e1?.x ?: e2.x
                     val startY = e1?.y ?: e2.y
-                    if (Math.abs(e2.x - startX) > Math.abs(e2.y - startY)) {
-                        unit.translationX = (unit.translationX - distanceX)
-                            .coerceIn(-unit.width.toFloat(), unit.width.toFloat())
+                    if (Math.abs(e2.y - startY) > Math.abs(e2.x - startX)) {
+                        unit.translationY = (unit.translationY - distanceY)
+                            .coerceIn(-unit.height.toFloat(), unit.height.toFloat())
                     }
                     return true
                 }
@@ -376,10 +377,11 @@ class ReplyInputActivity : Activity() {
                     velocityX: Float,
                     velocityY: Float
                 ): Boolean {
-                    if (Math.abs(velocityX) > Math.abs(velocityY) &&
-                        Math.abs(velocityX) > 400f
+                    if (Math.abs(velocityY) > Math.abs(velocityX) &&
+                        Math.abs(velocityY) > 400f
                     ) {
-                        switchSession(if (velocityX < 0) 1 else -1, unit)
+                        // Flick down = next card, flick up = previous.
+                        switchSession(if (velocityY > 0) 1 else -1, unit)
                         return true
                     }
                     return false
@@ -391,11 +393,11 @@ class ReplyInputActivity : Activity() {
             if (event.action == MotionEvent.ACTION_UP ||
                 event.action == MotionEvent.ACTION_CANCEL
             ) {
-                if (!switchingSession && unit.width > 0) {
-                    val threshold = unit.width * 0.25f
+                if (!switchingSession && unit.height > 0) {
+                    val threshold = unit.height * 0.25f
                     when {
-                        unit.translationX <= -threshold -> switchSession(1, unit)
-                        unit.translationX >= threshold -> switchSession(-1, unit)
+                        unit.translationY >= threshold -> switchSession(1, unit)
+                        unit.translationY <= -threshold -> switchSession(-1, unit)
                         else -> snapBack(unit)
                     }
                 }
@@ -406,15 +408,17 @@ class ReplyInputActivity : Activity() {
 
     /** Animates back to rest when a swipe does not commit to a switch. */
     private fun snapBack(unit: LinearLayout) {
-        if (unit.translationX != 0f) {
-            unit.animate().translationX(0f).alpha(1f).setDuration(150).start()
+        if (unit.translationY != 0f) {
+            unit.animate().translationY(0f).alpha(1f).setDuration(150).start()
         }
     }
 
     /**
      * Glides the current card out and rebuilds the editor for the
      * neighbouring reply session ([direction] +1 = next, -1 = previous)
-     * in [LiveUpdateNotifier.replyableMirrorKeys] order.
+     * in [LiveUpdateNotifier.replyableMirrorKeys] order. The card exits
+     * in the swipe direction and the new one enters from the other side,
+     * like the Now Bar card stack.
      */
     private fun switchSession(direction: Int, unit: LinearLayout) {
         if (switchingSession) return
@@ -432,10 +436,10 @@ class ReplyInputActivity : Activity() {
             return
         }
         switchingSession = true
-        val travel = unit.width + 40f * resources.displayMetrics.density
-        val outX = if (direction > 0) -travel else travel
+        val travel = unit.height + 40f * resources.displayMetrics.density
+        val outY = if (direction > 0) travel else -travel
         unit.animate()
-            .translationX(outX)
+            .translationY(outY)
             .alpha(0f)
             .setDuration(180)
             .withEndAction {
@@ -446,10 +450,10 @@ class ReplyInputActivity : Activity() {
                     switchingSession = false
                     return@withEndAction
                 }
-                newUnit.translationX = -outX * 0.6f
+                newUnit.translationY = -outY * 0.6f
                 newUnit.alpha = 0f
                 newUnit.animate()
-                    .translationX(0f)
+                    .translationY(0f)
                     .alpha(1f)
                     .setDuration(200)
                     .withEndAction { switchingSession = false }
