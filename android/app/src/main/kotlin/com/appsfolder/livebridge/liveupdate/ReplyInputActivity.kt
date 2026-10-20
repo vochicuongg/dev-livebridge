@@ -117,15 +117,15 @@ class ReplyInputActivity : Activity() {
         val unit = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             elevation = dp(8).toFloat()
-            layoutParams = ViewGroup.MarginLayoutParams(
+            layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply {
-                // Inset from both screen edges like the system's own
-                // Now Bar reply frame.
-                leftMargin = dp(16)
-                rightMargin = dp(16)
-            }
+            )
+            // Inset from both screen edges like the expanded Now Bar
+            // card. Padding, not margins: margins on an activity's root
+            // view are silently dropped by the window, which is why the
+            // earlier margin attempts never narrowed the unit.
+            setPadding(dp(16), 0, dp(16), 0)
         }
 
         // --- Dark conversation card (icon + name + latest message) ---
@@ -133,8 +133,15 @@ class ReplyInputActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(16), dp(14), dp(16), dp(14))
-            background = GradientDrawable().apply {
-                setColor(Color.rgb(13, 18, 24))
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(
+                    // Gradient like the expanded Now Bar content surface:
+                    // a dark tint of the app's accent fading to near-black.
+                    blendColor(accentColor, Color.rgb(13, 18, 24), 0.45f),
+                    Color.rgb(8, 11, 15)
+                )
+            ).apply {
                 cornerRadii = floatArrayOf(
                     radius, radius, radius, radius, // top-left, top-right
                     0f, 0f, 0f, 0f // bottom corners square: strip attaches here
@@ -193,8 +200,10 @@ class ReplyInputActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(12), dp(10), dp(10), dp(10))
-            background = GradientDrawable().apply {
-                setColor(accentColor)
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(accentColor, darkenColor(accentColor, 0.86f))
+            ).apply {
                 cornerRadii = floatArrayOf(
                     0f, 0f, 0f, 0f, // top corners square: attaches to the card
                     radius, radius, radius, radius // bottom-left, bottom-right
@@ -267,6 +276,27 @@ class ReplyInputActivity : Activity() {
             val imm = getSystemService(InputMethodManager::class.java)
             imm?.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT)
         }
+    }
+
+    /** Blends two colors; ratio 0 returns [from], 1 returns [to]. */
+    private fun blendColor(from: Int, to: Int, ratio: Float): Int {
+        val r = ratio.coerceIn(0f, 1f)
+        return Color.argb(
+            255,
+            (Color.red(from) + (Color.red(to) - Color.red(from)) * r).toInt(),
+            (Color.green(from) + (Color.green(to) - Color.green(from)) * r).toInt(),
+            (Color.blue(from) + (Color.blue(to) - Color.blue(from)) * r).toInt()
+        )
+    }
+
+    /** Scales a color's RGB channels by [factor] (below 1 darkens it). */
+    private fun darkenColor(color: Int, factor: Float): Int {
+        return Color.argb(
+            255,
+            (Color.red(color) * factor).toInt().coerceIn(0, 255),
+            (Color.green(color) * factor).toInt().coerceIn(0, 255),
+            (Color.blue(color) * factor).toInt().coerceIn(0, 255)
+        )
     }
 
     /** Forwards this activity's launch intent (extras + RemoteInput results) to ReplyProxyService. */
