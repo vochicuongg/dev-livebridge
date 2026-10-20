@@ -235,12 +235,14 @@ class ReplyInputActivity : Activity() {
             )
             attributes = attributes.apply {
                 gravity = Gravity.TOP
-                // Sit snug against the status/notification bar, tucked a
-                // few dp higher so the unit hugs the top edge.
-                y = statusBarHeight - dp(4)
+                // Hug the bottom edge of the status/info bar: laid out in
+                // the full screen, starting exactly one status-bar height
+                // from the top edge.
+                y = statusBarHeight
                 dimAmount = 0.2f
             }
             addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+            addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN)
         }
 
         input.requestFocus()
