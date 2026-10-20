@@ -8,6 +8,7 @@ import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.view.Choreographer
 import android.view.GestureDetector
 import android.view.Gravity
 import android.view.MotionEvent
@@ -417,8 +418,13 @@ class ReplyInputActivity : Activity() {
         val keys = LiveUpdateNotifier.replyableMirrorKeys()
         val currentKey = intent.getStringExtra(ReplyProxyService.EXTRA_MIRROR_KEY).orEmpty()
         val index = keys.indexOf(currentKey)
-        if (index < 0 || index + 1 !in keys.indices) return null
-        val nextIntent = LiveUpdateNotifier.replyEditorIntent(this, keys[index + 1]) ?: return null
+        if (index < 0 || keys.size < 2) return null
+        // The stack loops like the Now Bar: after the last card comes
+        // the first one again.
+        val nextIntent = LiveUpdateNotifier.replyEditorIntent(
+            this,
+            keys[(index + 1) % keys.size]
+        ) ?: return null
         val conversation = nextIntent.getStringExtra(ReplyProxyService.EXTRA_REPLY_CONVERSATION)
             ?.takeIf { it.isNotBlank() }
         val label = nextIntent.getStringExtra(ReplyProxyService.EXTRA_REPLY_LABEL)
@@ -464,6 +470,58 @@ class ReplyInputActivity : Activity() {
         }
     }
 
+    // --- Frame-driven drag follow ------------------------------------
+    // A single Choreographer loop eases the current card (and the
+    // stacked preview behind it) toward the drag target every frame.
+    // This replaces per-touch-event property animators, whose constant
+    // restarts fought each other and made the drag feel steppy.
+    private var followTargetY = 0f
+    private var followDragging = false
+    private var followPosted = false
+
+    private val followCallback = object : Choreographer.FrameCallback {
+        override fun doFrame(frameTimeNanos: Long) {
+            val unit = currentUnit
+            if (unit == null) {
+                followPosted = false
+                return
+            }
+            val target = followTargetY
+            val next = unit.translationY + (target - unit.translationY) * 0.35f
+            unit.translationY = if (Math.abs(target - next) < 0.6f) target else next
+            if (unit.height > 0) {
+                val progress = (unit.translationY / (unit.height * 0.55f))
+                    .coerceIn(0f, 1f)
+                unit.scaleX = 1f - 0.04f * progress
+                unit.scaleY = 1f - 0.04f * progress
+                nextPreview?.let { preview ->
+                    preview.alpha = progress
+                    val scale = 0.94f + 0.06f * progress
+                    preview.scaleX = scale
+                    preview.scaleY = scale
+                }
+            }
+            if (followDragging || Math.abs(target - unit.translationY) >= 0.6f) {
+                Choreographer.getInstance().postFrameCallback(this)
+            } else {
+                followPosted = false
+            }
+        }
+    }
+
+    private fun startFollow() {
+        if (!followPosted) {
+            followPosted = true
+            Choreographer.getInstance().postFrameCallback(followCallback)
+        }
+    }
+
+    private fun stopFollow() {
+        followDragging = false
+        Choreographer.getInstance().removeFrameCallback(followCallback)
+        followPosted = false
+    }
+
     /**
      * Pull-down-to-next between replyable Now Bar cards, mirroring the
      * system's card-stack gesture: drag the card DOWN and it follows
@@ -491,6 +549,10 @@ class ReplyInputActivity : Activity() {
                     dampedPull = 0f
                     axisLocked = false
                     axisVertical = false
+                    unit.animate().cancel()
+                    followTargetY = 0f
+                    followDragging = true
+                    startFollow()
                     return true
                 }
 
@@ -522,29 +584,9 @@ class ReplyInputActivity : Activity() {
                     } else {
                         cap * 0.55f + (rawPull - cap) * 0.18f
                     }
-                    unit.animate().cancel()
-                    unit.animate()
-                        .translationY(dampedPull)
-                        .setDuration(90)
-                        .setInterpolator(DecelerateInterpolator())
-                        .start()
-                    // Stack effect: as the pull grows, the current card
-                    // sinks (slight shrink) while the NEXT card behind it
-                    // rises to full size and opacity, taking the front.
-                    nextPreview?.let { preview ->
-                        val progress = (dampedPull / (unit.height * 0.55f))
-                            .coerceIn(0f, 1f)
-                        unit.scaleX = 1f - 0.04f * progress
-                        unit.scaleY = 1f - 0.04f * progress
-                        preview.animate().cancel()
-                        preview.animate()
-                            .alpha(progress)
-                            .scaleX(0.94f + 0.06f * progress)
-                            .scaleY(0.94f + 0.06f * progress)
-                            .setDuration(90)
-                            .setInterpolator(DecelerateInterpolator())
-                            .start()
-                    }
+                    // The frame loop eases the card (and the stacked
+                    // preview behind it) toward this target.
+                    followTargetY = dampedPull
                     return true
                 }
 
@@ -584,6 +626,7 @@ class ReplyInputActivity : Activity() {
 
     /** Animates back to rest when a swipe does not commit to a switch. */
     private fun snapBack(unit: LinearLayout) {
+        stopFollow()
         nextPreview?.let { preview ->
             preview.animate()
                 .alpha(0f)
@@ -608,20 +651,21 @@ class ReplyInputActivity : Activity() {
     /**
      * Glides the current card down and out, then rebuilds the editor
      * for the NEXT reply session in
-     * [LiveUpdateNotifier.replyableMirrorKeys] order; the new card
-     * enters from the top, like the Now Bar card stack. At the last
-     * conversation the card simply settles back.
+     * [LiveUpdateNotifier.replyableMirrorKeys] order, wrapping from
+     * the last card back to the first like the Now Bar card stack.
      */
     private fun switchToNext(unit: LinearLayout) {
         if (switchingSession) return
+        stopFollow()
         val keys = LiveUpdateNotifier.replyableMirrorKeys()
         val currentKey = intent.getStringExtra(ReplyProxyService.EXTRA_MIRROR_KEY).orEmpty()
         val index = keys.indexOf(currentKey)
-        val targetIndex = index + 1
-        if (index < 0 || keys.size < 2 || targetIndex !in keys.indices) {
+        // Loop like the Now Bar stack: after the last card, the first.
+        if (index < 0 || keys.size < 2) {
             snapBack(unit)
             return
         }
+        val targetIndex = (index + 1) % keys.size
         val targetIntent = LiveUpdateNotifier.replyEditorIntent(this, keys[targetIndex])
         if (targetIntent == null) {
             snapBack(unit)
