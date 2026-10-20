@@ -212,6 +212,19 @@ build requires `flutter build apk --release --target-platform
 android-arm64` — the Gradle `abiFilters` alone is ignored by Flutter's
 packaging.
 
+## Post-merge change (21/10/2026, round 9): reply strip = Now Bar pill color
+
+Clarified by the maintainer with screenshots: the reply strip must wear
+the color of the app's COLLAPSED Now Bar pill (TikTok teal, Messenger
+blue...), not a fixed blue and not a raw icon average.
+`createProxyReplyPendingIntent` now computes the accent with the exact
+precedence `mirrorNotification` uses for the mirror itself (per-app
+custom color from `AppPresentationOverridesLoader`, else
+`SamsungLiveUpdateReparser.resolveChipBackgroundColor(source)`) and
+passes it to `ReplyInputActivity` as `EXTRA_REPLY_ACCENT_COLOR`; the
+strip renders it opaque, falling back to Samsung blue only when no
+accent was provided.
+
 ## Known issues / verify on device
 
 - **Kotlin/Android was NOT compiled.** This environment cannot run Gradle.

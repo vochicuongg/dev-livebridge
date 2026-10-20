@@ -9166,6 +9166,27 @@ object LiveUpdateNotifier {
                     ?: notification.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()
             }?.takeIf { it.isNotBlank() }?.take(200)
 
+            // The exact accent the mirror's Now Bar pill wears: the
+            // per-app custom color when one is configured, otherwise the
+            // chip background resolved from the source notification — the
+            // same precedence mirrorNotification uses for
+            // builderAccentColor. The reply strip reuses it so the editor
+            // matches the collapsed Now Bar of that app.
+            val replyAccentColor = run {
+                val sourcePackageLower = synchronized(stateLock) {
+                    sourceSnapshotsByMirrorKey[mirrorKey]?.packageName
+                }?.lowercase(Locale.ROOT)
+                val customColor = sourcePackageLower?.let { pkgLower ->
+                    AppPresentationOverridesLoader
+                        .get(ConverterPrefs(context))
+                        .resolve(pkgLower)
+                        .effectiveNotificationColorArgb()
+                }
+                customColor ?: sourceNotification?.let {
+                    SamsungLiveUpdateReparser.resolveChipBackgroundColor(it)
+                }
+            }
+
             // Target the activity directly: an activity PendingIntent fired
             // from a notification action is exempt from background-activity
             // launch restrictions, while a broadcast receiver that then tries
@@ -9190,6 +9211,9 @@ object LiveUpdateNotifier {
                     ReplyProxyService.EXTRA_REPLY_SOURCE_PACKAGE,
                     synchronized(stateLock) { sourceSnapshotsByMirrorKey[mirrorKey]?.packageName }
                 )
+                if (replyAccentColor != null) {
+                    putExtra(ReplyProxyService.EXTRA_REPLY_ACCENT_COLOR, replyAccentColor)
+                }
             }
             PendingIntent.getActivity(
                 context,

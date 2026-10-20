@@ -65,6 +65,7 @@ class ReplyProxyService : Service() {
         const val EXTRA_REPLY_CONVERSATION = "reply_conversation"
         const val EXTRA_REPLY_CONTEXT_TEXT = "reply_context_text"
         const val EXTRA_REPLY_SOURCE_PACKAGE = "reply_source_package"
+        const val EXTRA_REPLY_ACCENT_COLOR = "reply_accent_color"
 
         private const val INTENT_DELAY_MS = 500L
         private const val DISMISS_DELAY_MS = 1_500L

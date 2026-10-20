@@ -81,9 +81,19 @@ class ReplyInputActivity : Activity() {
                 null
             }
         }
-        // The strip uses the same blue as Samsung's own Now Bar reply
-        // frame, so the editor blends with the system UI.
-        val accentColor = Color.rgb(10, 108, 255)
+        // The strip wears the same accent color as this app's collapsed
+        // Now Bar pill (computed by the notifier with the same precedence
+        // as the mirror itself). Falls back to Samsung blue when the
+        // notifier did not provide one.
+        val accentColor = if (intent.hasExtra(ReplyProxyService.EXTRA_REPLY_ACCENT_COLOR)) {
+            val provided = intent.getIntExtra(
+                ReplyProxyService.EXTRA_REPLY_ACCENT_COLOR,
+                Color.rgb(10, 108, 255)
+            )
+            Color.argb(255, Color.red(provided), Color.green(provided), Color.blue(provided))
+        } else {
+            Color.rgb(10, 108, 255)
+        }
 
         val density = resources.displayMetrics.density
         fun dp(value: Int): Int = (value * density).toInt()
