@@ -42,7 +42,20 @@ class ReplyInputActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        onLaunch()
+    }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // singleTop: tapping Reply on another notification while this
+        // editor is already open delivers the new intent here instead of
+        // creating a second instance. Rebuild the editor for the new
+        // conversation instead of silently swallowing the tap.
+        setIntent(intent)
+        onLaunch()
+    }
+
+    private fun onLaunch() {
         resultKey = intent.getStringExtra(ReplyProxyService.EXTRA_RESULT_KEY).orEmpty()
 
         // The host surface provided its own reply editor (Wear OS, the
