@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.view.GestureDetector
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.animation.DecelerateInterpolator
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
@@ -347,12 +348,29 @@ class ReplyInputActivity : Activity() {
      * the finger; release and it glides out while the NEXT conversation
      * glides in from the top. One-way only — there is no swipe back.
      * Attached to the header card so it never fights the text field.
+     *
+     * The drag feel copies the system's card: the raw pull is
+     * rubber-band damped (the card travels only part of the finger's
+     * distance and resists harder the further it goes) and the card
+     * eases toward the damped target with short trailing animations
+     * instead of tracking the finger 1:1 — so small finger tremors do
+     * not make it jitter.
      */
     private fun attachSwipeGesture(gestureView: LinearLayout, unit: LinearLayout) {
+        var rawPull = 0f
+        var dampedPull = 0f
+        var axisLocked = false
+        var axisVertical = false
         val detector = GestureDetector(
             this,
             object : GestureDetector.SimpleOnGestureListener() {
-                override fun onDown(e: MotionEvent): Boolean = true
+                override fun onDown(e: MotionEvent): Boolean {
+                    rawPull = 0f
+                    dampedPull = 0f
+                    axisLocked = false
+                    axisVertical = false
+                    return true
+                }
 
                 override fun onScroll(
                     e1: MotionEvent?,
@@ -361,13 +379,33 @@ class ReplyInputActivity : Activity() {
                     distanceY: Float
                 ): Boolean {
                     if (switchingSession || unit.height == 0) return false
-                    val startX = e1?.x ?: e2.x
-                    val startY = e1?.y ?: e2.y
-                    if (Math.abs(e2.y - startY) > Math.abs(e2.x - startX)) {
-                        // Downward only: the card never follows upward.
-                        unit.translationY = (unit.translationY - distanceY)
-                            .coerceIn(0f, unit.height.toFloat())
+                    if (!axisLocked && e1 != null) {
+                        val slop = 8f * resources.displayMetrics.density
+                        val cumDx = Math.abs(e2.x - e1.x)
+                        val cumDy = Math.abs(e2.y - e1.y)
+                        if (cumDx > slop || cumDy > slop) {
+                            // Commit to one axis for the whole gesture so
+                            // diagonal wobble cannot start/stop the drag.
+                            axisLocked = true
+                            axisVertical = cumDy > cumDx
+                        }
                     }
+                    if (!axisVertical) return true
+                    // Downward only: upward finger movement just unwinds
+                    // the pull, never below zero.
+                    rawPull = (rawPull - distanceY).coerceAtLeast(0f)
+                    val cap = unit.height * 0.6f
+                    dampedPull = if (rawPull <= cap) {
+                        rawPull * 0.55f
+                    } else {
+                        cap * 0.55f + (rawPull - cap) * 0.18f
+                    }
+                    unit.animate().cancel()
+                    unit.animate()
+                        .translationY(dampedPull)
+                        .setDuration(90)
+                        .setInterpolator(DecelerateInterpolator())
+                        .start()
                     return true
                 }
 
@@ -391,10 +429,10 @@ class ReplyInputActivity : Activity() {
                 event.action == MotionEvent.ACTION_CANCEL
             ) {
                 if (!switchingSession && unit.height > 0) {
-                    // A deliberate pull (past ~24dp) then release switches
-                    // to the next conversation; anything less settles back.
-                    val threshold = 24f * resources.displayMetrics.density
-                    if (unit.translationY >= threshold) {
+                    // A deliberate pull then release switches to the next
+                    // conversation; anything less settles back smoothly.
+                    val threshold = 28f * resources.displayMetrics.density
+                    if (dampedPull >= threshold) {
                         switchToNext(unit)
                     } else {
                         snapBack(unit)
@@ -408,7 +446,12 @@ class ReplyInputActivity : Activity() {
     /** Animates back to rest when a swipe does not commit to a switch. */
     private fun snapBack(unit: LinearLayout) {
         if (unit.translationY != 0f) {
-            unit.animate().translationY(0f).alpha(1f).setDuration(150).start()
+            unit.animate()
+                .translationY(0f)
+                .alpha(1f)
+                .setDuration(200)
+                .setInterpolator(DecelerateInterpolator())
+                .start()
         }
     }
 
