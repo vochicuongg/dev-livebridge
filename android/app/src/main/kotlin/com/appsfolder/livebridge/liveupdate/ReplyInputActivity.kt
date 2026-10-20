@@ -4,18 +4,21 @@ import android.app.Activity
 import android.app.RemoteInput
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
-import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.view.Choreographer
+import android.view.GestureDetector
 import android.view.Gravity
+import android.view.MotionEvent
+import android.view.animation.DecelerateInterpolator
+import android.view.animation.OvershootInterpolator
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -42,11 +45,41 @@ class ReplyInputActivity : Activity() {
 
     private lateinit var input: EditText
     private var resultKey: String = ""
+    private var currentUnit: LinearLayout? = null
+    private var switchingSession = false
+    private var nextPreview: LinearLayout? = null
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var pendingSwitchCompletion: Runnable? = null
+    private var switchFadeAnimator: android.animation.Animator? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        onLaunch()
+    }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // singleTop: tapping Reply on another notification while this
+        // editor is already open delivers the new intent here instead of
+        // creating a second instance. Rebuild the editor for the new
+        // conversation instead of silently swallowing the tap.
+        setIntent(intent)
+        onLaunch()
+    }
+
+    private fun onLaunch() {
         resultKey = intent.getStringExtra(ReplyProxyService.EXTRA_RESULT_KEY).orEmpty()
+        nextPreview = null
+        // Self-heal: every (re)launch starts from a clean slate, so a
+        // switch left half-finished by rapid pull-release cycles can
+        // never wedge the editor in an invisible, non-interactive state.
+        switchingSession = false
+        stopFollow()
+        followTargetY = 0f
+        pendingSwitchCompletion?.let { mainHandler.removeCallbacks(it) }
+        pendingSwitchCompletion = null
+        switchFadeAnimator?.cancel()
+        switchFadeAnimator = null
 
         // The host surface provided its own reply editor (Wear OS, the
         // notification shade): forward its RemoteInput results to the reply
@@ -77,9 +110,6 @@ class ReplyInputActivity : Activity() {
         val hintText = hint ?: if (vi) "Trả lời" else "Reply"
         val sendText = if (vi) "Gửi" else "Send"
 
-        // Theme the reply strip with the source app's dominant icon color
-        // (Messenger blue, Zalo blue, WhatsApp green...). Falls back to the
-        // Samsung blue when no usable color can be extracted.
         val sourceIcon = sourcePackage?.let { pkg ->
             try {
                 packageManager.getApplicationIcon(pkg)
@@ -87,10 +117,161 @@ class ReplyInputActivity : Activity() {
                 null
             }
         }
-        val accentColor = extractAccentColor(sourceIcon) ?: Color.rgb(10, 108, 255)
+        // The strip wears the same accent color as this app's collapsed
+        // Now Bar pill (computed by the notifier with the same precedence
+        // as the mirror itself). Falls back to Samsung blue when the
+        // notifier did not provide one.
+        val accentColor = if (intent.hasExtra(ReplyProxyService.EXTRA_REPLY_ACCENT_COLOR)) {
+            val provided = intent.getIntExtra(
+                ReplyProxyService.EXTRA_REPLY_ACCENT_COLOR,
+                Color.rgb(10, 108, 255)
+            )
+            Color.argb(255, Color.red(provided), Color.green(provided), Color.blue(provided))
+        } else {
+            Color.rgb(10, 108, 255)
+        }
 
-        val density = resources.displayMetrics.density
-        fun dp(value: Int): Int = (value * density).toInt()
+
+        val card = buildCardUnit(
+            titleText = titleText,
+            contextText = contextText,
+            sourceIcon = sourceIcon,
+            accentColor = accentColor,
+            hintText = hintText,
+            sendText = sendText,
+            interactive = true
+        )
+        val unit = card.unit
+        input = card.inputField!!
+        currentUnit = unit
+        attachSwipeGesture(card.header, unit)
+
+        // Full-screen transparent root so the window's blur-behind covers
+        // the whole backdrop (a window only as tall as the unit would hide
+        // the blur behind the opaque card). The unit floats at the top;
+        // tapping anywhere below it dismisses the editor.
+        val statusBarHeight = resources.getIdentifier("status_bar_height", "dimen", "android")
+            .takeIf { it > 0 }
+            ?.let { resources.getDimensionPixelSize(it) }
+            ?: dp(24)
+        val root = FrameLayout(this).apply {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            addView(
+                unit,
+                FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    Gravity.TOP
+                ).apply {
+                    // Just under the status/info bar, with a 4dp gap.
+                    topMargin = statusBarHeight + dp(4)
+                }
+            )
+            setOnTouchListener { _, event ->
+                if (event.action == MotionEvent.ACTION_DOWN && event.y > unit.bottom) {
+                    finish()
+                    true
+                } else {
+                    false
+                }
+            }
+        }
+        setContentView(root)
+        setFinishOnTouchOutside(true)
+
+        // The NEXT replyable conversation's card, stacked behind the
+        // current one (invisible at rest): the pull-down drag reveals it
+        // as it scales up to take the front, like the Now Bar card stack.
+        val preview = buildNextPreview()
+        if (preview != null) {
+            root.addView(
+                preview,
+                0,
+                FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    Gravity.TOP
+                ).apply {
+                    topMargin = statusBarHeight + dp(4)
+                }
+            )
+            nextPreview = preview
+        }
+
+        window?.apply {
+            // A faint dark veil over the blurred backdrop (frosted glass).
+            setBackgroundDrawable(ColorDrawable(Color.argb(36, 8, 10, 14)))
+            setLayout(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT
+            )
+            attributes = attributes.apply {
+                gravity = Gravity.TOP
+                y = 0
+                dimAmount = 0.15f
+                // Frosted-glass backdrop like the Now Bar reading view.
+                blurBehindRadius = dp(40)
+            }
+            addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+            addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN)
+            addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+        }
+
+        input.requestFocus()
+        input.post {
+            val imm = getSystemService(InputMethodManager::class.java)
+            imm?.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT)
+        }
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    /** Blends two colors; ratio 0 returns [from], 1 returns [to]. */
+    private fun blendColor(from: Int, to: Int, ratio: Float): Int {
+        val r = ratio.coerceIn(0f, 1f)
+        return Color.argb(
+            255,
+            (Color.red(from) + (Color.red(to) - Color.red(from)) * r).toInt(),
+            (Color.green(from) + (Color.green(to) - Color.green(from)) * r).toInt(),
+            (Color.blue(from) + (Color.blue(to) - Color.blue(from)) * r).toInt()
+        )
+    }
+
+    /** Scales a color's RGB channels by [factor] (below 1 darkens it). */
+    private fun darkenColor(color: Int, factor: Float): Int {
+        return Color.argb(
+            255,
+            (Color.red(color) * factor).toInt().coerceIn(0, 255),
+            (Color.green(color) * factor).toInt().coerceIn(0, 255),
+            (Color.blue(color) * factor).toInt().coerceIn(0, 255)
+        )
+    }
+
+    /** The built card unit plus the pieces callers need from it. */
+    private data class CardUnit(
+        val unit: LinearLayout,
+        val header: LinearLayout,
+        val inputField: EditText?
+    )
+
+    /**
+     * Builds the combined reply card (conversation header + reply
+     * strip) from plain display data, so the same construction renders
+     * both the live editor ([interactive] = true) and the passive
+     * next-card preview stacked behind it during the pull-down gesture.
+     */
+    private fun buildCardUnit(
+        titleText: String,
+        contextText: String?,
+        sourceIcon: android.graphics.drawable.Drawable?,
+        accentColor: Int,
+        hintText: String,
+        sendText: String,
+        interactive: Boolean
+    ): CardUnit {
         val radius = dp(24).toFloat()
 
         // One combined unit: dark conversation card on top, blue reply
@@ -98,13 +279,15 @@ class ReplyInputActivity : Activity() {
         val unit = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             elevation = dp(8).toFloat()
-            layoutParams = ViewGroup.MarginLayoutParams(
+            layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply {
-                leftMargin = dp(8)
-                rightMargin = dp(8)
-            }
+            )
+            // Inset from both screen edges like the expanded Now Bar
+            // card. Padding, not margins: margins on an activity's root
+            // view are silently dropped by the window, which is why the
+            // earlier margin attempts never narrowed the unit.
+            setPadding(dp(16), 0, dp(16), 0)
         }
 
         // --- Dark conversation card (icon + name + latest message) ---
@@ -112,8 +295,19 @@ class ReplyInputActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(16), dp(14), dp(16), dp(14))
-            background = GradientDrawable().apply {
-                setColor(Color.rgb(13, 18, 24))
+            // Gradient like the expanded Now Bar content surface, mixed
+            // 50-50: the accent tint and the near-black end color meet at
+            // an exact halfway blend in the middle of the card.
+            val headerStart = blendColor(accentColor, Color.rgb(13, 18, 24), 0.5f)
+            val headerEnd = Color.rgb(8, 11, 15)
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(
+                    headerStart,
+                    blendColor(headerStart, headerEnd, 0.5f),
+                    headerEnd
+                )
+            ).apply {
                 cornerRadii = floatArrayOf(
                     radius, radius, radius, radius, // top-left, top-right
                     0f, 0f, 0f, 0f // bottom corners square: strip attaches here
@@ -172,8 +366,15 @@ class ReplyInputActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(12), dp(10), dp(10), dp(10))
-            background = GradientDrawable().apply {
-                setColor(accentColor)
+            val stripEnd = darkenColor(accentColor, 0.86f)
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(
+                    accentColor,
+                    blendColor(accentColor, stripEnd, 0.5f),
+                    stripEnd
+                )
+            ).apply {
                 cornerRadii = floatArrayOf(
                     0f, 0f, 0f, 0f, // top corners square: attaches to the card
                     radius, radius, radius, radius // bottom-left, bottom-right
@@ -181,7 +382,7 @@ class ReplyInputActivity : Activity() {
             }
         }
 
-        input = EditText(this).apply {
+        val field = EditText(this).apply {
             this.hint = hintText
             textSize = 16f
             setTextColor(Color.WHITE)
@@ -199,7 +400,7 @@ class ReplyInputActivity : Activity() {
                 1f
             ).apply { rightMargin = dp(6) }
         }
-        strip.addView(input)
+        strip.addView(field)
 
         val send = TextView(this).apply {
             text = sendText
@@ -207,98 +408,382 @@ class ReplyInputActivity : Activity() {
             setTextColor(Color.WHITE)
             alpha = 0.95f
             setPadding(dp(10), dp(8), dp(8), dp(8))
-            setOnClickListener { submit() }
+            if (interactive) {
+                setOnClickListener { submit() }
+            }
         }
         strip.addView(send)
         unit.addView(strip)
-
-        setContentView(unit)
-        setFinishOnTouchOutside(true)
-
-        // Anchor the unit to the top edge, just below the status bar,
-        // where the expanded Now Bar card is displayed.
-        val statusBarHeight = resources.getIdentifier("status_bar_height", "dimen", "android")
-            .takeIf { it > 0 }
-            ?.let { resources.getDimensionPixelSize(it) }
-            ?: dp(24)
-        window?.apply {
-            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-            setLayout(
-                WindowManager.LayoutParams.MATCH_PARENT,
-                WindowManager.LayoutParams.WRAP_CONTENT
-            )
-            attributes = attributes.apply {
-                gravity = Gravity.TOP
-                // Sit snug against the status/notification bar.
-                y = statusBarHeight + dp(2)
-                dimAmount = 0.2f
-            }
-            addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+        if (!interactive) {
+            field.isEnabled = false
+            field.isFocusable = false
         }
+        return CardUnit(unit, header, if (interactive) field else null)
+    }
 
-        input.requestFocus()
-        input.post {
-            val imm = getSystemService(InputMethodManager::class.java)
-            imm?.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT)
+    /**
+     * Builds the passive preview card for the NEXT reply session (the
+     * one a pull-down would switch to), pre-stacked behind the current
+     * card: fully transparent and slightly scaled down at rest, rising
+     * to full size/opacity as the pull progresses. Null when there is
+     * no next conversation.
+     */
+    private fun buildNextPreview(): LinearLayout? {
+        val keys = LiveUpdateNotifier.replyableMirrorKeys()
+        val currentKey = intent.getStringExtra(ReplyProxyService.EXTRA_MIRROR_KEY).orEmpty()
+        val index = keys.indexOf(currentKey)
+        if (index < 0 || keys.size < 2) return null
+        // The stack loops like the Now Bar: after the last card comes
+        // the first one again.
+        val nextIntent = LiveUpdateNotifier.replyEditorIntent(
+            this,
+            keys[(index + 1) % keys.size]
+        ) ?: return null
+        val conversation = nextIntent.getStringExtra(ReplyProxyService.EXTRA_REPLY_CONVERSATION)
+            ?.takeIf { it.isNotBlank() }
+        val label = nextIntent.getStringExtra(ReplyProxyService.EXTRA_REPLY_LABEL)
+            ?.takeIf { it.isNotBlank() }
+        val hint = nextIntent.getStringExtra(ReplyProxyService.EXTRA_REPLY_HINT)
+            ?.takeIf { it.isNotBlank() }
+        val contextText = nextIntent.getStringExtra(ReplyProxyService.EXTRA_REPLY_CONTEXT_TEXT)
+            ?.takeIf { it.isNotBlank() }
+        val sourcePackage = nextIntent.getStringExtra(ReplyProxyService.EXTRA_REPLY_SOURCE_PACKAGE)
+            ?.takeIf { it.isNotBlank() }
+        val sourceIcon = sourcePackage?.let { pkg ->
+            try {
+                packageManager.getApplicationIcon(pkg)
+            } catch (error: PackageManager.NameNotFoundException) {
+                null
+            }
+        }
+        val accentColor = if (nextIntent.hasExtra(ReplyProxyService.EXTRA_REPLY_ACCENT_COLOR)) {
+            val provided = nextIntent.getIntExtra(
+                ReplyProxyService.EXTRA_REPLY_ACCENT_COLOR,
+                Color.rgb(10, 108, 255)
+            )
+            Color.argb(255, Color.red(provided), Color.green(provided), Color.blue(provided))
+        } else {
+            Color.rgb(10, 108, 255)
+        }
+        val vi = NativeAppStrings.language(this) == "vi"
+        val card = buildCardUnit(
+            titleText = conversation ?: label ?: if (vi) "Trả lời" else "Reply",
+            contextText = contextText,
+            sourceIcon = sourceIcon,
+            accentColor = accentColor,
+            hintText = hint ?: if (vi) "Trả lời" else "Reply",
+            sendText = if (vi) "Gửi" else "Send",
+            interactive = false
+        )
+        return card.unit.apply {
+            alpha = 0f
+            scaleX = 0.94f
+            scaleY = 0.94f
+            pivotY = 0f
+            elevation = 0f
+        }
+    }
+
+    // --- Frame-driven drag follow ------------------------------------
+    // A single Choreographer loop eases the current card (and the
+    // stacked preview behind it) toward the drag target every frame.
+    // This replaces per-touch-event property animators, whose constant
+    // restarts fought each other and made the drag feel steppy.
+    private var followTargetY = 0f
+    private var followDragging = false
+    private var followPosted = false
+
+    private val followCallback = object : Choreographer.FrameCallback {
+        override fun doFrame(frameTimeNanos: Long) {
+            val unit = currentUnit
+            if (unit == null) {
+                followPosted = false
+                return
+            }
+            val target = followTargetY
+            val next = unit.translationY + (target - unit.translationY) * 0.35f
+            unit.translationY = if (Math.abs(target - next) < 0.6f) target else next
+            if (unit.height > 0) {
+                val progress = (unit.translationY / (unit.height * 0.55f))
+                    .coerceIn(0f, 1f)
+                // The dragged card keeps its full size; the next card
+                // behind it stays a touch smaller the whole drag, like
+                // the Now Bar stack.
+                nextPreview?.let { preview ->
+                    preview.alpha = progress
+                    val scale = 0.94f + 0.03f * progress
+                    preview.scaleX = scale
+                    preview.scaleY = scale
+                }
+            }
+            if (followDragging || Math.abs(target - unit.translationY) >= 0.6f) {
+                Choreographer.getInstance().postFrameCallback(this)
+            } else {
+                followPosted = false
+            }
+        }
+    }
+
+    private fun startFollow() {
+        if (!followPosted) {
+            followPosted = true
+            Choreographer.getInstance().postFrameCallback(followCallback)
+        }
+    }
+
+    private fun stopFollow() {
+        followDragging = false
+        Choreographer.getInstance().removeFrameCallback(followCallback)
+        followPosted = false
+    }
+
+    /**
+     * Pull-down-to-next between replyable Now Bar cards, mirroring the
+     * system's card-stack gesture: drag the card DOWN and it follows
+     * the finger; release and it glides out while the NEXT conversation
+     * glides in from the top. One-way only — there is no swipe back.
+     * Attached to the header card so it never fights the text field.
+     *
+     * The drag feel copies the system's card: the raw pull is
+     * rubber-band damped (the card travels only part of the finger's
+     * distance and resists harder the further it goes) and the card
+     * eases toward the damped target with short trailing animations
+     * instead of tracking the finger 1:1 — so small finger tremors do
+     * not make it jitter.
+     */
+    private fun attachSwipeGesture(gestureView: LinearLayout, unit: LinearLayout) {
+        var rawPull = 0f
+        var dampedPull = 0f
+        var axisLocked = false
+        var axisVertical = false
+        val detector = GestureDetector(
+            this,
+            object : GestureDetector.SimpleOnGestureListener() {
+                override fun onDown(e: MotionEvent): Boolean {
+                    rawPull = 0f
+                    dampedPull = 0f
+                    axisLocked = false
+                    axisVertical = false
+                    unit.animate().cancel()
+                    followTargetY = 0f
+                    followDragging = true
+                    startFollow()
+                    return true
+                }
+
+                override fun onScroll(
+                    e1: MotionEvent?,
+                    e2: MotionEvent,
+                    distanceX: Float,
+                    distanceY: Float
+                ): Boolean {
+                    if (switchingSession || unit.height == 0) return false
+                    if (!axisLocked && e1 != null) {
+                        val slop = 8f * resources.displayMetrics.density
+                        val cumDx = Math.abs(e2.x - e1.x)
+                        val cumDy = Math.abs(e2.y - e1.y)
+                        if (cumDx > slop || cumDy > slop) {
+                            // Commit to one axis for the whole gesture so
+                            // diagonal wobble cannot start/stop the drag.
+                            axisLocked = true
+                            axisVertical = cumDy > cumDx
+                        }
+                    }
+                    if (!axisVertical) return true
+                    // Downward only: upward finger movement just unwinds
+                    // the pull, never below zero. The travel range is
+                    // capped like the Now Bar card's: the card can be
+                    // pulled at most ~55% of its own height, with the
+                    // rubber band stiffening towards that limit.
+                    rawPull = (rawPull - distanceY).coerceAtLeast(0f)
+                    val cap = unit.height * 0.6f
+                    val damped = if (rawPull <= cap) {
+                        rawPull * 0.55f
+                    } else {
+                        cap * 0.55f + (rawPull - cap) * 0.10f
+                    }
+                    dampedPull = damped.coerceAtMost(unit.height * 0.55f)
+                    // The frame loop eases the card (and the stacked
+                    // preview behind it) toward this target.
+                    followTargetY = dampedPull
+                    return true
+                }
+
+                override fun onFling(
+                    e1: MotionEvent?,
+                    e2: MotionEvent,
+                    velocityX: Float,
+                    velocityY: Float
+                ): Boolean {
+                    if (velocityY > 400f && velocityY > Math.abs(velocityX)) {
+                        switchToNext(unit)
+                        return true
+                    }
+                    return false
+                }
+            }
+        )
+        gestureView.setOnTouchListener { _, event ->
+            // While a switch is animating, swallow touches whole: a
+            // fresh drag here would cancel the in-flight animator and
+            // wedge the switch half-done.
+            if (switchingSession) return@setOnTouchListener true
+            val handled = detector.onTouchEvent(event)
+            if (event.action == MotionEvent.ACTION_UP ||
+                event.action == MotionEvent.ACTION_CANCEL
+            ) {
+                if (!switchingSession && unit.height > 0) {
+                    // A deliberate pull then release switches to the next
+                    // conversation; anything less settles back smoothly.
+                    val threshold = 28f * resources.displayMetrics.density
+                    if (dampedPull >= threshold) {
+                        switchToNext(unit)
+                    } else {
+                        snapBack(unit)
+                    }
+                }
+            }
+            handled
+        }
+    }
+
+    /** Animates back to rest when a swipe does not commit to a switch. */
+    private fun snapBack(unit: LinearLayout) {
+        stopFollow()
+        nextPreview?.let { preview ->
+            preview.animate()
+                .alpha(0f)
+                .scaleX(0.94f)
+                .scaleY(0.94f)
+                .setDuration(200)
+                .setInterpolator(DecelerateInterpolator())
+                .start()
+        }
+        if (unit.translationY != 0f || unit.scaleX != 1f) {
+            unit.animate()
+                .translationY(0f)
+                .translationZ(0f)
+                .scaleX(1f)
+                .scaleY(1f)
+                .alpha(1f)
+                .setDuration(200)
+                .setInterpolator(DecelerateInterpolator())
+                .start()
         }
     }
 
     /**
-     * Extracts the dominant saturated color from an app icon: renders it
-     * tiny, averages the pixels that carry real color (skipping
-     * transparent, near-gray, near-black and near-white ones, weighted by
-     * saturation), then clamps the result into a range where white text
-     * stays readable. Returns null when the icon has no usable color.
+     * Glides the current card down and out, then rebuilds the editor
+     * for the NEXT reply session in
+     * [LiveUpdateNotifier.replyableMirrorKeys] order, wrapping from
+     * the last card back to the first like the Now Bar card stack.
      */
-    private fun extractAccentColor(icon: Drawable?): Int? {
-        if (icon == null) {
-            return null
+    private fun switchToNext(unit: LinearLayout) {
+        if (switchingSession) return
+        stopFollow()
+        val keys = LiveUpdateNotifier.replyableMirrorKeys()
+        val currentKey = intent.getStringExtra(ReplyProxyService.EXTRA_MIRROR_KEY).orEmpty()
+        val index = keys.indexOf(currentKey)
+        // Loop like the Now Bar stack: after the last card, the first.
+        if (index < 0 || keys.size < 2) {
+            snapBack(unit)
+            return
         }
-        val size = 24
-        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-        icon.setBounds(0, 0, size, size)
-        icon.draw(canvas)
-
-        var weightSum = 0.0
-        var rSum = 0.0
-        var gSum = 0.0
-        var bSum = 0.0
-        for (x in 0 until size) {
-            for (y in 0 until size) {
-                val pixel = bitmap.getPixel(x, y)
-                if (Color.alpha(pixel) < 160) {
-                    continue
-                }
-                val r = Color.red(pixel)
-                val g = Color.green(pixel)
-                val b = Color.blue(pixel)
-                val max = maxOf(r, g, b)
-                val min = minOf(r, g, b)
-                if (max - min < 30 || max < 25 || min > 235) {
-                    continue
-                }
-                val weight = (max - min).toDouble() / 255.0
-                weightSum += weight
-                rSum += r * weight
-                gSum += g * weight
-                bSum += b * weight
+        val targetIndex = (index + 1) % keys.size
+        val targetIntent = LiveUpdateNotifier.replyEditorIntent(this, keys[targetIndex])
+        if (targetIntent == null) {
+            snapBack(unit)
+            return
+        }
+        switchingSession = true
+        // Release effect, copied from the Now Bar stack: the pulled
+        // card's Z drops below the next card's at once, then it POPS
+        // UP past the slot and settles back into the EXACT original
+        // position — full size, one layer behind — while the next
+        // card takes the front. Then the editor rebuilds onto the
+        // next conversation, seamlessly, because the preview already
+        // holds the front pose and the filed card has faded in place.
+        val hadPreview = nextPreview != null
+        nextPreview?.let { preview ->
+            preview.animate()
+                .alpha(1f)
+                .scaleX(1f)
+                .scaleY(1f)
+                .setDuration(380)
+                .setInterpolator(DecelerateInterpolator())
+                .start()
+        }
+        val oldHeight = unit.height
+        val rebuild = {
+            pendingSwitchCompletion?.let { mainHandler.removeCallbacks(it) }
+            pendingSwitchCompletion = null
+            switchFadeAnimator?.cancel()
+            switchFadeAnimator = null
+            if (isFinishing) {
+                switchingSession = false
+            } else {
+            setIntent(targetIntent)
+            onLaunch()
+            val newUnit = currentUnit
+            if (newUnit == null) {
+                switchingSession = false
+            } else if (hadPreview) {
+                // The preview already showed this card in place at full
+                // size: the rebuilt editor simply takes over.
+                newUnit.translationY = 0f
+                newUnit.alpha = 1f
+                switchingSession = false
+            } else {
+                val travel = oldHeight + 40f * resources.displayMetrics.density
+                newUnit.translationY = -travel * 0.6f
+                newUnit.alpha = 0f
+                newUnit.animate()
+                    .translationY(0f)
+                    .alpha(1f)
+                    .setDuration(200)
+                    .withEndAction { switchingSession = false }
+                    .start()
+            }
             }
         }
-        bitmap.recycle()
-        if (weightSum <= 0.0) {
-            return null
+        // Completion is TIMER-driven, never hung off an animator's end
+        // action: if anything cancels the visuals mid-flight, the
+        // switch still completes and the editor can never wedge in a
+        // half-switched, invisible, gesture-dead state.
+        val completion = Runnable { rebuild() }
+        pendingSwitchCompletion = completion
+        if (hadPreview) {
+            mainHandler.postDelayed(completion, 380)
+            // Behind from the very first frame of the release; the
+            // overshoot spring carries the card up past the slot and
+            // settles it back into the exact original position, one
+            // layer behind the new front card — the Now Bar stack move.
+            unit.translationZ = -12f * resources.displayMetrics.density
+            unit.animate()
+                .translationY(0f)
+                .setDuration(380)
+                .setInterpolator(OvershootInterpolator(1.3f))
+                .start()
+            // The fade runs on its own animator (a second animate()
+            // call would reconfigure the same animator, not run in
+            // parallel): it fades only while settling into the back
+            // slot, hiding the rebuild seam.
+            switchFadeAnimator =
+                android.animation.ObjectAnimator.ofFloat(unit, "alpha", unit.alpha, 0f)
+                    .apply {
+                        startDelay = 250
+                        duration = 130
+                        start()
+                    }
+        } else {
+            mainHandler.postDelayed(completion, 220)
+            unit.animate()
+                .translationY(-unit.height * 0.6f)
+                .alpha(0f)
+                .setDuration(220)
+                .setInterpolator(DecelerateInterpolator())
+                .start()
         }
-        val hsv = FloatArray(3)
-        Color.RGBToHSV(
-            (rSum / weightSum).toInt().coerceIn(0, 255),
-            (gSum / weightSum).toInt().coerceIn(0, 255),
-            (bSum / weightSum).toInt().coerceIn(0, 255),
-            hsv
-        )
-        hsv[1] = hsv[1].coerceIn(0.55f, 0.92f)
-        hsv[2] = hsv[2].coerceIn(0.5f, 0.82f)
-        return Color.HSVToColor(hsv)
     }
 
     /** Forwards this activity's launch intent (extras + RemoteInput results) to ReplyProxyService. */

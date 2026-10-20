@@ -9166,6 +9166,27 @@ object LiveUpdateNotifier {
                     ?: notification.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()
             }?.takeIf { it.isNotBlank() }?.take(200)
 
+            // The exact accent the mirror's Now Bar pill wears: the
+            // per-app custom color when one is configured, otherwise the
+            // chip background resolved from the source notification — the
+            // same precedence mirrorNotification uses for
+            // builderAccentColor. The reply strip reuses it so the editor
+            // matches the collapsed Now Bar of that app.
+            val replyAccentColor = run {
+                val sourcePackageLower = synchronized(stateLock) {
+                    sourceSnapshotsByMirrorKey[mirrorKey]?.packageName
+                }?.lowercase(Locale.ROOT)
+                val customColor = sourcePackageLower?.let { pkgLower ->
+                    AppPresentationOverridesLoader
+                        .get(ConverterPrefs(context))
+                        .resolve(pkgLower)
+                        .effectiveNotificationColorArgb()
+                }
+                customColor ?: sourceNotification?.let {
+                    SamsungLiveUpdateReparser.resolveChipBackgroundColor(it)
+                }
+            }
+
             // Target the activity directly: an activity PendingIntent fired
             // from a notification action is exempt from background-activity
             // launch restrictions, while a broadcast receiver that then tries
@@ -9190,6 +9211,9 @@ object LiveUpdateNotifier {
                     ReplyProxyService.EXTRA_REPLY_SOURCE_PACKAGE,
                     synchronized(stateLock) { sourceSnapshotsByMirrorKey[mirrorKey]?.packageName }
                 )
+                if (replyAccentColor != null) {
+                    putExtra(ReplyProxyService.EXTRA_REPLY_ACCENT_COLOR, replyAccentColor)
+                }
             }
             PendingIntent.getActivity(
                 context,
@@ -9201,6 +9225,81 @@ object LiveUpdateNotifier {
             Log.w(TAG, "Failed to create proxy reply PendingIntent for mirrorKey=$mirrorKey", e)
             null
         }
+    }
+
+    /**
+     * Builds a fresh editor intent for [mirrorKey]'s current reply
+     * session, or null when the mirror no longer has a replyable source.
+     * Used by ReplyInputActivity to switch conversations with a swipe,
+     * without going through a PendingIntent.
+     */
+    internal fun replyEditorIntent(context: Context, mirrorKey: String): Intent? {
+        val snapshot = synchronized(stateLock) {
+            sourceSnapshotsByMirrorKey[mirrorKey]
+        } ?: return null
+        val source = snapshot.notification
+        val replyAction = source.actions?.firstOrNull { action ->
+            !action.remoteInputs.isNullOrEmpty() && action.actionIntent != null
+        } ?: return null
+        val remoteInput = replyAction.remoteInputs!!.first()
+        val originalIntent = replyAction.actionIntent ?: return null
+        val threadKey = resolveThreadKeyForMirror(mirrorKey)
+        val sourceKey = snapshot.key.takeIf { it.isNotBlank() } ?: mirrorKey
+        val mirrorNotificationId = synchronized(stateLock) {
+            mirrorNotificationIdsByKey[mirrorKey]?.firstOrNull()
+        } ?: mirrorIdForKey(mirrorKey)
+        val conversationTitle = source.extras.let { extras ->
+            extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)?.toString()
+                ?: extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()
+        }?.takeIf { it.isNotBlank() }
+        val latestMessageText = (
+            rawNotificationMessages(source).lastOrNull()?.text?.toString()
+                ?: source.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()
+            )?.takeIf { it.isNotBlank() }?.take(200)
+        val replyAccentColor = run {
+            val customColor = AppPresentationOverridesLoader
+                .get(ConverterPrefs(context))
+                .resolve(snapshot.packageName.lowercase(Locale.ROOT))
+                .effectiveNotificationColorArgb()
+            customColor ?: SamsungLiveUpdateReparser.resolveChipBackgroundColor(source)
+        }
+        return Intent(context, ReplyInputActivity::class.java).apply {
+            action = ReplyProxyService.ACTION_PROXY_REPLY
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(ReplyProxyService.EXTRA_ORIGINAL_PENDING_INTENT, originalIntent)
+            putExtra(ReplyProxyService.EXTRA_MIRROR_KEY, mirrorKey)
+            putExtra(ReplyProxyService.EXTRA_RESULT_KEY, remoteInput.resultKey)
+            putExtra(ReplyProxyService.EXTRA_THREAD_KEY, threadKey)
+            putExtra(ReplyProxyService.EXTRA_MIRROR_NOTIFICATION_ID, mirrorNotificationId)
+            putExtra(ReplyProxyService.EXTRA_SOURCE_KEY, sourceKey)
+            putExtra(ReplyProxyService.EXTRA_REPLY_LABEL, replyAction.title?.toString())
+            putExtra(ReplyProxyService.EXTRA_REPLY_HINT, remoteInput.label?.toString())
+            putExtra(ReplyProxyService.EXTRA_REPLY_CONVERSATION, conversationTitle)
+            putExtra(ReplyProxyService.EXTRA_REPLY_CONTEXT_TEXT, latestMessageText)
+            putExtra(ReplyProxyService.EXTRA_REPLY_SOURCE_PACKAGE, snapshot.packageName)
+            putExtra(ReplyProxyService.EXTRA_REPLY_ACCENT_COLOR, replyAccentColor)
+        }
+    }
+
+    /**
+     * Mirror keys whose source currently offers a reply action and whose
+     * mirror is still posted, newest first — the swipe order for the
+     * reply editor's card stack.
+     */
+    internal fun replyableMirrorKeys(): List<String> {
+        val entries = synchronized(stateLock) {
+            sourceSnapshotsByMirrorKey.entries
+                .filter { (key, _) -> mirrorNotificationIdsByKey.containsKey(key) }
+                .map { it.key to it.value }
+        }
+        return entries
+            .filter { (_, sbn) ->
+                sbn.notification.actions?.any { action ->
+                    !action.remoteInputs.isNullOrEmpty() && action.actionIntent != null
+                } == true
+            }
+            .sortedByDescending { (_, sbn) -> sbn.postTime }
+            .map { (key, _) -> key }
     }
 
     fun forceUpdateChatUi(context: Context, threadKey: String) {

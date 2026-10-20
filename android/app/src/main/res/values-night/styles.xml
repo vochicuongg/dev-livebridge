@@ -16,5 +16,14 @@
         <item name="android:windowBackground">?android:colorBackground</item>
     </style>
     <!-- Dialog theme for the native reply editor (ReplyInputActivity). -->
-    <style name="ReplyInputTheme" parent="@android:style/Theme.DeviceDefault.Dialog.Alert" />
+    <!-- Same non-floating translucent theme as values/styles.xml. -->
+    <style name="ReplyInputTheme" parent="@android:style/Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowIsFloating">false</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowFrame">@null</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:backgroundDimEnabled">true</item>
+        <item name="android:windowDisablePreview">true</item>
+    </style>
 </resources>
