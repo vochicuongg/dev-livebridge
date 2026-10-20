@@ -674,20 +674,20 @@ class ReplyInputActivity : Activity() {
         }
         switchingSession = true
         // Release effect, copied from the Now Bar stack: the pulled
-        // card POPS UP and slips BEHIND the next card — it springs
-        // upward past its rest position, shrinks to the back-card
-        // scale and sinks below the next card's Z, so it disappears
-        // behind the stack with its top edge peeking out above, while
-        // the next card takes the front. Then the editor rebuilds onto
-        // the next conversation, seamlessly, because the preview
-        // already holds the front pose.
+        // card POPS UP and slips BEHIND the next card at FULL size —
+        // no shrinking: its Z drops below the next card's at once, then
+        // it springs upward, so the front card covers its lower part
+        // and it reads as filed behind the pile while the next card
+        // takes the front. Then the editor rebuilds onto the next
+        // conversation, seamlessly, because the preview already holds
+        // the front pose.
         val hadPreview = nextPreview != null
         nextPreview?.let { preview ->
             preview.animate()
                 .alpha(1f)
                 .scaleX(1f)
                 .scaleY(1f)
-                .setDuration(260)
+                .setDuration(240)
                 .setInterpolator(DecelerateInterpolator())
                 .start()
         }
@@ -717,16 +717,12 @@ class ReplyInputActivity : Activity() {
             }
         }
         if (hadPreview) {
+            // Behind from the very first frame of the release, then a
+            // clean upward pop at full size — the Now Bar stack move.
+            unit.translationZ = -12f * resources.displayMetrics.density
             unit.animate()
-                // Pop UP behind the stack: rising past the rest
-                // position while its Z sinks below the preview's, so
-                // the front card covers it and only its top edge
-                // peeks out above the pile, like the Now Bar.
-                .translationY(-unit.height * 0.38f)
-                .scaleX(0.94f)
-                .scaleY(0.94f)
-                .translationZ(-12f * resources.displayMetrics.density)
-                .setDuration(260)
+                .translationY(-unit.height * 0.5f)
+                .setDuration(240)
                 .setInterpolator(DecelerateInterpolator())
                 .withEndAction { rebuild() }
                 .start()
@@ -735,8 +731,8 @@ class ReplyInputActivity : Activity() {
             // parallel): the card fades once it is mostly behind.
             android.animation.ObjectAnimator.ofFloat(unit, "alpha", unit.alpha, 0f)
                 .apply {
-                    startDelay = 110
-                    duration = 150
+                    startDelay = 100
+                    duration = 140
                     start()
                 }
         } else {
