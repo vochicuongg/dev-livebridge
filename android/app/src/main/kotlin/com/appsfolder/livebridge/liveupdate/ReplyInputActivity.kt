@@ -342,12 +342,11 @@ class ReplyInputActivity : Activity() {
     }
 
     /**
-     * Swipe-to-switch between replyable Now Bar cards, mirroring the
-     * system's card-stack gesture: pull the card DOWN (or push it UP)
-     * and it follows the finger; release past a quarter of its height
-     * (or fling) and it glides out while the next/previous
-     * conversation glides in. Attached to the header card so it never
-     * fights the text field.
+     * Pull-down-to-next between replyable Now Bar cards, mirroring the
+     * system's card-stack gesture: drag the card DOWN and it follows
+     * the finger; release and it glides out while the NEXT conversation
+     * glides in from the top. One-way only — there is no swipe back.
+     * Attached to the header card so it never fights the text field.
      */
     private fun attachSwipeGesture(gestureView: LinearLayout, unit: LinearLayout) {
         val detector = GestureDetector(
@@ -365,8 +364,9 @@ class ReplyInputActivity : Activity() {
                     val startX = e1?.x ?: e2.x
                     val startY = e1?.y ?: e2.y
                     if (Math.abs(e2.y - startY) > Math.abs(e2.x - startX)) {
+                        // Downward only: the card never follows upward.
                         unit.translationY = (unit.translationY - distanceY)
-                            .coerceIn(-unit.height.toFloat(), unit.height.toFloat())
+                            .coerceIn(0f, unit.height.toFloat())
                     }
                     return true
                 }
@@ -377,11 +377,8 @@ class ReplyInputActivity : Activity() {
                     velocityX: Float,
                     velocityY: Float
                 ): Boolean {
-                    if (Math.abs(velocityY) > Math.abs(velocityX) &&
-                        Math.abs(velocityY) > 400f
-                    ) {
-                        // Flick down = next card, flick up = previous.
-                        switchSession(if (velocityY > 0) 1 else -1, unit)
+                    if (velocityY > 400f && velocityY > Math.abs(velocityX)) {
+                        switchToNext(unit)
                         return true
                     }
                     return false
@@ -394,11 +391,13 @@ class ReplyInputActivity : Activity() {
                 event.action == MotionEvent.ACTION_CANCEL
             ) {
                 if (!switchingSession && unit.height > 0) {
-                    val threshold = unit.height * 0.25f
-                    when {
-                        unit.translationY >= threshold -> switchSession(1, unit)
-                        unit.translationY <= -threshold -> switchSession(-1, unit)
-                        else -> snapBack(unit)
+                    // A deliberate pull (past ~24dp) then release switches
+                    // to the next conversation; anything less settles back.
+                    val threshold = 24f * resources.displayMetrics.density
+                    if (unit.translationY >= threshold) {
+                        switchToNext(unit)
+                    } else {
+                        snapBack(unit)
                     }
                 }
             }
@@ -414,18 +413,18 @@ class ReplyInputActivity : Activity() {
     }
 
     /**
-     * Glides the current card out and rebuilds the editor for the
-     * neighbouring reply session ([direction] +1 = next, -1 = previous)
-     * in [LiveUpdateNotifier.replyableMirrorKeys] order. The card exits
-     * in the swipe direction and the new one enters from the other side,
-     * like the Now Bar card stack.
+     * Glides the current card down and out, then rebuilds the editor
+     * for the NEXT reply session in
+     * [LiveUpdateNotifier.replyableMirrorKeys] order; the new card
+     * enters from the top, like the Now Bar card stack. At the last
+     * conversation the card simply settles back.
      */
-    private fun switchSession(direction: Int, unit: LinearLayout) {
+    private fun switchToNext(unit: LinearLayout) {
         if (switchingSession) return
         val keys = LiveUpdateNotifier.replyableMirrorKeys()
         val currentKey = intent.getStringExtra(ReplyProxyService.EXTRA_MIRROR_KEY).orEmpty()
         val index = keys.indexOf(currentKey)
-        val targetIndex = index + direction
+        val targetIndex = index + 1
         if (index < 0 || keys.size < 2 || targetIndex !in keys.indices) {
             snapBack(unit)
             return
@@ -437,7 +436,7 @@ class ReplyInputActivity : Activity() {
         }
         switchingSession = true
         val travel = unit.height + 40f * resources.displayMetrics.density
-        val outY = if (direction > 0) travel else -travel
+        val outY = travel
         unit.animate()
             .translationY(outY)
             .alpha(0f)
