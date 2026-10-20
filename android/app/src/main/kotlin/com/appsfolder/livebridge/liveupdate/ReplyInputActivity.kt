@@ -48,6 +48,9 @@ class ReplyInputActivity : Activity() {
     private var currentUnit: LinearLayout? = null
     private var switchingSession = false
     private var nextPreview: LinearLayout? = null
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var pendingSwitchCompletion: Runnable? = null
+    private var switchFadeAnimator: android.animation.Animator? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -67,6 +70,16 @@ class ReplyInputActivity : Activity() {
     private fun onLaunch() {
         resultKey = intent.getStringExtra(ReplyProxyService.EXTRA_RESULT_KEY).orEmpty()
         nextPreview = null
+        // Self-heal: every (re)launch starts from a clean slate, so a
+        // switch left half-finished by rapid pull-release cycles can
+        // never wedge the editor in an invisible, non-interactive state.
+        switchingSession = false
+        stopFollow()
+        followTargetY = 0f
+        pendingSwitchCompletion?.let { mainHandler.removeCallbacks(it) }
+        pendingSwitchCompletion = null
+        switchFadeAnimator?.cancel()
+        switchFadeAnimator = null
 
         // The host surface provided its own reply editor (Wear OS, the
         // notification shade): forward its RemoteInput results to the reply
@@ -611,6 +624,10 @@ class ReplyInputActivity : Activity() {
             }
         )
         gestureView.setOnTouchListener { _, event ->
+            // While a switch is animating, swallow touches whole: a
+            // fresh drag here would cancel the in-flight animator and
+            // wedge the switch half-done.
+            if (switchingSession) return@setOnTouchListener true
             val handled = detector.onTouchEvent(event)
             if (event.action == MotionEvent.ACTION_UP ||
                 event.action == MotionEvent.ACTION_CANCEL
@@ -698,6 +715,13 @@ class ReplyInputActivity : Activity() {
         }
         val oldHeight = unit.height
         val rebuild = {
+            pendingSwitchCompletion?.let { mainHandler.removeCallbacks(it) }
+            pendingSwitchCompletion = null
+            switchFadeAnimator?.cancel()
+            switchFadeAnimator = null
+            if (isFinishing) {
+                switchingSession = false
+            } else {
             setIntent(targetIntent)
             onLaunch()
             val newUnit = currentUnit
@@ -720,8 +744,16 @@ class ReplyInputActivity : Activity() {
                     .withEndAction { switchingSession = false }
                     .start()
             }
+            }
         }
+        // Completion is TIMER-driven, never hung off an animator's end
+        // action: if anything cancels the visuals mid-flight, the
+        // switch still completes and the editor can never wedge in a
+        // half-switched, invisible, gesture-dead state.
+        val completion = Runnable { rebuild() }
+        pendingSwitchCompletion = completion
         if (hadPreview) {
+            mainHandler.postDelayed(completion, 380)
             // Behind from the very first frame of the release; the
             // overshoot spring carries the card up past the slot and
             // settles it back into the exact original position, one
@@ -731,25 +763,25 @@ class ReplyInputActivity : Activity() {
                 .translationY(0f)
                 .setDuration(380)
                 .setInterpolator(OvershootInterpolator(1.3f))
-                .withEndAction { rebuild() }
                 .start()
             // The fade runs on its own animator (a second animate()
             // call would reconfigure the same animator, not run in
             // parallel): it fades only while settling into the back
             // slot, hiding the rebuild seam.
-            android.animation.ObjectAnimator.ofFloat(unit, "alpha", unit.alpha, 0f)
-                .apply {
-                    startDelay = 250
-                    duration = 130
-                    start()
-                }
+            switchFadeAnimator =
+                android.animation.ObjectAnimator.ofFloat(unit, "alpha", unit.alpha, 0f)
+                    .apply {
+                        startDelay = 250
+                        duration = 130
+                        start()
+                    }
         } else {
+            mainHandler.postDelayed(completion, 220)
             unit.animate()
                 .translationY(-unit.height * 0.6f)
                 .alpha(0f)
                 .setDuration(220)
                 .setInterpolator(DecelerateInterpolator())
-                .withEndAction { rebuild() }
                 .start()
         }
     }
