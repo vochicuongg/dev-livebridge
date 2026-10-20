@@ -45,6 +45,7 @@ class ReplyInputActivity : Activity() {
     private var resultKey: String = ""
     private var currentUnit: LinearLayout? = null
     private var switchingSession = false
+    private var nextPreview: LinearLayout? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -63,6 +64,7 @@ class ReplyInputActivity : Activity() {
 
     private fun onLaunch() {
         resultKey = intent.getStringExtra(ReplyProxyService.EXTRA_RESULT_KEY).orEmpty()
+        nextPreview = null
 
         // The host surface provided its own reply editor (Wear OS, the
         // notification shade): forward its RemoteInput results to the reply
@@ -114,8 +116,147 @@ class ReplyInputActivity : Activity() {
             Color.rgb(10, 108, 255)
         }
 
-        val density = resources.displayMetrics.density
-        fun dp(value: Int): Int = (value * density).toInt()
+
+        val card = buildCardUnit(
+            titleText = titleText,
+            contextText = contextText,
+            sourceIcon = sourceIcon,
+            accentColor = accentColor,
+            hintText = hintText,
+            sendText = sendText,
+            interactive = true
+        )
+        val unit = card.unit
+        input = card.inputField!!
+        currentUnit = unit
+        attachSwipeGesture(card.header, unit)
+
+        // Full-screen transparent root so the window's blur-behind covers
+        // the whole backdrop (a window only as tall as the unit would hide
+        // the blur behind the opaque card). The unit floats at the top;
+        // tapping anywhere below it dismisses the editor.
+        val statusBarHeight = resources.getIdentifier("status_bar_height", "dimen", "android")
+            .takeIf { it > 0 }
+            ?.let { resources.getDimensionPixelSize(it) }
+            ?: dp(24)
+        val root = FrameLayout(this).apply {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            addView(
+                unit,
+                FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    Gravity.TOP
+                ).apply {
+                    // Just under the status/info bar, with a 4dp gap.
+                    topMargin = statusBarHeight + dp(4)
+                }
+            )
+            setOnTouchListener { _, event ->
+                if (event.action == MotionEvent.ACTION_DOWN && event.y > unit.bottom) {
+                    finish()
+                    true
+                } else {
+                    false
+                }
+            }
+        }
+        setContentView(root)
+        setFinishOnTouchOutside(true)
+
+        // The NEXT replyable conversation's card, stacked behind the
+        // current one (invisible at rest): the pull-down drag reveals it
+        // as it scales up to take the front, like the Now Bar card stack.
+        val preview = buildNextPreview()
+        if (preview != null) {
+            root.addView(
+                preview,
+                0,
+                FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    Gravity.TOP
+                ).apply {
+                    topMargin = statusBarHeight + dp(4)
+                }
+            )
+            nextPreview = preview
+        }
+
+        window?.apply {
+            // A faint dark veil over the blurred backdrop (frosted glass).
+            setBackgroundDrawable(ColorDrawable(Color.argb(36, 8, 10, 14)))
+            setLayout(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT
+            )
+            attributes = attributes.apply {
+                gravity = Gravity.TOP
+                y = 0
+                dimAmount = 0.15f
+                // Frosted-glass backdrop like the Now Bar reading view.
+                blurBehindRadius = dp(40)
+            }
+            addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+            addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN)
+            addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+        }
+
+        input.requestFocus()
+        input.post {
+            val imm = getSystemService(InputMethodManager::class.java)
+            imm?.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT)
+        }
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    /** Blends two colors; ratio 0 returns [from], 1 returns [to]. */
+    private fun blendColor(from: Int, to: Int, ratio: Float): Int {
+        val r = ratio.coerceIn(0f, 1f)
+        return Color.argb(
+            255,
+            (Color.red(from) + (Color.red(to) - Color.red(from)) * r).toInt(),
+            (Color.green(from) + (Color.green(to) - Color.green(from)) * r).toInt(),
+            (Color.blue(from) + (Color.blue(to) - Color.blue(from)) * r).toInt()
+        )
+    }
+
+    /** Scales a color's RGB channels by [factor] (below 1 darkens it). */
+    private fun darkenColor(color: Int, factor: Float): Int {
+        return Color.argb(
+            255,
+            (Color.red(color) * factor).toInt().coerceIn(0, 255),
+            (Color.green(color) * factor).toInt().coerceIn(0, 255),
+            (Color.blue(color) * factor).toInt().coerceIn(0, 255)
+        )
+    }
+
+    /** The built card unit plus the pieces callers need from it. */
+    private data class CardUnit(
+        val unit: LinearLayout,
+        val header: LinearLayout,
+        val inputField: EditText?
+    )
+
+    /**
+     * Builds the combined reply card (conversation header + reply
+     * strip) from plain display data, so the same construction renders
+     * both the live editor ([interactive] = true) and the passive
+     * next-card preview stacked behind it during the pull-down gesture.
+     */
+    private fun buildCardUnit(
+        titleText: String,
+        contextText: String?,
+        sourceIcon: android.graphics.drawable.Drawable?,
+        accentColor: Int,
+        hintText: String,
+        sendText: String,
+        interactive: Boolean
+    ): CardUnit {
         val radius = dp(24).toFloat()
 
         // One combined unit: dark conversation card on top, blue reply
@@ -226,7 +367,7 @@ class ReplyInputActivity : Activity() {
             }
         }
 
-        input = EditText(this).apply {
+        val field = EditText(this).apply {
             this.hint = hintText
             textSize = 16f
             setTextColor(Color.WHITE)
@@ -244,7 +385,7 @@ class ReplyInputActivity : Activity() {
                 1f
             ).apply { rightMargin = dp(6) }
         }
-        strip.addView(input)
+        strip.addView(field)
 
         val send = TextView(this).apply {
             text = sendText
@@ -252,94 +393,75 @@ class ReplyInputActivity : Activity() {
             setTextColor(Color.WHITE)
             alpha = 0.95f
             setPadding(dp(10), dp(8), dp(8), dp(8))
-            setOnClickListener { submit() }
+            if (interactive) {
+                setOnClickListener { submit() }
+            }
         }
         strip.addView(send)
         unit.addView(strip)
-        currentUnit = unit
-        attachSwipeGesture(header, unit)
-
-        // Full-screen transparent root so the window's blur-behind covers
-        // the whole backdrop (a window only as tall as the unit would hide
-        // the blur behind the opaque card). The unit floats at the top;
-        // tapping anywhere below it dismisses the editor.
-        val statusBarHeight = resources.getIdentifier("status_bar_height", "dimen", "android")
-            .takeIf { it > 0 }
-            ?.let { resources.getDimensionPixelSize(it) }
-            ?: dp(24)
-        val root = FrameLayout(this).apply {
-            layoutParams = ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
-            addView(
-                unit,
-                FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    Gravity.TOP
-                ).apply {
-                    // Just under the status/info bar, with a 4dp gap.
-                    topMargin = statusBarHeight + dp(4)
-                }
-            )
-            setOnTouchListener { _, event ->
-                if (event.action == MotionEvent.ACTION_DOWN && event.y > unit.bottom) {
-                    finish()
-                    true
-                } else {
-                    false
-                }
-            }
+        if (!interactive) {
+            field.isEnabled = false
+            field.isFocusable = false
         }
-        setContentView(root)
-        setFinishOnTouchOutside(true)
-
-        window?.apply {
-            // A faint dark veil over the blurred backdrop (frosted glass).
-            setBackgroundDrawable(ColorDrawable(Color.argb(36, 8, 10, 14)))
-            setLayout(
-                WindowManager.LayoutParams.MATCH_PARENT,
-                WindowManager.LayoutParams.MATCH_PARENT
-            )
-            attributes = attributes.apply {
-                gravity = Gravity.TOP
-                y = 0
-                dimAmount = 0.15f
-                // Frosted-glass backdrop like the Now Bar reading view.
-                blurBehindRadius = dp(40)
-            }
-            addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
-            addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN)
-            addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-        }
-
-        input.requestFocus()
-        input.post {
-            val imm = getSystemService(InputMethodManager::class.java)
-            imm?.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT)
-        }
+        return CardUnit(unit, header, if (interactive) field else null)
     }
 
-    /** Blends two colors; ratio 0 returns [from], 1 returns [to]. */
-    private fun blendColor(from: Int, to: Int, ratio: Float): Int {
-        val r = ratio.coerceIn(0f, 1f)
-        return Color.argb(
-            255,
-            (Color.red(from) + (Color.red(to) - Color.red(from)) * r).toInt(),
-            (Color.green(from) + (Color.green(to) - Color.green(from)) * r).toInt(),
-            (Color.blue(from) + (Color.blue(to) - Color.blue(from)) * r).toInt()
+    /**
+     * Builds the passive preview card for the NEXT reply session (the
+     * one a pull-down would switch to), pre-stacked behind the current
+     * card: fully transparent and slightly scaled down at rest, rising
+     * to full size/opacity as the pull progresses. Null when there is
+     * no next conversation.
+     */
+    private fun buildNextPreview(): LinearLayout? {
+        val keys = LiveUpdateNotifier.replyableMirrorKeys()
+        val currentKey = intent.getStringExtra(ReplyProxyService.EXTRA_MIRROR_KEY).orEmpty()
+        val index = keys.indexOf(currentKey)
+        if (index < 0 || index + 1 !in keys.indices) return null
+        val nextIntent = LiveUpdateNotifier.replyEditorIntent(this, keys[index + 1]) ?: return null
+        val conversation = nextIntent.getStringExtra(ReplyProxyService.EXTRA_REPLY_CONVERSATION)
+            ?.takeIf { it.isNotBlank() }
+        val label = nextIntent.getStringExtra(ReplyProxyService.EXTRA_REPLY_LABEL)
+            ?.takeIf { it.isNotBlank() }
+        val hint = nextIntent.getStringExtra(ReplyProxyService.EXTRA_REPLY_HINT)
+            ?.takeIf { it.isNotBlank() }
+        val contextText = nextIntent.getStringExtra(ReplyProxyService.EXTRA_REPLY_CONTEXT_TEXT)
+            ?.takeIf { it.isNotBlank() }
+        val sourcePackage = nextIntent.getStringExtra(ReplyProxyService.EXTRA_REPLY_SOURCE_PACKAGE)
+            ?.takeIf { it.isNotBlank() }
+        val sourceIcon = sourcePackage?.let { pkg ->
+            try {
+                packageManager.getApplicationIcon(pkg)
+            } catch (error: PackageManager.NameNotFoundException) {
+                null
+            }
+        }
+        val accentColor = if (nextIntent.hasExtra(ReplyProxyService.EXTRA_REPLY_ACCENT_COLOR)) {
+            val provided = nextIntent.getIntExtra(
+                ReplyProxyService.EXTRA_REPLY_ACCENT_COLOR,
+                Color.rgb(10, 108, 255)
+            )
+            Color.argb(255, Color.red(provided), Color.green(provided), Color.blue(provided))
+        } else {
+            Color.rgb(10, 108, 255)
+        }
+        val vi = NativeAppStrings.language(this) == "vi"
+        val card = buildCardUnit(
+            titleText = conversation ?: label ?: if (vi) "Trả lời" else "Reply",
+            contextText = contextText,
+            sourceIcon = sourceIcon,
+            accentColor = accentColor,
+            hintText = hint ?: if (vi) "Trả lời" else "Reply",
+            sendText = if (vi) "Gửi" else "Send",
+            interactive = false
         )
-    }
-
-    /** Scales a color's RGB channels by [factor] (below 1 darkens it). */
-    private fun darkenColor(color: Int, factor: Float): Int {
-        return Color.argb(
-            255,
-            (Color.red(color) * factor).toInt().coerceIn(0, 255),
-            (Color.green(color) * factor).toInt().coerceIn(0, 255),
-            (Color.blue(color) * factor).toInt().coerceIn(0, 255)
-        )
+        return card.unit.apply {
+            alpha = 0f
+            scaleX = 0.94f
+            scaleY = 0.94f
+            pivotY = 0f
+            elevation = 0f
+        }
     }
 
     /**
@@ -406,6 +528,23 @@ class ReplyInputActivity : Activity() {
                         .setDuration(90)
                         .setInterpolator(DecelerateInterpolator())
                         .start()
+                    // Stack effect: as the pull grows, the current card
+                    // sinks (slight shrink) while the NEXT card behind it
+                    // rises to full size and opacity, taking the front.
+                    nextPreview?.let { preview ->
+                        val progress = (dampedPull / (unit.height * 0.55f))
+                            .coerceIn(0f, 1f)
+                        unit.scaleX = 1f - 0.04f * progress
+                        unit.scaleY = 1f - 0.04f * progress
+                        preview.animate().cancel()
+                        preview.animate()
+                            .alpha(progress)
+                            .scaleX(0.94f + 0.06f * progress)
+                            .scaleY(0.94f + 0.06f * progress)
+                            .setDuration(90)
+                            .setInterpolator(DecelerateInterpolator())
+                            .start()
+                    }
                     return true
                 }
 
@@ -445,9 +584,20 @@ class ReplyInputActivity : Activity() {
 
     /** Animates back to rest when a swipe does not commit to a switch. */
     private fun snapBack(unit: LinearLayout) {
-        if (unit.translationY != 0f) {
+        nextPreview?.let { preview ->
+            preview.animate()
+                .alpha(0f)
+                .scaleX(0.94f)
+                .scaleY(0.94f)
+                .setDuration(200)
+                .setInterpolator(DecelerateInterpolator())
+                .start()
+        }
+        if (unit.translationY != 0f || unit.scaleX != 1f) {
             unit.animate()
                 .translationY(0f)
+                .scaleX(1f)
+                .scaleY(1f)
                 .alpha(1f)
                 .setDuration(200)
                 .setInterpolator(DecelerateInterpolator())
@@ -478,6 +628,18 @@ class ReplyInputActivity : Activity() {
             return
         }
         switchingSession = true
+        // The stacked preview becomes the front card; the current card
+        // glides down behind it and away.
+        val hadPreview = nextPreview != null
+        nextPreview?.let { preview ->
+            preview.animate()
+                .alpha(1f)
+                .scaleX(1f)
+                .scaleY(1f)
+                .setDuration(180)
+                .setInterpolator(DecelerateInterpolator())
+                .start()
+        }
         val travel = unit.height + 40f * resources.displayMetrics.density
         val outY = travel
         unit.animate()
@@ -492,14 +654,22 @@ class ReplyInputActivity : Activity() {
                     switchingSession = false
                     return@withEndAction
                 }
-                newUnit.translationY = -outY * 0.6f
-                newUnit.alpha = 0f
-                newUnit.animate()
-                    .translationY(0f)
-                    .alpha(1f)
-                    .setDuration(200)
-                    .withEndAction { switchingSession = false }
-                    .start()
+                if (hadPreview) {
+                    // The preview already showed this card in place at
+                    // full size: the rebuilt editor simply takes over.
+                    newUnit.translationY = 0f
+                    newUnit.alpha = 1f
+                    switchingSession = false
+                } else {
+                    newUnit.translationY = -outY * 0.6f
+                    newUnit.alpha = 0f
+                    newUnit.animate()
+                        .translationY(0f)
+                        .alpha(1f)
+                        .setDuration(200)
+                        .withEndAction { switchingSession = false }
+                        .start()
+                }
             }
             .start()
     }
