@@ -674,19 +674,20 @@ class ReplyInputActivity : Activity() {
         }
         switchingSession = true
         // Release effect, copied from the Now Bar stack: the pulled
-        // card tucks itself BEHIND the stack — it drops, shrinks to the
-        // back-card scale and sinks below the next card's Z — while the
-        // next card rises to the front. Then the editor rebuilds onto
-        // the next conversation, seamlessly, because the preview already
-        // holds the front pose and the tucked card has faded at the
-        // back pose (where the new preview starts out invisible).
+        // card POPS UP and slips BEHIND the next card — it springs
+        // upward past its rest position, shrinks to the back-card
+        // scale and sinks below the next card's Z, so it disappears
+        // behind the stack with its top edge peeking out above, while
+        // the next card takes the front. Then the editor rebuilds onto
+        // the next conversation, seamlessly, because the preview
+        // already holds the front pose.
         val hadPreview = nextPreview != null
         nextPreview?.let { preview ->
             preview.animate()
                 .alpha(1f)
                 .scaleX(1f)
                 .scaleY(1f)
-                .setDuration(280)
+                .setDuration(260)
                 .setInterpolator(DecelerateInterpolator())
                 .start()
         }
@@ -717,31 +718,33 @@ class ReplyInputActivity : Activity() {
         }
         if (hadPreview) {
             unit.animate()
-                .translationY(unit.height * 0.55f)
+                // Pop UP behind the stack: rising past the rest
+                // position while its Z sinks below the preview's, so
+                // the front card covers it and only its top edge
+                // peeks out above the pile, like the Now Bar.
+                .translationY(-unit.height * 0.38f)
                 .scaleX(0.94f)
                 .scaleY(0.94f)
-                // Below the preview's Z, so the card visibly slips
-                // behind the rising front card.
                 .translationZ(-12f * resources.displayMetrics.density)
-                .setDuration(280)
+                .setDuration(260)
                 .setInterpolator(DecelerateInterpolator())
                 .withEndAction { rebuild() }
                 .start()
             // The fade runs on its own animator (a second animate()
             // call would reconfigure the same animator, not run in
-            // parallel): the card fades only as it settles behind.
+            // parallel): the card fades once it is mostly behind.
             android.animation.ObjectAnimator.ofFloat(unit, "alpha", unit.alpha, 0f)
                 .apply {
-                    startDelay = 130
+                    startDelay = 110
                     duration = 150
                     start()
                 }
         } else {
-            val travel = unit.height + 40f * resources.displayMetrics.density
             unit.animate()
-                .translationY(travel)
+                .translationY(-unit.height * 0.6f)
                 .alpha(0f)
-                .setDuration(180)
+                .setDuration(220)
+                .setInterpolator(DecelerateInterpolator())
                 .withEndAction { rebuild() }
                 .start()
         }
