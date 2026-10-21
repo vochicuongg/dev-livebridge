@@ -476,3 +476,27 @@ that stops the WARP source. All points are TEMP and come out together
 once the cause is read. Test protocol for the owner: flutter clean +
 full build (rules out any stale-APK doubt), install, open the app,
 toggle WARP off/on, read logcat -s VpnDiag.
+
+## ROOT CAUSE FOUND: the per-app allowlist vetoed the VPN feature (round 37, 2026-10-22)
+
+The round-36 layer trace on the owner's phone was unambiguous: every
+WARP post reached maybeMirror (ENTRY) and died at BASE-FILTERED.
+passesBaseFilters has three vetoes — media misclassification (ruled
+out: no transport category / media session / MediaStyle), dictionary
+blocked packages (ruled out: no cloudflare entry anywhere) — leaving
+prefs.isPackageAllowed: the owner's package mode is "selected apps"
+and 1.1.1.1 was never added, so the global Smart VPN toggle was
+silently vetoed by an unrelated settings area. Rounds 29-34 were all
+correct but unreachable: the flow order is base filters BEFORE smart
+detection, so no detection fix could ever take effect for an
+unlisted app (the same wall would have stopped the watch source).
+Fix per the owner's standing rule for this feature group (a toggle
+must be sufficient): admitted ongoing smart-status candidates (VPN /
+external device, round 33) now skip ONLY the per-app allowlist term
+of passesBaseFilters (new skipPackageAllowlist parameter, fed by
+ongoingSmartCandidate); the media and blocked-source vetoes still
+apply, and the ongoing guard still keeps candidates out of the
+generic mirror. All TEMP VpnDiag points (rounds 35-36) removed; the
+round-35 self-measured live traffic for the VPN capsule stays.
+Static checks only (brace 0, paren baseline unchanged, no VpnDiag
+references remain).

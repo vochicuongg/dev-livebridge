@@ -1981,10 +1981,6 @@ object LiveUpdateNotifier {
 
     fun maybeMirror(context: Context, prefs: ConverterPrefs, sbn: StatusBarNotification): MirrorResult {
         ensureChannel(context)
-        // TEMP diagnostic (round 36): layer trace for the WARP source.
-        if (sbn.packageName.contains("cloudflare", ignoreCase = true)) {
-            Log.d("VpnDiag", "ENTRY converter=${prefs.getConverterEnabled()}")
-        }
 
         val manager = NotificationManagerCompat.from(context)
         if (!prefs.getConverterEnabled()) {
@@ -1997,9 +1993,6 @@ object LiveUpdateNotifier {
         }
         // An explicit channel exclusion takes precedence over package bypass and smart detection.
         if (!prefs.isSourceChannelAllowed(sbn.packageName, sbn.notification.channelId)) {
-            if (sbn.packageName.contains("cloudflare", ignoreCase = true)) {
-                Log.d("VpnDiag", "CHANNEL-BLOCKED channel=${sbn.notification.channelId}")
-            }
             cancelMirrorsForIgnoredSource(manager, sbn)
             return notMirroredResult()
         }
@@ -2048,9 +2041,6 @@ object LiveUpdateNotifier {
             if (!isZaloPackage &&
                 !passesCoreFilters(context.packageName, sbn, ongoingSmartCandidate)
             ) {
-                if (sbn.packageName.contains("cloudflare", ignoreCase = true)) {
-                    Log.d("VpnDiag", "CORE-FILTERED candidate=$ongoingSmartCandidate")
-                }
                 val staleAggregateIds = synchronized(stateLock) {
                     clearAggregateTrackingForSbnKeyLocked(sbn.key)
                 }
@@ -2224,10 +2214,14 @@ object LiveUpdateNotifier {
             }
             // Zalo VIP Bypass: Skip base filters for Zalo to prevent filtering on
             // silent/low-priority characteristics
-            if (!isZaloPackage && !passesBaseFilters(prefs, sbn, parserDictionary, mediaPlaybackSmartEnabled)) {
-                if (sbn.packageName.contains("cloudflare", ignoreCase = true)) {
-                    Log.d("VpnDiag", "BASE-FILTERED")
-                }
+            if (!isZaloPackage && !passesBaseFilters(
+                    prefs,
+                    sbn,
+                    parserDictionary,
+                    mediaPlaybackSmartEnabled,
+                    skipPackageAllowlist = ongoingSmartCandidate
+                )
+            ) {
                 val staleAggregateIds = synchronized(stateLock) {
                     clearAggregateTrackingForSbnKeyLocked(sbn.key)
                 }
@@ -2289,21 +2283,6 @@ object LiveUpdateNotifier {
                 smartMatch = latchedSmartMatchFor(sbn, prefs)
             }
 
-            // TEMP diagnostic (round 35): trace the WARP source through
-            // the smart pipeline on the owner's device. Remove with the
-            // NetSpeedDiag precedent once the VPN capsule is confirmed.
-            if (sbn.packageName.contains("cloudflare", ignoreCase = true)) {
-                Log.d(
-                    "VpnDiag",
-                    "candidate=$ongoingSmartCandidate smart=${smartMatch?.aggregateKey} " +
-                        "master=${prefs.getSmartStatusDetectionEnabled()} " +
-                        "vpnOn=${prefs.getSmartVpnEnabled()} " +
-                        "markers=${parserDictionary.vpnPackageMarkers.size} " +
-                        "cloudflare=${parserDictionary.vpnPackageMarkers.any { it.contains("cloudflare") }} " +
-                        "rules=${parserDictionary.smartRules.size}"
-                )
-            }
-
             val textProgressMatch = if (!isMediaPlaybackNotification &&
                 !hasNativeProgress &&
                 otpMatch == null &&
@@ -2329,9 +2308,6 @@ object LiveUpdateNotifier {
                         parserDictionary = parserDictionary
                     )
             if (shouldSuppressNonTrafficVpn) {
-                if (sbn.packageName.contains("cloudflare", ignoreCase = true)) {
-                    Log.d("VpnDiag", "SUPPRESSED by the no-traffic VPN rule")
-                }
                 val staleAggregateIds = synchronized(stateLock) {
                     clearAggregateTrackingForSbnKeyLocked(sbn.key)
                 }
@@ -2341,9 +2317,6 @@ object LiveUpdateNotifier {
             }
 
             if (ongoingSmartCandidate && smartMatch == null) {
-                if (sbn.packageName.contains("cloudflare", ignoreCase = true)) {
-                    Log.d("VpnDiag", "BLOCKED at the ongoing guard: candidate admitted, no smart match")
-                }
                 // Entered only through the ongoing exemption for the VPN /
                 // external-device features; detection found no smart
                 // match, so there is nothing to publish — do not fall
@@ -2675,9 +2648,6 @@ object LiveUpdateNotifier {
 
                         else -> defaultSmartStatus
                     } ?: routeState.compactOrderCode
-                    if (smartRuleId == "vpn") {
-                        Log.d("VpnDiag", "PUBLISH vpn mirror status=$smartStatusText")
-                    }
                     val smartProgressOverride = if (
                         smartRuleId == "weather" ||
                         smartRuleId == "external_device" ||
@@ -3570,7 +3540,8 @@ object LiveUpdateNotifier {
         prefs: ConverterPrefs,
         sbn: StatusBarNotification,
         parserDictionary: LiveParserDictionary,
-        mediaPlaybackSmartEnabled: Boolean
+        mediaPlaybackSmartEnabled: Boolean,
+        skipPackageAllowlist: Boolean = false
     ): Boolean {
         val source = sbn.notification
 
@@ -3586,7 +3557,14 @@ object LiveUpdateNotifier {
             return false
         }
 
-        return prefs.isPackageAllowed(sbn.packageName)
+        // Admitted VPN / external-device status candidates skip the
+        // per-app allowlist (round 37): those features are global
+        // toggles, and the owner's device proved the allowlist silently
+        // vetoed them from an unrelated settings area (every WARP post
+        // died here with package mode = selected apps). The media and
+        // blocked-source checks above still apply, and the ongoing
+        // guard below keeps candidates out of the generic mirror.
+        return skipPackageAllowlist || prefs.isPackageAllowed(sbn.packageName)
     }
 
     /**
