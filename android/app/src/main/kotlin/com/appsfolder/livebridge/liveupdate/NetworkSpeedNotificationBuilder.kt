@@ -9,7 +9,9 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
+import android.app.NotificationManager
 import android.os.Bundle
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.graphics.drawable.IconCompat
 import com.kakao.taxi.MainActivity
@@ -64,12 +66,11 @@ internal class NetworkSpeedNotificationBuilder(
             }
         val notificationColor = prefs.getNetworkSpeedNotificationColorArgb()
         val regularNotificationOnly = prefs.getNetworkSpeedRegularNotificationEnabled()
+        val thresholdBytesPerSecond =
+            prefs.getNetworkSpeedMinThresholdBytesPerSecond().coerceAtLeast(0L)
         if (regularNotificationOnly) {
             promotionLatched = false
-        } else if (
-            sample.totalBytesPerSecond >=
-            prefs.getNetworkSpeedMinThresholdBytesPerSecond().coerceAtLeast(0L)
-        ) {
+        } else if (sample.totalBytesPerSecond >= thresholdBytesPerSecond) {
             promotionLatched = true
         }
         val shouldPromote = !regularNotificationOnly && promotionLatched
@@ -127,10 +128,62 @@ internal class NetworkSpeedNotificationBuilder(
         }
 
         val notification = builder.build()
-        return if (samsungNowBarEligible) {
+        val result = if (samsungNowBarEligible) {
             SamsungOneUi7NowBarCompat.markEligible(notification)
         } else {
             notification
+        }
+        logPromotionDecision(
+            notification = result,
+            regularNotificationOnly = regularNotificationOnly,
+            thresholdBytesPerSecond = thresholdBytesPerSecond,
+            sample = sample,
+            shouldPromote = shouldPromote,
+            samsungNowBarEligible = samsungNowBarEligible
+        )
+        return result
+    }
+
+    // TEMP DIAGNOSTICS (round 30, remove after diagnosis): logs the
+    // promotion decision and whether the hidden Samsung ongoing-activity
+    // flag actually landed on the built notification. Change-only, so the
+    // 1.5s rebuild loop does not spam the log.
+    private var lastPromotionDiagLine: String? = null
+
+    private fun logPromotionDecision(
+        notification: Notification,
+        regularNotificationOnly: Boolean,
+        thresholdBytesPerSecond: Long,
+        sample: NetworkSpeedSample,
+        shouldPromote: Boolean,
+        samsungNowBarEligible: Boolean
+    ) {
+        val semOngoing = if (samsungNowBarEligible) {
+            runCatching {
+                val field = Notification::class.java.getDeclaredField("semFlags")
+                field.isAccessible = true
+                (field.getInt(notification) and 0x8000) != 0
+            }.getOrNull()
+        } else {
+            null
+        }
+        val notificationManager =
+            context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+        val canPostPromoted = runCatching {
+            notificationManager?.javaClass
+                ?.getMethod("canPostPromotedNotifications")
+                ?.invoke(notificationManager) as? Boolean
+        }.getOrNull()
+        val channelImportance = runCatching {
+            notificationManager?.getNotificationChannel(CHANNEL_ID)?.importance
+        }.getOrNull()
+        val line = "regular=$regularNotificationOnly threshold=$thresholdBytesPerSecond " +
+            "total=${sample.totalBytesPerSecond} latched=$promotionLatched " +
+            "promote=$shouldPromote samsung=$samsungNowBarEligible " +
+            "semOngoing=$semOngoing canPromote=$canPostPromoted channelImp=$channelImportance"
+        if (line != lastPromotionDiagLine) {
+            lastPromotionDiagLine = line
+            Log.d("NetSpeedDiag", line)
         }
     }
 

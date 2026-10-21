@@ -307,3 +307,25 @@ navigation, weather) are intentionally NOT latched — their stage
 semantics are progression-based, not connection-based.
 Static checks only (brace/paren balance verified); Windows build +
 on-device verification by the owner pending.
+
+## TEMP diagnostics for network-speed promotion (round 30, 2026-10-21)
+
+Owner's Flip5 (One UI 9) on the round-28/29 build: the network-speed
+notification posts and updates but stays in the plain "other
+notifications" form, although it rendered as a Now Bar capsule on the
+pre-round-28 build at even lower speeds. Static re-check of the whole
+transition path found NO upgrade step anywhere: the form is decided at
+build/post time (mirrors: notifyWithPromotionFallback posts the
+promoted form first and falls back only when posting throws; network
+speed: rebuilt every 1.5s with the current latch state). With
+regular=off + threshold=0 the first build should already be promoted,
+so a live input must differ from what the code expects — candidates:
+the stored regular/threshold values, or the hidden-API semFlags write
+in SamsungOneUi7NowBarCompat being denied at runtime (it is wrapped in
+runCatching, so a denial is invisible).
+
+TEMP: NetworkSpeedNotificationBuilder now logs (tag NetSpeedDiag,
+change-only) regular/threshold/total/latched/promote/samsung plus a
+read-back of the semFlags ongoing bit after markEligible, the system's
+canPostPromotedNotifications state, and the channel importance.
+REMOVE this logging once the owner's logcat identifies the branch.
