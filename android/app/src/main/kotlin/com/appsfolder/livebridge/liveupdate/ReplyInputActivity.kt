@@ -63,12 +63,23 @@ class ReplyInputActivity : Activity() {
      * as soon as the mirror notification is gone — read elsewhere,
      * swiped away or withdrawn by the source app.
      */
+    private var mirrorMissCount = 0
+
     private val mirrorWatchRunnable = object : Runnable {
         override fun run() {
             val key = intent.getStringExtra(ReplyProxyService.EXTRA_MIRROR_KEY).orEmpty()
-            if (key.isNotBlank() && !LiveUpdateNotifier.isMirrorPosted(key)) {
-                finish()
-                return
+            if (key.isNotBlank() &&
+                !LiveUpdateNotifier.isMirrorPosted(this@ReplyInputActivity, key)
+            ) {
+                // Two consecutive misses (~1.2 s) before closing, so a
+                // momentary re-post gap never kills the editor.
+                mirrorMissCount++
+                if (mirrorMissCount >= 2) {
+                    finish()
+                    return
+                }
+            } else {
+                mirrorMissCount = 0
             }
             mainHandler.postDelayed(this, 600)
         }
@@ -103,6 +114,7 @@ class ReplyInputActivity : Activity() {
         switchFadeAnimator?.cancel()
         switchFadeAnimator = null
         mainHandler.removeCallbacks(mirrorWatchRunnable)
+        mirrorMissCount = 0
 
         // The host surface provided its own reply editor (Wear OS, the
         // notification shade): forward its RemoteInput results to the reply
@@ -561,7 +573,7 @@ class ReplyInputActivity : Activity() {
      * no next conversation.
      */
     private fun buildNextPreview(): LinearLayout? {
-        val keys = LiveUpdateNotifier.replyableMirrorKeys()
+        val keys = LiveUpdateNotifier.replyableMirrorKeys(this)
         val currentKey = intent.getStringExtra(ReplyProxyService.EXTRA_MIRROR_KEY).orEmpty()
         val index = keys.indexOf(currentKey)
         if (index < 0 || keys.size < 2) return null
@@ -791,7 +803,7 @@ class ReplyInputActivity : Activity() {
     private fun switchToNext(unit: LinearLayout) {
         if (switchingSession) return
         stopFollow()
-        val keys = LiveUpdateNotifier.replyableMirrorKeys()
+        val keys = LiveUpdateNotifier.replyableMirrorKeys(this)
         val currentKey = intent.getStringExtra(ReplyProxyService.EXTRA_MIRROR_KEY).orEmpty()
         val index = keys.indexOf(currentKey)
         // Loop like the Now Bar stack: after the last card, the first.
