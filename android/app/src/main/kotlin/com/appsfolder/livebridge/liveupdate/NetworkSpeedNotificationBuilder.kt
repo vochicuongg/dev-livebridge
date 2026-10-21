@@ -19,6 +19,21 @@ import kotlin.math.roundToInt
 internal class NetworkSpeedNotificationBuilder(
     private val context: Context
 ) {
+    /**
+     * Sticky Now Bar promotion. The notification is rebuilt from a fresh
+     * speed sample every sampling tick, and the promotion decision used to
+     * be recomputed from that single sample each time: one tick below the
+     * threshold (network switch, service restart warm-up, a transient
+     * zero) rebuilt the notification WITHOUT the Samsung ongoing-activity
+     * extras and the capsule fell out of the Now Bar, then came back on
+     * the next healthy tick — an intermittent "sometimes not a Now Bar"
+     * flap. Once a sample meets the threshold, promotion now latches for
+     * the lifetime of this builder (one per service instance) and only
+     * releases when the user switches to the regular-notification mode or
+     * the service stops. The threshold keeps its meaning for the FIRST
+     * appearance only.
+     */
+    private var promotionLatched = false
     fun build(
         prefs: ConverterPrefs,
         sample: NetworkSpeedSample,
@@ -49,10 +64,15 @@ internal class NetworkSpeedNotificationBuilder(
             }
         val notificationColor = prefs.getNetworkSpeedNotificationColorArgb()
         val regularNotificationOnly = prefs.getNetworkSpeedRegularNotificationEnabled()
-        val shouldPromote =
-            !regularNotificationOnly &&
-                sample.totalBytesPerSecond >=
-                prefs.getNetworkSpeedMinThresholdBytesPerSecond().coerceAtLeast(0L)
+        if (regularNotificationOnly) {
+            promotionLatched = false
+        } else if (
+            sample.totalBytesPerSecond >=
+            prefs.getNetworkSpeedMinThresholdBytesPerSecond().coerceAtLeast(0L)
+        ) {
+            promotionLatched = true
+        }
+        val shouldPromote = !regularNotificationOnly && promotionLatched
         val chipIconCompat = IconCompat.createWithResource(context, R.drawable.ic_speed)
         val samsungNowBarEligible =
             shouldPromote && SamsungLiveUpdateReparser.isSamsungDevice()

@@ -174,26 +174,40 @@ class NetworkSpeedForegroundService : Service() {
             return
         }
 
+        // Transient failures must not tear the feature down: this runs on
+        // every sampling tick, and the old behavior stopped the service
+        // (which also cancels the notification) on ANY single build/post
+        // error, so the network-speed capsule vanished until some later
+        // sync happened to restart the service — the other half of the
+        // intermittent "sometimes not a Now Bar" report. Now a failed
+        // build keeps the currently posted notification and a failed
+        // UPDATE post is retried on the next tick; only a failed initial
+        // foreground start still stops the service, because a started
+        // foreground service that never calls startForeground is killed
+        // by the system anyway.
         val notification = runCatching { buildNotification() }
             .onFailure { error ->
                 Log.e(TAG, "Failed to refresh network speed notification", error)
-                stopSelfSafely()
             }
             .getOrNull() ?: return
 
-        runCatching {
-            if (isForegroundActive) {
+        if (isForegroundActive) {
+            runCatching {
                 notificationManager.notify(
                     NetworkSpeedNotificationBuilder.NOTIFICATION_ID,
                     notification
                 )
-            } else {
+            }.onFailure { error ->
+                Log.e(TAG, "Failed to update network speed notification", error)
+            }
+        } else {
+            runCatching {
                 startForegroundCompat(notification)
                 isForegroundActive = true
+            }.onFailure { error ->
+                Log.e(TAG, "Failed to post network speed notification", error)
+                stopSelfSafely()
             }
-        }.onFailure { error ->
-            Log.e(TAG, "Failed to post network speed notification", error)
-            stopSelfSafely()
         }
     }
 

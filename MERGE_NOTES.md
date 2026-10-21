@@ -254,3 +254,26 @@ accent was provided.
   that file manually via the GitHub web UI (copy it from
   appsfolder/livebridge). Everything else in the branch tree is identical
   to the locally verified merge tree.
+
+## Network-speed Now Bar intermittency fix (round 28, 2026-10-21)
+
+Owner report: with regular-notification mode OFF, the network-speed
+notification still SOMETIMES appeared as a plain notification instead of
+the Now Bar capsule. Two mechanisms in the tick loop caused the flap:
+(1) NetworkSpeedNotificationBuilder recomputed promotion from the single
+current sample on every rebuild (1.5s), so one below-threshold/transient
+sample rebuilt the notification without the Samsung extras and the
+capsule dropped out until the next healthy tick; (2)
+NetworkSpeedForegroundService.refreshServiceState stopped the service —
+cancelling the notification — on ANY build/post failure, so one
+transient error removed the feature until a later sync restarted it.
+
+Fix: promotion now LATCHES in the builder (one instance per service):
+the first sample meeting the threshold promotes, and promotion holds
+until regular-notification mode is enabled or the service stops; the
+threshold only gates the first appearance. refreshServiceState no longer
+self-stops on build failures (keeps the posted notification) or on
+update-post failures (retries next tick); only a failed initial
+startForeground still stops the service (system watchdog parity).
+Static checks only (brace balance 0/0 on both files); Windows build +
+on-device verification by the owner pending.
