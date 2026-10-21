@@ -158,6 +158,12 @@ class ReplyInputActivity : Activity() {
         // the unit anchors to the very top of the cover display.
         val onCoverScreen = isOnCoverScreen()
         val unitTopMargin = if (onCoverScreen) dp(2) else statusBarHeight + dp(4)
+        android.util.Log.d(
+            "ReplyCover",
+            "cover=$onCoverScreen dm=${resources.displayMetrics.widthPixels}x" +
+                "${resources.displayMetrics.heightPixels} sbH=$statusBarHeight " +
+                "topMargin=$unitTopMargin"
+        )
         val root = FrameLayout(this).apply {
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -226,27 +232,44 @@ class ReplyInputActivity : Activity() {
         }
 
         if (onCoverScreen) {
-            // Self-correct the top anchor once laid out: whatever
-            // still pushes the unit below the top of the cover window
-            // (system insets, cover letterboxing) is measured on
-            // screen and subtracted from the top margins, so the unit
-            // ends up flush with the top and its reply strip stays
-            // above the cover keyboard.
-            root.post {
-                val decor = window?.decorView ?: return@post
-                val decorLoc = IntArray(2)
-                decor.getLocationOnScreen(decorLoc)
-                val unitLoc = IntArray(2)
-                unit.getLocationOnScreen(unitLoc)
-                val delta = (unitLoc[1] - decorLoc[1]) - dp(2)
-                if (delta > 0) {
-                    val lp = unit.layoutParams as FrameLayout.LayoutParams
-                    lp.topMargin -= delta
-                    unit.layoutParams = lp
-                    cardTopMargin -= delta
-                    refreshNextPreview()
+            // Self-correct the top anchor once laid out, in two parts:
+            // any offset INSIDE the window is subtracted from the top
+            // margins, and if the window itself starts below the top
+            // of the cover display, the window is pulled up by its own
+            // offset. Repeated a few times because the cover window
+            // manager may settle the window after the first layout.
+            var windowPulledUp = false
+            val correctCoverTop = {
+                val decor = window?.decorView
+                if (decor != null) {
+                    val decorLoc = IntArray(2)
+                    decor.getLocationOnScreen(decorLoc)
+                    val unitLoc = IntArray(2)
+                    unit.getLocationOnScreen(unitLoc)
+                    val insideDelta = (unitLoc[1] - decorLoc[1]) - dp(2)
+                    android.util.Log.d(
+                        "ReplyCover",
+                        "decorY=${decorLoc[1]} unitY=${unitLoc[1]} " +
+                            "insideDelta=$insideDelta pulledUp=$windowPulledUp"
+                    )
+                    if (insideDelta > 0) {
+                        val lp = unit.layoutParams as FrameLayout.LayoutParams
+                        lp.topMargin -= insideDelta
+                        unit.layoutParams = lp
+                        cardTopMargin -= insideDelta
+                        refreshNextPreview()
+                    }
+                    if (decorLoc[1] > 0 && !windowPulledUp) {
+                        windowPulledUp = true
+                        window?.let { w ->
+                            w.attributes = w.attributes.apply { y -= decorLoc[1] }
+                        }
+                    }
                 }
             }
+            root.post { correctCoverTop() }
+            mainHandler.postDelayed({ correctCoverTop() }, 300)
+            mainHandler.postDelayed({ correctCoverTop() }, 800)
         }
 
         input.requestFocus()
