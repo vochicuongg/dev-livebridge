@@ -129,6 +129,11 @@ class ReplyInputActivity : Activity() {
             return
         }
 
+        // If the editor was opened from the notification shade (e.g.
+        // pulled down on the cover screen), retract the shade behind
+        // the editor.
+        collapseNotificationShade()
+
         val display = sessionDisplay(intent)
 
         val card = buildCardUnit(
@@ -290,6 +295,30 @@ class ReplyInputActivity : Activity() {
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    /**
+     * Best-effort shade retraction for editors opened from the
+     * notification shade: modern Android restricts apps here, so both
+     * remaining routes are tried and every failure is ignored — the
+     * legacy close-system-dialogs broadcast and the status bar
+     * service's collapse call.
+     */
+    private fun collapseNotificationShade() {
+        try {
+            @Suppress("DEPRECATION")
+            sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS))
+        } catch (e: Exception) {
+            // Best effort only.
+        }
+        try {
+            val statusBarService = getSystemService("statusbar") ?: return
+            val collapse = statusBarService.javaClass.getMethod("collapsePanels")
+            collapse.isAccessible = true
+            collapse.invoke(statusBarService)
+        } catch (e: Throwable) {
+            // Hidden API, blocked on modern Android: best effort only.
+        }
+    }
 
     /**
      * Whether this editor is running on the Z Flip cover screen: its
