@@ -522,3 +522,17 @@ bookkeeping + mirror retention unchanged, so the mirror survives the
 source's removal and the round-35 refresh keeps its rates live from
 the stored snapshot). If WARP re-posts on state changes, each repost
 is mirrored and dismissed again. Static checks only.
+
+## VPN source dismissal: snooze fallback (round 39, 2026-10-22)
+
+Round-38 dismissal executed without error but the WARP original
+stayed: dumpsys proved it was posted once and never reposted, and
+logcat showed no failure and no removal event — One UI silently
+ignores listener cancels of this foreground-service notification.
+Fallback in maybeDismissOriginalSource for removeSource (VPN)
+results: 1.2s after the cancel attempt, if the source key is still
+in the listener's active notifications, snoozeNotification hides it
+for 12h (the app cancelling its own notification on disconnect
+clears the snooze with it). TEMP VpnDismiss log line confirms which
+mechanism took effect; remove after on-device confirmation.
+Static checks only.

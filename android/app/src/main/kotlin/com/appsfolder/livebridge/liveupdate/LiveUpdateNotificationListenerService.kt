@@ -1087,6 +1087,33 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
             forgetSelfDismissedSourceKey(sbn.key)
             Log.e(TAG, "Failed to auto-dismiss original notification: ${sbn.key}", error)
         }
+        if (result.removeSource) {
+            // One UI silently keeps foreground-service notifications
+            // that a listener cancels (verified on the owner's Flip5,
+            // round 39: no error, no removal event, no repost — the
+            // original simply stays). Verify shortly after the cancel;
+            // if the source is still up, snooze it out of the shade
+            // instead — the capsule has already replaced it.
+            processingHandler.postDelayed(
+                {
+                    val stillActive = runCatching {
+                        activeNotifications?.any { it.key == sbn.key } == true
+                    }.getOrDefault(false)
+                    if (stillActive) {
+                        runCatching {
+                            snoozeNotification(sbn.key, VPN_SOURCE_SNOOZE_MS)
+                        }.onSuccess {
+                            // TEMP trace (round 39): remove once the
+                            // snooze fallback is confirmed on-device.
+                            Log.d("VpnDismiss", "cancel ineffective; snoozed ${sbn.key}")
+                        }.onFailure { error ->
+                            Log.w(TAG, "Failed to snooze VPN source: ${sbn.key}", error)
+                        }
+                    }
+                },
+                VPN_SOURCE_DISMISS_VERIFY_DELAY_MS
+            )
+        }
     }
 
     private fun scheduleOriginalSourceDismissal(
@@ -1476,6 +1503,8 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         private const val MAX_REBIND_ATTEMPTS = 6
         private const val SNAPSHOT_SYNC_INTERVAL_MS = 4_000L
         private const val ORIGINAL_DISMISS_INITIAL_GRACE_MS = 750L
+        private const val VPN_SOURCE_DISMISS_VERIFY_DELAY_MS = 1200L
+        private const val VPN_SOURCE_SNOOZE_MS = 12 * 60 * 60 * 1000L
         private const val ORIGINAL_DISMISS_RETRY_DELAY_MS = 250L
         private const val ORIGINAL_DISMISS_MAX_ATTEMPTS = 6
         private const val ORIGINAL_SOURCE_SNOOZE_MS = 500L
