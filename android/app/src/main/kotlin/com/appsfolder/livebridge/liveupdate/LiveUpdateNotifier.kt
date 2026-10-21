@@ -9281,6 +9281,14 @@ object LiveUpdateNotifier {
         }
     }
 
+    /** Whether [mirrorKey]'s mirror notification is currently posted. */
+    internal fun isMirrorPosted(mirrorKey: String): Boolean {
+        if (mirrorKey.isBlank()) return false
+        return synchronized(stateLock) {
+            mirrorNotificationIdsByKey.containsKey(mirrorKey)
+        }
+    }
+
     /**
      * Mirror keys whose source currently offers a reply action and whose
      * mirror is still posted, newest first — the swipe order for the

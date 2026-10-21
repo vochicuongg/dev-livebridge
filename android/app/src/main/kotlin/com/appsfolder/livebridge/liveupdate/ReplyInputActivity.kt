@@ -56,6 +56,24 @@ class ReplyInputActivity : Activity() {
     private var pendingSwitchCompletion: Runnable? = null
     private var switchFadeAnimator: android.animation.Animator? = null
 
+    /**
+     * The editor only lives while its Now Bar mirror does: this watch
+     * polls the CURRENT session's mirror (it follows card switches,
+     * since it re-reads the intent every tick) and finishes the editor
+     * as soon as the mirror notification is gone — read elsewhere,
+     * swiped away or withdrawn by the source app.
+     */
+    private val mirrorWatchRunnable = object : Runnable {
+        override fun run() {
+            val key = intent.getStringExtra(ReplyProxyService.EXTRA_MIRROR_KEY).orEmpty()
+            if (key.isNotBlank() && !LiveUpdateNotifier.isMirrorPosted(key)) {
+                finish()
+                return
+            }
+            mainHandler.postDelayed(this, 600)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         onLaunch()
@@ -84,6 +102,7 @@ class ReplyInputActivity : Activity() {
         pendingSwitchCompletion = null
         switchFadeAnimator?.cancel()
         switchFadeAnimator = null
+        mainHandler.removeCallbacks(mirrorWatchRunnable)
 
         // The host surface provided its own reply editor (Wear OS, the
         // notification shade): forward its RemoteInput results to the reply
@@ -182,6 +201,16 @@ class ReplyInputActivity : Activity() {
             val imm = getSystemService(InputMethodManager::class.java)
             imm?.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT)
         }
+
+        // Start the mirror watch (first tick immediately, so a stale
+        // open onto an already-gone notification closes at once).
+        mainHandler.post(mirrorWatchRunnable)
+    }
+
+    override fun onDestroy() {
+        mainHandler.removeCallbacks(mirrorWatchRunnable)
+        pendingSwitchCompletion?.let { mainHandler.removeCallbacks(it) }
+        super.onDestroy()
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
