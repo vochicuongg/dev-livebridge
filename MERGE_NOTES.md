@@ -346,3 +346,22 @@ canPostPromotedNotifications=true and channelImp=2 throughout.
 TEMP diagnostics removed in this commit; the threshold local-val
 refactor stays (behavior identical). Owner action (no code): set the
 network-speed threshold back to 0 for an always-on capsule.
+
+## Network speed: threshold no longer gates the Now Bar capsule (round 31, 2026-10-21)
+
+Owner decision after the round-30 diagnosis: on first run the capsule
+still did not appear until he dragged the "minimum speed to display"
+slider — i.e. the stored 72 KB/s threshold gated the FIRST appearance
+(the round-28 latch only kept the capsule up after a first crossing).
+His product rule for the fork: turning on "Show network speed in
+Now Bar" (the feature's master toggle) must be sufficient. Change:
+NetworkSpeedNotificationBuilder drops the latch and the threshold from
+the promotion decision entirely — shouldPromote is now simply
+!regularNotificationOnly, so the capsule promotes from the first frame
+whenever the feature is on and regular-only mode is off. The threshold
+preference remains stored (settings backup/restore compatibility) and
+the settings slider still displays it, but it no longer affects the
+capsule; removing the slider from the UI is a separate decision left
+to the owner. This intentionally diverges from upstream behavior.
+Static checks only (brace/paren balance 0/0, latch references gone);
+Windows build + on-device verification by the owner pending.
