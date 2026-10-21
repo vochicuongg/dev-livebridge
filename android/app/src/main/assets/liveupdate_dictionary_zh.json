@@ -217,6 +217,7 @@
       "id": "external_device",
       "max_stage": 2,
       "package_hints": [
+        "watchmanager",
         "camera",
         "bluetooth",
         "accessory",
@@ -262,6 +263,7 @@
       "id": "vpn",
       "max_stage": 1,
       "package_hints": [
+        "cloudflare",
         "vpn",
         "wireguard",
         "openvpn",
@@ -431,6 +433,7 @@
   "vpn_speed_pattern": "(?<!\\d)\\d{1,4}(?:[.,]\\d{1,2})?\\s*(?:[kmg]?i?b)\\s*(?:(?:/\\s*s)|(?:/\\s*sec)|ps)\\b",
   "vpn_context_pattern": "(代理|节点|節點)",
   "vpn_package_markers": [
+    "cloudflare",
     "hiddify",
     "wireguard",
     "openvpn",

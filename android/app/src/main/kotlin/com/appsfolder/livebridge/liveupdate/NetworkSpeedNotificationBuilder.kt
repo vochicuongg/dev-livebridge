@@ -19,6 +19,19 @@ import kotlin.math.roundToInt
 internal class NetworkSpeedNotificationBuilder(
     private val context: Context
 ) {
+    /**
+     * Promotion rule for this fork (owner decision, 2026-10-21): turning
+     * on "Show network speed in Now Bar" is sufficient — with the
+     * regular-notification mode off, the capsule promotes from the first
+     * frame and stays promoted. The legacy minimum-speed threshold no
+     * longer gates promotion at all: a stored threshold above everyday
+     * traffic (the owner's was 72 KB/s) made the capsule silently never
+     * appear until the user happened to drag the threshold slider,
+     * which read as a conversion bug; the earlier latch only softened
+     * the drop-outs, not the missing first appearance. The threshold
+     * preference is kept stored for settings compatibility but is not
+     * consulted here.
+     */
     fun build(
         prefs: ConverterPrefs,
         sample: NetworkSpeedSample,
@@ -49,10 +62,7 @@ internal class NetworkSpeedNotificationBuilder(
             }
         val notificationColor = prefs.getNetworkSpeedNotificationColorArgb()
         val regularNotificationOnly = prefs.getNetworkSpeedRegularNotificationEnabled()
-        val shouldPromote =
-            !regularNotificationOnly &&
-                sample.totalBytesPerSecond >=
-                prefs.getNetworkSpeedMinThresholdBytesPerSecond().coerceAtLeast(0L)
+        val shouldPromote = !regularNotificationOnly
         val chipIconCompat = IconCompat.createWithResource(context, R.drawable.ic_speed)
         val samsungNowBarEligible =
             shouldPromote && SamsungLiveUpdateReparser.isSamsungDevice()

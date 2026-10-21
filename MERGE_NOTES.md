@@ -254,3 +254,318 @@ accent was provided.
   that file manually via the GitHub web UI (copy it from
   appsfolder/livebridge). Everything else in the branch tree is identical
   to the locally verified merge tree.
+
+## Network-speed Now Bar intermittency fix (round 28, 2026-10-21)
+
+Owner report: with regular-notification mode OFF, the network-speed
+notification still SOMETIMES appeared as a plain notification instead of
+the Now Bar capsule. Two mechanisms in the tick loop caused the flap:
+(1) NetworkSpeedNotificationBuilder recomputed promotion from the single
+current sample on every rebuild (1.5s), so one below-threshold/transient
+sample rebuilt the notification without the Samsung extras and the
+capsule dropped out until the next healthy tick; (2)
+NetworkSpeedForegroundService.refreshServiceState stopped the service —
+cancelling the notification — on ANY build/post failure, so one
+transient error removed the feature until a later sync restarted it.
+
+Fix: promotion now LATCHES in the builder (one instance per service):
+the first sample meeting the threshold promotes, and promotion holds
+until regular-notification mode is enabled or the service stops; the
+threshold only gates the first appearance. refreshServiceState no longer
+self-stops on build failures (keeps the posted notification) or on
+update-post failures (retries next tick); only a failed initial
+startForeground still stops the service (system watchdog parity).
+Static checks only (brace balance 0/0 on both files); Windows build +
+on-device verification by the owner pending.
+
+## VPN / external-device Now Bar stickiness (round 29, 2026-10-21)
+
+Same intermittency class as round 28, on the source-conversion side:
+detectSmartStage re-runs text detection on EVERY update of a VPN or
+external-device notification. The vpn rule requires a speed pattern in
+the CURRENT text — a transient speed-less update ("Connecting...", a
+status line without figures) failed the gate and then hit
+shouldSuppressNonTrafficVpn, which CANCELLED the mirror outright; the
+external_device rule similarly requires the device name in the current
+text, and a miss downgraded the mirror to the plain form. The capsule
+flapped in and out of the Now Bar on ordinary status updates.
+
+Fix (sticky classification): a new latchedSmartMatchesBySbnKey map
+(stateLock-guarded). When the smart branch publishes a vpn or
+external_device match it latches the match for that sbn.key; when a
+later update of the same key detects nothing, maybeMirror reuses the
+latched match (helper latchedSmartMatchFor: master smart switch +
+per-rule toggle still on + aggregate package matches the source
+package). The smart branch already degrades content gracefully
+(formatDominantVpnTrafficText / extractExternalDeviceStatusText fall
+back to the default status text), so only fresh DATA is lost on a
+missed update, never the form; a non-null smartMatch also makes the
+no-traffic suppression unreachable for a proven-traffic capsule. The
+latch is cleared inside clearSmartTrackingForSbnKeyLocked, the funnel
+for source removal and kind changes. Other smart rules (taxi, food,
+navigation, weather) are intentionally NOT latched — their stage
+semantics are progression-based, not connection-based.
+Static checks only (brace/paren balance verified); Windows build +
+on-device verification by the owner pending.
+
+## TEMP diagnostics for network-speed promotion (round 30, 2026-10-21)
+
+Owner's Flip5 (One UI 9) on the round-28/29 build: the network-speed
+notification posts and updates but stays in the plain "other
+notifications" form, although it rendered as a Now Bar capsule on the
+pre-round-28 build at even lower speeds. Static re-check of the whole
+transition path found NO upgrade step anywhere: the form is decided at
+build/post time (mirrors: notifyWithPromotionFallback posts the
+promoted form first and falls back only when posting throws; network
+speed: rebuilt every 1.5s with the current latch state). With
+regular=off + threshold=0 the first build should already be promoted,
+so a live input must differ from what the code expects — candidates:
+the stored regular/threshold values, or the hidden-API semFlags write
+in SamsungOneUi7NowBarCompat being denied at runtime (it is wrapped in
+runCatching, so a denial is invisible).
+
+TEMP: NetworkSpeedNotificationBuilder now logs (tag NetSpeedDiag,
+change-only) regular/threshold/total/latched/promote/samsung plus a
+read-back of the semFlags ongoing bit after markEligible, the system's
+canPostPromotedNotifications state, and the channel importance.
+REMOVE this logging once the owner's logcat identifies the branch.
+
+## Round 30 CLOSED — diagnosis result (2026-10-21)
+
+The owner's NetSpeedDiag logcat settled it: NO code bug. At the time of
+the "still not a Now Bar" screenshot the stored prefs were
+regular=true (22:34 block, speeds up to 12,269 B/s, promote=false);
+after he switched regular off, threshold=73728 (72 KB/s = nine 8 KB/s
+UI steps) kept every ordinary tick (60–2,000 B/s) below the gate
+(22:35:57–22:37:11, latched=false). The moment real traffic exceeded
+the threshold (2,260,285 B/s at 22:37:13) the log shows
+latched=true promote=true samsung=true semOngoing=true — the capsule
+promoted and the round-28 latch held it. The whole "sometimes not a
+Now Bar" history was the 72 KB/s threshold vs bursty traffic.
+canPostPromotedNotifications=true and channelImp=2 throughout.
+TEMP diagnostics removed in this commit; the threshold local-val
+refactor stays (behavior identical). Owner action (no code): set the
+network-speed threshold back to 0 for an always-on capsule.
+
+## Network speed: threshold no longer gates the Now Bar capsule (round 31, 2026-10-21)
+
+Owner decision after the round-30 diagnosis: on first run the capsule
+still did not appear until he dragged the "minimum speed to display"
+slider — i.e. the stored 72 KB/s threshold gated the FIRST appearance
+(the round-28 latch only kept the capsule up after a first crossing).
+His product rule for the fork: turning on "Show network speed in
+Now Bar" (the feature's master toggle) must be sufficient. Change:
+NetworkSpeedNotificationBuilder drops the latch and the threshold from
+the promotion decision entirely — shouldPromote is now simply
+!regularNotificationOnly, so the capsule promotes from the first frame
+whenever the feature is on and regular-only mode is off. The threshold
+preference remains stored (settings backup/restore compatibility) and
+the settings slider still displays it, but it no longer affects the
+capsule; removing the slider from the UI is a separate decision left
+to the owner. This intentionally diverges from upstream behavior.
+Static checks only (brace/paren balance 0/0, latch references gone);
+Windows build + on-device verification by the owner pending.
+
+## VPN / external devices: feature toggle is sufficient (round 32, 2026-10-21)
+
+Same owner product rule as round 31, applied to the two remaining
+Network & connections features. Before: a VPN status notification
+converted only while its text carried parseable speed figures (a
+plain "Connected" status never converted and was actively cancelled
+by the no-traffic suppression); an external-device notification
+converted only when the device name could be extracted from the
+current text. Now detectSmartStage has two context fallbacks after
+the rich detectors: detectVpnContextSmartStage (known VPN package, or
+VPN context on an ongoing status notification — the ongoing
+requirement keeps promos out for unknown packages) and
+detectExternalDeviceContextSmartStage (curated external-device
+package identity alone; the debugging-ignore setting still applies).
+Both reuse the existing aggregate keys and stage shape, so the smart
+branch publishes them like any smart match and its content extraction
+degrades gracefully (default status text until real speeds/device
+data can be parsed). Combined with the round-29 latch, first
+conversion no longer depends on fragile text content and later
+updates can no longer flap the form. Static checks only (brace
+balance 0; file paren baseline unchanged); Windows build + on-device
+verification by the owner pending.
+
+## VPN / external devices: the real blocker was the ongoing core filter (round 33, 2026-10-21)
+
+Owner test of round 32: with 1.1.1.1 (WARP) connected and a Galaxy
+Watch FE connected, neither appeared as a Live Update. Root cause
+found one level above detection: maybeMirror runs passesCoreFilters
+first, and that filter rejects EVERY ongoing notification
+(FLAG_ONGOING_EVENT + isOngoing, and non-clearable + isOngoing) for
+non-Zalo packages. VPN status and device-connection notifications are
+ongoing by nature, so they were discarded before detection ever ran —
+rounds 29/32 improved a stage these sources never reached (the same
+filter also explains the A15 reporter's Play Store complaint:
+download progress notifications are ongoing too; fixing THAT path is
+not in this round's scope).
+
+Fix, deliberately narrow: (1) passesCoreFilters gains
+allowOngoingSmartCandidate, which waives ONLY the two ongoing checks.
+(2) maybeMirror computes isOngoingSmartStatusCandidate (ongoing +
+smart master switch on + the feature's toggle on + likely VPN package
+or VPN-context text, resp. curated external-device package). All
+other core checks (own package, group summary, local-only, blocked
+sources, channel/text filters) still apply. (3) Scoped guard: a
+notification admitted via the exemption that produces no smart match
+is NOT mirrored generically — it is cancelled/ignored as before, so
+the exemption cannot leak into chat/progress mirroring.
+(4) Dictionary coverage: "cloudflare" added to vpn_package_markers
+and the vpn rule's package_hints in all 7 dictionary files (WARP's
+package com.cloudflare.onedotonedotonedotone matched no marker and
+its notification text carries neither "vpn" nor speeds); "watchmanager"
+added to the external_device package_hints (the Galaxy Wearable app
+package contains neither "wearable" nor "galaxywearable"). All files
+re-validated as JSON. Static checks only (brace 0, paren baseline
+unchanged); Windows build + on-device verification by the owner
+pending — if the watch still does not convert, the deciding datum is
+the posting package of its connection notification (dumpsys).
+
+## VPN/external context fallbacks: package identity is enough (round 34, 2026-10-21)
+
+Owner device timeline: 1.1.1.1 notifications were system-blocked
+(importance=NONE in dumps 1-3); after he enabled them, the WARP status
+notification exists (channel VpnService, ONGOING_EVENT|NO_CLEAR|
+FOREGROUND_SERVICE, posted 23:49) and the round-33 build is installed,
+yet no VPN capsule appeared. Remaining suspect in the round-32
+fallbacks themselves: both still required NON-BLANK collected text
+before matching, so a (nearly) text-less VPN/device status post could
+never match even from a curated package — contradicting the stated
+"package identity alone" design. Fix: detectVpnContextSmartStage now
+returns a match immediately for a likely VPN package; the
+text+context+ongoing requirements remain for unknown packages.
+detectExternalDeviceContextSmartStage likewise no longer blocks on
+blank text (the debugging-ignore check only runs when text exists).
+If the capsule still does not appear on the next build, the remaining
+unknowns are runtime-side (listener bind timing at post time, the
+notification's actual extras) and the next datum is a full dumpsys.
+Static checks only (brace 0, paren baseline unchanged).
+
+## VPN capsule live traffic + VpnDiag trace (round 35, 2026-10-22)
+
+Owner's point: WARP's own notification prints no speeds, so a
+converted capsule would show status only. Round 35: (1) when the
+source prints no speeds, the VPN capsule falls back to self-measured
+rates (TrafficStats total deltas — while a VPN is on, device totals
+are the VPN throughput), formatted like parsed tokens; (2) the
+notifier tracks the active VPN mirror's source key and the network
+foreground service re-drives its mirror on the existing 1.5s tick
+(refreshActiveVpnMirror, 1.2s throttle, validates source still active
++ features still on) so the rates stay live. TEMP VpnDiag logcat
+points trace the cloudflare source through maybeMirror (candidate,
+smartMatch, live dictionary stats, suppression/guard blocks, publish)
+— the round-34 build produced no capsule on the owner's phone and
+static audit exhausted the gates (one suspect: the parser dictionary
+merges only ENABLED language packs over an EMPTY default, and "vi" is
+not in SUPPORTED_PARSER_DICTIONARY_LANGUAGE_IDS, so a customized
+enabled set would silently empty the dictionary). Remove the VpnDiag
+points once the on-device cause is read. Static checks only.
+
+## VpnDiag layer trace extended (round 36, 2026-10-22)
+
+The round-35 build produced NO VpnDiag output at all on the owner's
+phone after a fresh WARP toggle, so the trace is extended to every
+layer: listener POSTED, maybeMirror ENTRY, CHANNEL-BLOCKED,
+CORE-FILTERED (with the candidate value), BASE-FILTERED — combined
+with round 35's candidate/smart/dictionary line, SUPPRESSED, ongoing
+GUARD and PUBLISH points, one test run now identifies the exact layer
+that stops the WARP source. All points are TEMP and come out together
+once the cause is read. Test protocol for the owner: flutter clean +
+full build (rules out any stale-APK doubt), install, open the app,
+toggle WARP off/on, read logcat -s VpnDiag.
+
+## ROOT CAUSE FOUND: the per-app allowlist vetoed the VPN feature (round 37, 2026-10-22)
+
+The round-36 layer trace on the owner's phone was unambiguous: every
+WARP post reached maybeMirror (ENTRY) and died at BASE-FILTERED.
+passesBaseFilters has three vetoes — media misclassification (ruled
+out: no transport category / media session / MediaStyle), dictionary
+blocked packages (ruled out: no cloudflare entry anywhere) — leaving
+prefs.isPackageAllowed: the owner's package mode is "selected apps"
+and 1.1.1.1 was never added, so the global Smart VPN toggle was
+silently vetoed by an unrelated settings area. Rounds 29-34 were all
+correct but unreachable: the flow order is base filters BEFORE smart
+detection, so no detection fix could ever take effect for an
+unlisted app (the same wall would have stopped the watch source).
+Fix per the owner's standing rule for this feature group (a toggle
+must be sufficient): admitted ongoing smart-status candidates (VPN /
+external device, round 33) now skip ONLY the per-app allowlist term
+of passesBaseFilters (new skipPackageAllowlist parameter, fed by
+ongoingSmartCandidate); the media and blocked-source vetoes still
+apply, and the ongoing guard still keeps candidates out of the
+generic mirror. All TEMP VpnDiag points (rounds 35-36) removed; the
+round-35 self-measured live traffic for the VPN capsule stays.
+Static checks only (brace 0, paren baseline unchanged, no VpnDiag
+references remain).
+
+## VPN capsule confirmed; live refresh fixed + source replaced (round 38, 2026-10-22)
+
+Owner confirmed the VPN capsule appears on the round-37 build. Two
+follow-ups from his test: (1) The round-35 rate refresh never worked
+— refreshActiveVpnMirror looked the source up via
+NotificationManager.activeNotifications, which returns only THIS
+app's own notifications, so the first tick found nothing and cleared
+the tracking key. Fix: the notifier now keeps the source SBN itself
+(activeVpnMirrorSourceSbn) and re-drives maybeMirror with it.
+(2) The capsule sat next to WARP's own plain notification. Upstream's
+removal policy hard-blocks dismissing persistent sources
+(OriginalRemovalPolicy.mayRemove returns false for persistent, and
+maybeDismissOriginalSource required isClearable), which is why
+originals of ongoing sources were never hidden. The VPN feature is a
+replacement by design, so smart VPN mirrors now return
+removeSource=true and the listener's dismissal honors that request
+over the clearable check and the removal policy (self-dismiss
+bookkeeping + mirror retention unchanged, so the mirror survives the
+source's removal and the round-35 refresh keeps its rates live from
+the stored snapshot). If WARP re-posts on state changes, each repost
+is mirrored and dismissed again. Static checks only.
+
+## VPN source dismissal: snooze fallback (round 39, 2026-10-22)
+
+Round-38 dismissal executed without error but the WARP original
+stayed: dumpsys proved it was posted once and never reposted, and
+logcat showed no failure and no removal event — One UI silently
+ignores listener cancels of this foreground-service notification.
+Fallback in maybeDismissOriginalSource for removeSource (VPN)
+results: 1.2s after the cancel attempt, if the source key is still
+in the listener's active notifications, snoozeNotification hides it
+for 12h (the app cancelling its own notification on disconnect
+clears the snooze with it). TEMP VpnDismiss log line confirms which
+mechanism took effect; remove after on-device confirmation.
+Static checks only.
+
+## VPN source snooze confirmed; temp trace removed (round 40, 2026-10-22)
+
+On-device log confirmed the round-39 fallback firing exactly as
+designed ("cancel ineffective; snoozed 0|com.cloudflare...|101"):
+One UI ignores the listener cancel for the WARP foreground-service
+notification, the verification pass finds it still active, and the
+snooze hides it — the shade now shows only the VPN capsule, which
+keeps updating with self-measured traffic on the 1.5s tick. The
+TEMP VpnDismiss trace line is removed; the mechanism stays. The
+Network & connections trio (speed / VPN / external devices) is now
+functionally complete on the owner's device, with the external-
+device capsule still awaiting a source that actually posts a
+notification (the Galaxy Watch FE posts none on One UI 9).
+
+## Snoozed VPN source must stay visible to sync/reconcile (round 41, 2026-10-22)
+
+Regression from round 39, found by the owner minutes after the
+cleanup build: the VPN capsule vanished entirely. Cause: a snoozed
+source is absent from the listener's active list, so the periodic
+snapshot sync / reconnect reconcile treated it as removed and
+cancelled the capsule — while the original stayed snoozed and
+hidden, leaving no VPN UI at all. Fix: the two snapshot reads that
+drive reconcile and (re)processing now use sourceSnapshots() =
+active + snoozed notifications that still qualify as ongoing
+smart-status sources (new LiveUpdateNotifier.isSmartStatusSource
+wrapper over the round-33 candidate check; the candidate filter
+keeps user-snoozed unrelated notifications out of the pipeline).
+Dismissal is also skipped for an already-snoozed source (a cancel
+against the snoozed record could delete it and orphan the mirror).
+Disconnect still cleans up: the app cancelling its notification
+removes the snoozed record, the removal event fires, and the mirror
+is cancelled as before. Static checks only.

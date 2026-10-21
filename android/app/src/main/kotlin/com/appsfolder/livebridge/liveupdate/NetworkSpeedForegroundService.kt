@@ -64,6 +64,8 @@ class NetworkSpeedForegroundService : Service() {
             lastSnapshot = snapshot
             lastSampleAtElapsedMs = nowElapsedMs
             refreshServiceState()
+            // Keep an active VPN capsule's self-measured rates live.
+            LiveUpdateNotifier.refreshActiveVpnMirror(applicationContext, prefs)
 
             workerHandler?.postDelayed(this, SAMPLE_INTERVAL_MS)
         }
@@ -174,26 +176,40 @@ class NetworkSpeedForegroundService : Service() {
             return
         }
 
+        // Transient failures must not tear the feature down: this runs on
+        // every sampling tick, and the old behavior stopped the service
+        // (which also cancels the notification) on ANY single build/post
+        // error, so the network-speed capsule vanished until some later
+        // sync happened to restart the service — the other half of the
+        // intermittent "sometimes not a Now Bar" report. Now a failed
+        // build keeps the currently posted notification and a failed
+        // UPDATE post is retried on the next tick; only a failed initial
+        // foreground start still stops the service, because a started
+        // foreground service that never calls startForeground is killed
+        // by the system anyway.
         val notification = runCatching { buildNotification() }
             .onFailure { error ->
                 Log.e(TAG, "Failed to refresh network speed notification", error)
-                stopSelfSafely()
             }
             .getOrNull() ?: return
 
-        runCatching {
-            if (isForegroundActive) {
+        if (isForegroundActive) {
+            runCatching {
                 notificationManager.notify(
                     NetworkSpeedNotificationBuilder.NOTIFICATION_ID,
                     notification
                 )
-            } else {
+            }.onFailure { error ->
+                Log.e(TAG, "Failed to update network speed notification", error)
+            }
+        } else {
+            runCatching {
                 startForegroundCompat(notification)
                 isForegroundActive = true
+            }.onFailure { error ->
+                Log.e(TAG, "Failed to post network speed notification", error)
+                stopSelfSafely()
             }
-        }.onFailure { error ->
-            Log.e(TAG, "Failed to post network speed notification", error)
-            stopSelfSafely()
         }
     }
 
@@ -217,10 +233,15 @@ class NetworkSpeedForegroundService : Service() {
     }
 
     private fun startForegroundCompat(notification: Notification) {
+        // Must match the manifest declaration for this service
+        // (foregroundServiceType="specialUse" + the special-use
+        // permission and subtype property). Passing a type the
+        // manifest does not declare (the old DATA_SYNC) makes
+        // startForeground throw on Android 14+.
         startForeground(
             NetworkSpeedNotificationBuilder.NOTIFICATION_ID,
             notification,
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
         )
     }
 
@@ -243,12 +264,24 @@ class NetworkSpeedForegroundService : Service() {
                 return
             }
 
-            ContextCompat.startForegroundService(
-                context,
-                Intent(context, NetworkSpeedForegroundService::class.java).apply {
-                    action = ACTION_REFRESH
-                }
-            )
+            // Callers include the notification listener service, which
+            // runs in the background: a background foreground-service
+            // start can be denied by the system (Android 12+), and an
+            // uncaught ForegroundServiceStartNotAllowedException here
+            // crashed the process on every listener (re)connect — an
+            // uninstall-to-recover crash loop while the toggle stayed
+            // on. A denied start is not fatal: log it and let the next
+            // foreground sync retry.
+            try {
+                ContextCompat.startForegroundService(
+                    context,
+                    Intent(context, NetworkSpeedForegroundService::class.java).apply {
+                        action = ACTION_REFRESH
+                    }
+                )
+            } catch (error: Exception) {
+                Log.e(TAG, "Failed to start network speed service", error)
+            }
         }
 
         fun stop(context: Context) {

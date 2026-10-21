@@ -157,7 +157,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
                         mainHandler.post { if (!destroyed) scheduleSnapshotSync() }
                         return@post
                     }
-                    val snapshots = activeNotifications?.toList()
+                    val snapshots = sourceSnapshots()
                         ?: throw IllegalStateException("Notification snapshot unavailable")
                     reconcileSources(snapshots)
                     refreshPolicy.retain(snapshots.mapTo(mutableSetOf()) { it.key })
@@ -226,7 +226,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
             if (destroyed || !listenerConnected) return@post
             refreshPolicy.invalidate()
             val snapshots = try {
-                activeNotifications?.toList()
+                sourceSnapshots()
             } catch (error: Throwable) {
                 Log.w(TAG, "Unable to read active notifications on connect", error)
                 null
@@ -590,6 +590,31 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         } catch (_: Throwable) {
             null
         }
+    }
+
+    /**
+     * Snapshots for source-presence and processing: the active list
+     * plus any SNOOZED smart-status sources (round 41). The VPN
+     * source is deliberately snoozed once its capsule replaces it;
+     * counting only active notifications made every sync/reconnect
+     * treat that source as removed and cancel the capsule. The
+     * candidate filter keeps notifications the user snoozed for
+     * unrelated reasons out of the mirror pipeline.
+     */
+    private fun sourceSnapshots(): List<StatusBarNotification>? {
+        val active = activeNotifications?.toList() ?: return null
+        val snoozed = runCatching { snoozedNotifications?.toList() }
+            .getOrNull()
+            .orEmpty()
+        if (snoozed.isEmpty()) {
+            return active
+        }
+        val activeKeys = active.mapTo(HashSet()) { it.key }
+        val snoozedSources = snoozed.filter { snoozedSbn ->
+            snoozedSbn.key !in activeKeys &&
+                LiveUpdateNotifier.isSmartStatusSource(applicationContext, prefs, snoozedSbn)
+        }
+        return if (snoozedSources.isEmpty()) active else active + snoozedSources
     }
 
     private fun reconcileSources(snapshots: List<StatusBarNotification>) {
@@ -1024,7 +1049,22 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         if (!result.mirrored) {
             return
         }
-        if (!sbn.isClearable || result.retainOriginal) {
+        if (result.retainOriginal) {
+            return
+        }
+        // A source that is already snoozed (round 41) is already
+        // hidden; attempting to cancel it could delete the snoozed
+        // record and orphan the mirror that replaced it.
+        val isSnoozed = runCatching {
+            snoozedNotifications?.any { it.key == sbn.key } == true
+        }.getOrDefault(false)
+        if (isSnoozed) {
+            return
+        }
+        // A VPN mirror replaces its ongoing source outright (round 38):
+        // its removeSource request outranks the clearable check that
+        // otherwise protects persistent notifications from dismissal.
+        if (!sbn.isClearable && !result.removeSource) {
             return
         }
         val appPresentationRemoveOriginal = AppPresentationOverridesLoader
@@ -1069,7 +1109,9 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         val title = sbn.notification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
         val contentRevision = (title + "\n" + extractLogText(sbn.notification)).hashCode()
         val removalKey = "${sbn.packageName}|${sbn.notification.channelId}|${sbn.id}|$contentRevision"
-        if (!originalRemovalPolicy.mayRemove(removalKey, SystemClock.elapsedRealtime(), persistent)) return
+        if (!result.removeSource &&
+            !originalRemovalPolicy.mayRemove(removalKey, SystemClock.elapsedRealtime(), persistent)
+        ) return
         rememberSelfDismissedSourceKey(sbn.key)
         sourceLifecycle.retainMirrorAfterRemoval(sbn.key)
         try {
@@ -1078,6 +1120,29 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
             sourceLifecycle.cancelRetention(sbn.key)
             forgetSelfDismissedSourceKey(sbn.key)
             Log.e(TAG, "Failed to auto-dismiss original notification: ${sbn.key}", error)
+        }
+        if (result.removeSource) {
+            // One UI silently keeps foreground-service notifications
+            // that a listener cancels (verified on the owner's Flip5,
+            // round 39: no error, no removal event, no repost — the
+            // original simply stays). Verify shortly after the cancel;
+            // if the source is still up, snooze it out of the shade
+            // instead — the capsule has already replaced it.
+            processingHandler.postDelayed(
+                {
+                    val stillActive = runCatching {
+                        activeNotifications?.any { it.key == sbn.key } == true
+                    }.getOrDefault(false)
+                    if (stillActive) {
+                        runCatching {
+                            snoozeNotification(sbn.key, VPN_SOURCE_SNOOZE_MS)
+                        }.onFailure { error ->
+                            Log.w(TAG, "Failed to snooze VPN source: ${sbn.key}", error)
+                        }
+                    }
+                },
+                VPN_SOURCE_DISMISS_VERIFY_DELAY_MS
+            )
         }
     }
 
@@ -1468,6 +1533,8 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         private const val MAX_REBIND_ATTEMPTS = 6
         private const val SNAPSHOT_SYNC_INTERVAL_MS = 4_000L
         private const val ORIGINAL_DISMISS_INITIAL_GRACE_MS = 750L
+        private const val VPN_SOURCE_DISMISS_VERIFY_DELAY_MS = 1200L
+        private const val VPN_SOURCE_SNOOZE_MS = 12 * 60 * 60 * 1000L
         private const val ORIGINAL_DISMISS_RETRY_DELAY_MS = 250L
         private const val ORIGINAL_DISMISS_MAX_ATTEMPTS = 6
         private const val ORIGINAL_SOURCE_SNOOZE_MS = 500L

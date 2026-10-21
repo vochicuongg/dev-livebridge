@@ -37,6 +37,7 @@ import android.os.BatteryManager
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
+import android.net.TrafficStats
 import android.os.SystemClock
 import android.service.notification.StatusBarNotification
 import android.util.Log
@@ -282,6 +283,46 @@ object LiveUpdateNotifier {
 
     private val stateLock = Any()
     private val sbnToAggregateKey = mutableMapOf<String, String>()
+
+    /**
+     * Sticky smart classification for the VPN and external-device rules,
+     * keyed by source notification key. Both rules re-run text detection
+     * on every source update and are brittle to transient wording: a VPN
+     * status notification that momentarily drops its speed figures fails
+     * the speed-pattern gate (and then hits the no-traffic suppression,
+     * which cancels the mirror outright), and a device notification whose
+     * text momentarily loses the device name fails its gate and the
+     * mirror downgrades to the plain form — the capsule flapped in and
+     * out of the Now Bar on ordinary status updates. Once a notification
+     * has been published under one of these rules, its last match is
+     * latched here and reused for later updates of the SAME notification
+     * while the rule stays enabled, so the FORM persists and only the
+     * content degrades (the smart branch already falls back to the
+     * default status text when the current text carries no fresh data).
+     * The latch is dropped with the rest of the per-key smart state in
+     * clearSmartTrackingForSbnKeyLocked (source removal, kind change).
+     */
+    private val latchedSmartMatchesBySbnKey = mutableMapOf<String, SmartStageMatch>()
+
+    // Live-traffic support for the VPN capsule (round 35): tracks the
+    // source notification behind the currently published VPN mirror so
+    // the network foreground service's 1.5s tick can re-drive the
+    // mirror with fresh self-measured rates (VPN apps like WARP print
+    // no speeds in their own notification). The SBN itself is kept:
+    // NotificationManager.activeNotifications only returns this app's
+    // OWN notifications, so the source can never be looked up by key
+    // (round-38 fix — the first refresh attempt silently self-disabled
+    // on exactly that).
+    @Volatile
+    private var activeVpnMirrorSourceSbn: StatusBarNotification? = null
+
+    private val vpnSelfTrafficLock = Any()
+    private var vpnSelfTrafficLastRxBytes = -1L
+    private var vpnSelfTrafficLastTxBytes = -1L
+    private var vpnSelfTrafficLastSampleMs = 0L
+
+    @Volatile
+    private var lastVpnMirrorRateRefreshMs = 0L
     private val aggregateStates = mutableMapOf<String, AggregateState>()
     private val sbnToOtpAggregateKey = mutableMapOf<String, String>()
     private val sbnToOtpSourceKey = mutableMapOf<String, String>()
@@ -1986,8 +2027,24 @@ object LiveUpdateNotifier {
             // Zalo uses silent background syncs, low-priority channels, and rapid group
             // summary updates that would otherwise be filtered out before reaching mirror logic.
             val isZaloPackage = sbn.packageName.lowercase(Locale.ROOT).contains("zalo")
-            
-            if (!isZaloPackage && !passesCoreFilters(context.packageName, sbn)) {
+            val parserDictionary = LiveParserDictionaryLoader.get(context, prefs)
+            // Fork exemption (2026-10-21): VPN and external-device STATUS
+            // notifications are ongoing by nature, and the core filters
+            // reject every ongoing notification — so those two smart
+            // features could never convert anything at all (a connected
+            // VPN or watch never produced a Now Bar capsule). A
+            // notification that qualifies as a candidate for one of
+            // these two enabled features may pass the two ongoing
+            // checks; every other core check still applies, and the
+            // ongoingExemption guard further below keeps such a
+            // notification out of the generic mirror when detection
+            // finds no smart match, so the exemption cannot leak.
+            val ongoingSmartCandidate = !isZaloPackage &&
+                isOngoingSmartStatusCandidate(prefs, sbn, parserDictionary)
+
+            if (!isZaloPackage &&
+                !passesCoreFilters(context.packageName, sbn, ongoingSmartCandidate)
+            ) {
                 val staleAggregateIds = synchronized(stateLock) {
                     clearAggregateTrackingForSbnKeyLocked(sbn.key)
                 }
@@ -1999,7 +2056,6 @@ object LiveUpdateNotifier {
                 cancelMirrorsForIgnoredSource(manager, sbn)
                 return notMirroredResult()
             }
-            val parserDictionary = LiveParserDictionaryLoader.get(context, prefs)
             if (isPrivacyRedactedNotification(sbn.notification, parserDictionary)) {
                 return notMirroredResult()
             }
@@ -2162,7 +2218,14 @@ object LiveUpdateNotifier {
             }
             // Zalo VIP Bypass: Skip base filters for Zalo to prevent filtering on
             // silent/low-priority characteristics
-            if (!isZaloPackage && !passesBaseFilters(prefs, sbn, parserDictionary, mediaPlaybackSmartEnabled)) {
+            if (!isZaloPackage && !passesBaseFilters(
+                    prefs,
+                    sbn,
+                    parserDictionary,
+                    mediaPlaybackSmartEnabled,
+                    skipPackageAllowlist = ongoingSmartCandidate
+                )
+            ) {
                 val staleAggregateIds = synchronized(stateLock) {
                     clearAggregateTrackingForSbnKeyLocked(sbn.key)
                 }
@@ -2194,7 +2257,7 @@ object LiveUpdateNotifier {
                 null
             }
 
-            val smartMatch = if (!isMediaPlaybackNotification &&
+            var smartMatch = if (!isMediaPlaybackNotification &&
                 otpMatch == null &&
                 prefs.getSmartStatusDetectionEnabled()
             ) {
@@ -2214,6 +2277,14 @@ object LiveUpdateNotifier {
                 )
             } else {
                 null
+            }
+            if (smartMatch == null && !isMediaPlaybackNotification && otpMatch == null) {
+                // A latched VPN / external-device classification keeps the
+                // capsule's form across updates whose text momentarily
+                // fails detection; it also keeps smartMatch non-null, so
+                // the no-traffic VPN suppression below cannot cancel a
+                // capsule that has already proven it carries traffic.
+                smartMatch = latchedSmartMatchFor(sbn, prefs)
             }
 
             val textProgressMatch = if (!isMediaPlaybackNotification &&
@@ -2241,6 +2312,20 @@ object LiveUpdateNotifier {
                         parserDictionary = parserDictionary
                     )
             if (shouldSuppressNonTrafficVpn) {
+                val staleAggregateIds = synchronized(stateLock) {
+                    clearAggregateTrackingForSbnKeyLocked(sbn.key)
+                }
+                staleAggregateIds.forEach { cancelMirroredNotification(manager, it) }
+                cancelMirroredNotification(manager, mirrorIdForKey(sbn.key))
+                return notMirroredResult()
+            }
+
+            if (ongoingSmartCandidate && smartMatch == null) {
+                // Entered only through the ongoing exemption for the VPN /
+                // external-device features; detection found no smart
+                // match, so there is nothing to publish — do not fall
+                // through to the generic mirror for an ongoing
+                // notification the core filters would have rejected.
                 val staleAggregateIds = synchronized(stateLock) {
                     clearAggregateTrackingForSbnKeyLocked(sbn.key)
                 }
@@ -2480,6 +2565,10 @@ object LiveUpdateNotifier {
                             smartMatch.stageValue
                         }
                         sbnToAggregateKey[sbn.key] = smartMatch.aggregateKey
+                        val publishedRuleId = smartRuleIdFromAggregateKey(smartMatch.aggregateKey)
+                        if (publishedRuleId == "vpn" || publishedRuleId == "external_device") {
+                            latchedSmartMatchesBySbnKey[sbn.key] = smartMatch
+                        }
                         val sourceEntry = selectSmartSourceEntryLocked(
                             aggregateState = state,
                             keepHighestStage = smartMatch.keepHighestStage
@@ -2529,9 +2618,12 @@ object LiveUpdateNotifier {
                             notification = sourceNotification,
                             fallbackTitle = sourceSbn.packageName,
                             parserDictionary = parserDictionary
-                        )
+                        ) ?: sampleSelfVpnTrafficSpeeds()
                     } else {
                         null
+                    }
+                    if (smartRuleId == "vpn") {
+                        activeVpnMirrorSourceSbn = sourceSbn
                     }
                     val smartStatusText = when (smartRuleId) {
                         "navigation" -> extractNavigationDistanceText(
@@ -2626,7 +2718,14 @@ object LiveUpdateNotifier {
                             samsungBridge = samsungBridge
                         )
                     }
-                    mirroredResult(dedupKind = dedupKind, retainOriginal = smartRuleId == "external_device")
+                    mirroredResult(
+                        dedupKind = dedupKind,
+                        retainOriginal = smartRuleId == "external_device",
+                        // The VPN capsule replaces its source outright
+                        // (round 38): a converted WARP status left its
+                        // plain notification sitting next to the capsule.
+                        removeSource = smartRuleId == "vpn"
+                    )
                 }
 
                 hasNativeProgress -> {
@@ -3248,11 +3347,16 @@ object LiveUpdateNotifier {
         return MirrorResult(mirrored = false, retryNeeded = retryNeeded)
     }
 
-    private fun mirroredResult(dedupKind: MirrorDedupKind = MirrorDedupKind.NONE, retainOriginal: Boolean = false): MirrorResult {
+    private fun mirroredResult(
+        dedupKind: MirrorDedupKind = MirrorDedupKind.NONE,
+        retainOriginal: Boolean = false,
+        removeSource: Boolean = false
+    ): MirrorResult {
         return MirrorResult(
             mirrored = true,
             dedupKind = dedupKind,
-            retainOriginal = retainOriginal
+            retainOriginal = retainOriginal,
+            removeSource = removeSource
         )
     }
 
@@ -3452,7 +3556,8 @@ object LiveUpdateNotifier {
         prefs: ConverterPrefs,
         sbn: StatusBarNotification,
         parserDictionary: LiveParserDictionary,
-        mediaPlaybackSmartEnabled: Boolean
+        mediaPlaybackSmartEnabled: Boolean,
+        skipPackageAllowlist: Boolean = false
     ): Boolean {
         val source = sbn.notification
 
@@ -3468,12 +3573,60 @@ object LiveUpdateNotifier {
             return false
         }
 
-        return prefs.isPackageAllowed(sbn.packageName)
+        // Admitted VPN / external-device status candidates skip the
+        // per-app allowlist (round 37): those features are global
+        // toggles, and the owner's device proved the allowlist silently
+        // vetoed them from an unrelated settings area (every WARP post
+        // died here with package mode = selected apps). The media and
+        // blocked-source checks above still apply, and the ongoing
+        // guard below keeps candidates out of the generic mirror.
+        return skipPackageAllowlist || prefs.isPackageAllowed(sbn.packageName)
+    }
+
+    /**
+     * Whether an ongoing notification is a plausible status source for
+     * the smart VPN or external-device features (whose toggles are on).
+     * Only notifications that are ongoing at all can need the core-filter
+     * exemption; package identity is the primary signal, with the VPN
+     * context text check (same collection the suppression logic uses) as
+     * the secondary one.
+     */
+    private fun isOngoingSmartStatusCandidate(
+        prefs: ConverterPrefs,
+        sbn: StatusBarNotification,
+        parserDictionary: LiveParserDictionary
+    ): Boolean {
+        if (!sbn.isOngoing || !prefs.getSmartStatusDetectionEnabled()) {
+            return false
+        }
+        val packageLower = sbn.packageName.lowercase(Locale.ROOT)
+        if (prefs.getSmartVpnEnabled()) {
+            if (isLikelyVpnPackage(packageLower, parserDictionary)) {
+                return true
+            }
+            val detectionText = collectVpnDetectionText(
+                notification = sbn.notification,
+                fallbackTitle = sbn.packageName,
+                includeRemoteViewTexts = true
+            )
+            if (detectionText.isNotBlank() &&
+                parserDictionary.vpnContextPattern.containsMatchIn(detectionText)
+            ) {
+                return true
+            }
+        }
+        if (prefs.getSmartExternalDevicesEnabled() &&
+            isLikelySmartRulePackage(packageLower, "external_device", parserDictionary)
+        ) {
+            return true
+        }
+        return false
     }
 
     private fun passesCoreFilters(
         appPackageName: String,
-        sbn: StatusBarNotification
+        sbn: StatusBarNotification,
+        allowOngoingSmartCandidate: Boolean = false
     ): Boolean {
         val packageNameLower = sbn.packageName.lowercase(Locale.ROOT)
         val allowTwoGisGroupSummary = packageNameLower == TWO_GIS_PACKAGE
@@ -3515,14 +3668,18 @@ object LiveUpdateNotifier {
         // Chat bubbles mark notifications as ongoing foreground services.
         // Allow Zalo notifications even if they have the ongoing event flag.
         val hasOngoingEventFlag = source.flags and Notification.FLAG_ONGOING_EVENT != 0
-        if (!isZaloPackage && hasOngoingEventFlag && sbn.isOngoing) {
+        if (!isZaloPackage && hasOngoingEventFlag && sbn.isOngoing &&
+            !allowOngoingSmartCandidate
+        ) {
             return false
         }
-        
+
         // Zalo VIP Bypass: Bypass Non-Clearable check
         // Chat bubbles prevent notifications from being swiped away.
         // Allow Zalo notifications even if they cannot be cleared by the user.
-        if (!isZaloPackage && !sbn.isClearable && sbn.isOngoing) {
+        if (!isZaloPackage && !sbn.isClearable && sbn.isOngoing &&
+            !allowOngoingSmartCandidate
+        ) {
             return false
         }
         
@@ -5618,6 +5775,39 @@ object LiveUpdateNotifier {
         }
     }
 
+    /**
+     * Returns the latched smart match for a source notification when its
+     * rule is one of the sticky ones (vpn, external_device) and that rule
+     * is still enabled. The package guard refuses to resurrect a match
+     * for a different package that happens to reuse the same key.
+     */
+    private fun latchedSmartMatchFor(
+        sbn: StatusBarNotification,
+        prefs: ConverterPrefs
+    ): SmartStageMatch? {
+        if (!prefs.getSmartStatusDetectionEnabled()) {
+            return null
+        }
+        val latched = synchronized(stateLock) {
+            latchedSmartMatchesBySbnKey[sbn.key]
+        } ?: return null
+        val featureEnabled = when (smartRuleIdFromAggregateKey(latched.aggregateKey)) {
+            "vpn" -> prefs.getSmartVpnEnabled()
+            "external_device" -> prefs.getSmartExternalDevicesEnabled()
+            else -> false
+        }
+        if (!featureEnabled) {
+            return null
+        }
+        if (!latched.aggregateKey.startsWith(
+                sbn.packageName.lowercase(Locale.ROOT) + ":"
+            )
+        ) {
+            return null
+        }
+        return latched
+    }
+
     private fun detectSmartStage(
         packageName: String,
         source: Notification,
@@ -5751,6 +5941,20 @@ object LiveUpdateNotifier {
                 source = source,
                 parserDictionary = parserDictionary
             )?.let { return it }
+            detectVpnContextSmartStage(
+                packageNameLower = packageLower,
+                source = source,
+                parserDictionary = parserDictionary
+            )?.let { return it }
+        }
+
+        if (externalDevicesEnabled) {
+            detectExternalDeviceContextSmartStage(
+                packageNameLower = packageLower,
+                source = source,
+                parserDictionary = parserDictionary,
+                ignoreDebugging = externalDevicesIgnoreDebugging
+            )?.let { return it }
         }
 
         return null
@@ -5827,6 +6031,112 @@ object LiveUpdateNotifier {
             aggregateKey = "$packageNameLower:vpn:vpn",
             stageValue = 1,
             maxStage = 1,
+            compactOrderCode = null,
+            keepHighestStage = false
+        )
+    }
+
+    /**
+     * Context-only VPN fallback (fork rule, 2026-10-21 — same product
+     * decision as the network-speed capsule: enabling the feature must
+     * be sufficient). Until now a VPN status notification converted only
+     * while its text carried speed figures; a plain "Connected" status
+     * never converted at all and was actively suppressed by the
+     * no-traffic rule. A notification from a known VPN package, or any
+     * ongoing status notification carrying VPN context, now converts
+     * immediately; the smart branch already falls back to the default
+     * VPN status text when no speeds can be parsed, and shows the real
+     * speeds as soon as the app reports them. The ongoing requirement
+     * for unknown packages keeps promos/news mentioning "VPN" out.
+     */
+    private fun detectVpnContextSmartStage(
+        packageNameLower: String,
+        source: Notification,
+        parserDictionary: LiveParserDictionary
+    ): SmartStageMatch? {
+        // A known VPN package is sufficient on identity alone — some VPN
+        // apps post a nearly text-less foreground-service notification,
+        // and requiring text made those unconvertible even with the
+        // package curated (found on the owner's device, round 34).
+        val likelyVpnPackage = isLikelyVpnPackage(packageNameLower, parserDictionary)
+        if (likelyVpnPackage) {
+            return SmartStageMatch(
+                aggregateKey = "$packageNameLower:vpn:vpn",
+                stageValue = 1,
+                maxStage = 1,
+                compactOrderCode = null,
+                keepHighestStage = false
+            )
+        }
+        val combinedText = collectNotificationText(
+            notification = source,
+            fallbackTitle = packageNameLower,
+            includeRemoteViewTexts = true
+        )
+        if (combinedText.isBlank()) {
+            return null
+        }
+        val hasVpnContext = parserDictionary.vpnContextPattern.containsMatchIn(combinedText)
+        if (!hasVpnContext) {
+            return null
+        }
+        if ((source.flags and Notification.FLAG_ONGOING_EVENT) == 0) {
+            return null
+        }
+        return SmartStageMatch(
+            aggregateKey = "$packageNameLower:vpn:vpn",
+            stageValue = 1,
+            maxStage = 1,
+            compactOrderCode = null,
+            keepHighestStage = false
+        )
+    }
+
+    /**
+     * Context-only external-device fallback (same fork rule): the
+     * dictionary rule additionally required the device name to be
+     * extractable from the current text, so status notifications from a
+     * known device package whose wording hid the name never converted.
+     * A notification from a curated external-device package now
+     * converts on package identity alone; the status text extraction in
+     * the smart branch degrades to the default status text when it
+     * cannot parse anything better. The debugging-notification ignore
+     * setting is still respected.
+     */
+    private fun detectExternalDeviceContextSmartStage(
+        packageNameLower: String,
+        source: Notification,
+        parserDictionary: LiveParserDictionary,
+        ignoreDebugging: Boolean
+    ): SmartStageMatch? {
+        val isExternalDevicePackage = isLikelySmartRulePackage(
+            packageNameLower = packageNameLower,
+            ruleId = "external_device",
+            parserDictionary = parserDictionary
+        )
+        if (!isExternalDevicePackage) {
+            return null
+        }
+        val combinedText = collectNotificationText(
+            notification = source,
+            fallbackTitle = packageNameLower,
+            includeRemoteViewTexts = true
+        ).lowercase(Locale.ROOT)
+        // Package identity alone is the design for curated device
+        // packages (see the function doc): a text-less status post must
+        // still convert, so blank text only skips the debugging check,
+        // it does not block the match.
+        if (combinedText.isNotBlank() &&
+            ignoreDebugging &&
+            isExternalDeviceDebuggingNotification(combinedText)
+        ) {
+            return null
+        }
+        val rule = parserDictionary.smartRules.firstOrNull { it.id == "external_device" }
+        return SmartStageMatch(
+            aggregateKey = "$packageNameLower:external_device:device",
+            stageValue = 1,
+            maxStage = rule?.maxStage ?: 1,
             compactOrderCode = null,
             keepHighestStage = false
         )
@@ -6212,6 +6522,98 @@ object LiveUpdateNotifier {
             return null
         }
         return normalized
+    }
+
+    /**
+     * Self-measured traffic for the VPN capsule (round 35): while a
+     * VPN is connected, the device totals ARE the VPN throughput, so
+     * when the source notification prints no speeds (WARP), the
+     * capsule falls back to rates sampled from TrafficStats deltas.
+     * Returns null on the first sample (no delta yet) — the next
+     * refresh tick fills the rates in.
+     */
+    private fun sampleSelfVpnTrafficSpeeds(): VpnTrafficSpeeds? {
+        val rxBytes = TrafficStats.getTotalRxBytes()
+        val txBytes = TrafficStats.getTotalTxBytes()
+        if (rxBytes < 0L || txBytes < 0L) {
+            return null
+        }
+        val nowMs = SystemClock.elapsedRealtime()
+        synchronized(vpnSelfTrafficLock) {
+            val prevRxBytes = vpnSelfTrafficLastRxBytes
+            val prevTxBytes = vpnSelfTrafficLastTxBytes
+            val prevMs = vpnSelfTrafficLastSampleMs
+            vpnSelfTrafficLastRxBytes = rxBytes
+            vpnSelfTrafficLastTxBytes = txBytes
+            vpnSelfTrafficLastSampleMs = nowMs
+            if (prevRxBytes < 0L || prevTxBytes < 0L || prevMs <= 0L) {
+                return null
+            }
+            val elapsedMs = nowMs - prevMs
+            if (elapsedMs < 200L) {
+                return null
+            }
+            val downRate = (rxBytes - prevRxBytes).coerceAtLeast(0L) * 1000.0 / elapsedMs
+            val upRate = (txBytes - prevTxBytes).coerceAtLeast(0L) * 1000.0 / elapsedMs
+            return VpnTrafficSpeeds(
+                outgoingSpeed = formatSelfMeasuredSpeed(upRate),
+                incomingSpeed = formatSelfMeasuredSpeed(downRate)
+            )
+        }
+    }
+
+    private fun formatSelfMeasuredSpeed(bytesPerSecond: Double): String {
+        val kib = 1024.0
+        val mib = kib * 1024.0
+        return when {
+            bytesPerSecond >= mib ->
+                String.format(Locale.US, "%.2fMB/s", bytesPerSecond / mib)
+            bytesPerSecond >= kib ->
+                String.format(Locale.US, "%.1fKB/s", bytesPerSecond / kib)
+            else ->
+                String.format(Locale.US, "%.0fB/s", bytesPerSecond)
+        }
+    }
+
+    /**
+     * Whether a notification qualifies as an ongoing smart-status
+     * source (VPN / external device). The listener uses this to keep
+     * SNOOZED sources of those features visible to its sync and
+     * reconcile passes (round 41): the VPN source is snoozed on
+     * purpose once its capsule replaces it, and a snoozed source is
+     * absent from the active list — without this, the first sync
+     * after the snooze (or after any reinstall) treated the source as
+     * gone and cancelled the capsule while the original stayed hidden.
+     */
+    fun isSmartStatusSource(
+        context: Context,
+        prefs: ConverterPrefs,
+        sbn: StatusBarNotification
+    ): Boolean {
+        val parserDictionary = LiveParserDictionaryLoader.get(context, prefs)
+        return isOngoingSmartStatusCandidate(prefs, sbn, parserDictionary)
+    }
+
+    /**
+     * Re-drives the mirror for the active VPN source so its capsule
+     * rates stay live; called by the network foreground service on its
+     * 1.5s sampling tick while any Network & connections feature keeps
+     * that service alive. No-op when no VPN mirror is published.
+     */
+    fun refreshActiveVpnMirror(context: Context, prefs: ConverterPrefs) {
+        val sbn = activeVpnMirrorSourceSbn ?: return
+        if (!prefs.getConverterEnabled() ||
+            !prefs.getSmartStatusDetectionEnabled() ||
+            !prefs.getSmartVpnEnabled()
+        ) {
+            return
+        }
+        val nowMs = SystemClock.elapsedRealtime()
+        if (nowMs - lastVpnMirrorRateRefreshMs < 1200L) {
+            return
+        }
+        lastVpnMirrorRateRefreshMs = nowMs
+        runCatching { maybeMirror(context, prefs, sbn) }
     }
 
     private fun extractVpnTrafficSpeeds(
@@ -9678,6 +10080,10 @@ object LiveUpdateNotifier {
 
     private fun clearSmartTrackingForSbnKeyLocked(sbnKey: String): List<Int> {
         val idsToCancel = mutableListOf<Int>()
+        if (activeVpnMirrorSourceSbn?.key == sbnKey) {
+            activeVpnMirrorSourceSbn = null
+        }
+        latchedSmartMatchesBySbnKey.remove(sbnKey)
         val smartAggregateKey = sbnToAggregateKey.remove(sbnKey)
         if (smartAggregateKey != null) {
             val state = aggregateStates[smartAggregateKey]
