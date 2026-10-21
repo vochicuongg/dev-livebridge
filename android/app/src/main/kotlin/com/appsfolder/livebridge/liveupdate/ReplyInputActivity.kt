@@ -156,7 +156,8 @@ class ReplyInputActivity : Activity() {
             ?: dp(24)
         // On the Z Flip cover screen there is no status bar to clear:
         // the unit anchors to the very top of the cover display.
-        val unitTopMargin = if (isOnCoverScreen()) dp(6) else statusBarHeight + dp(4)
+        val onCoverScreen = isOnCoverScreen()
+        val unitTopMargin = if (onCoverScreen) dp(2) else statusBarHeight + dp(4)
         val root = FrameLayout(this).apply {
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -210,6 +211,42 @@ class ReplyInputActivity : Activity() {
             addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
             addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN)
             addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+            if (onCoverScreen &&
+                android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R
+            ) {
+                // Claim the whole cover window, including the top
+                // camera-tab strip, so no system area pushes the
+                // unit down on the cover screen.
+                setDecorFitsSystemWindows(false)
+                attributes = attributes.apply {
+                    layoutInDisplayCutoutMode =
+                        WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                }
+            }
+        }
+
+        if (onCoverScreen) {
+            // Self-correct the top anchor once laid out: whatever
+            // still pushes the unit below the top of the cover window
+            // (system insets, cover letterboxing) is measured on
+            // screen and subtracted from the top margins, so the unit
+            // ends up flush with the top and its reply strip stays
+            // above the cover keyboard.
+            root.post {
+                val decor = window?.decorView ?: return@post
+                val decorLoc = IntArray(2)
+                decor.getLocationOnScreen(decorLoc)
+                val unitLoc = IntArray(2)
+                unit.getLocationOnScreen(unitLoc)
+                val delta = (unitLoc[1] - decorLoc[1]) - dp(2)
+                if (delta > 0) {
+                    val lp = unit.layoutParams as FrameLayout.LayoutParams
+                    lp.topMargin -= delta
+                    unit.layoutParams = lp
+                    cardTopMargin -= delta
+                    refreshNextPreview()
+                }
+            }
         }
 
         input.requestFocus()
@@ -237,6 +274,12 @@ class ReplyInputActivity : Activity() {
      * the tall main display.
      */
     private fun isOnCoverScreen(): Boolean {
+        // The cover display is short and near-square (720x748 px on
+        // the Flip5); the tall main display never matches either test.
+        val metrics = resources.displayMetrics
+        val shortSide = minOf(metrics.widthPixels, metrics.heightPixels)
+        val longSide = maxOf(metrics.widthPixels, metrics.heightPixels)
+        if (longSide in 1..1100 && longSide - shortSide <= 160) return true
         if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.R) {
             return false
         }
