@@ -56,6 +56,35 @@ class ReplyInputActivity : Activity() {
     private var pendingSwitchCompletion: Runnable? = null
     private var switchFadeAnimator: android.animation.Animator? = null
 
+    /**
+     * The editor only lives while its Now Bar mirror does: this watch
+     * polls the CURRENT session's mirror (it follows card switches,
+     * since it re-reads the intent every tick) and finishes the editor
+     * as soon as the mirror notification is gone — read elsewhere,
+     * swiped away or withdrawn by the source app.
+     */
+    private var mirrorMissCount = 0
+
+    private val mirrorWatchRunnable = object : Runnable {
+        override fun run() {
+            val key = intent.getStringExtra(ReplyProxyService.EXTRA_MIRROR_KEY).orEmpty()
+            if (key.isNotBlank() &&
+                !LiveUpdateNotifier.isMirrorPosted(this@ReplyInputActivity, key)
+            ) {
+                // Two consecutive misses (~1.2 s) before closing, so a
+                // momentary re-post gap never kills the editor.
+                mirrorMissCount++
+                if (mirrorMissCount >= 2) {
+                    finish()
+                    return
+                }
+            } else {
+                mirrorMissCount = 0
+            }
+            mainHandler.postDelayed(this, 600)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         onLaunch()
@@ -84,6 +113,8 @@ class ReplyInputActivity : Activity() {
         pendingSwitchCompletion = null
         switchFadeAnimator?.cancel()
         switchFadeAnimator = null
+        mainHandler.removeCallbacks(mirrorWatchRunnable)
+        mirrorMissCount = 0
 
         // The host surface provided its own reply editor (Wear OS, the
         // notification shade): forward its RemoteInput results to the reply
@@ -97,6 +128,11 @@ class ReplyInputActivity : Activity() {
             finish()
             return
         }
+
+        // If the editor was opened from the notification shade (e.g.
+        // pulled down on the cover screen), retract the shade behind
+        // the editor.
+        collapseNotificationShade()
 
         val display = sessionDisplay(intent)
 
@@ -123,6 +159,16 @@ class ReplyInputActivity : Activity() {
             .takeIf { it > 0 }
             ?.let { resources.getDimensionPixelSize(it) }
             ?: dp(24)
+        // On the Z Flip cover screen there is no status bar to clear:
+        // the unit anchors to the very top of the cover display.
+        val onCoverScreen = isOnCoverScreen()
+        val unitTopMargin = if (onCoverScreen) dp(2) else statusBarHeight + dp(4)
+        android.util.Log.d(
+            "ReplyCover",
+            "cover=$onCoverScreen dm=${resources.displayMetrics.widthPixels}x" +
+                "${resources.displayMetrics.heightPixels} sbH=$statusBarHeight " +
+                "topMargin=$unitTopMargin"
+        )
         val root = FrameLayout(this).apply {
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -135,8 +181,9 @@ class ReplyInputActivity : Activity() {
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                     Gravity.TOP
                 ).apply {
-                    // Just under the status/info bar, with a 4dp gap.
-                    topMargin = statusBarHeight + dp(4)
+                    // Just under the status/info bar, with a 4dp gap —
+                    // or flush to the top on the cover screen.
+                    topMargin = unitTopMargin
                 }
             )
             setOnTouchListener { _, event ->
@@ -155,7 +202,7 @@ class ReplyInputActivity : Activity() {
         // current one (invisible at rest): the pull-down drag reveals it
         // as it scales up to take the front, like the Now Bar card stack.
         rootView = root
-        cardTopMargin = statusBarHeight + dp(4)
+        cardTopMargin = unitTopMargin
         refreshNextPreview()
 
         window?.apply {
@@ -175,6 +222,59 @@ class ReplyInputActivity : Activity() {
             addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
             addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN)
             addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+            if (onCoverScreen &&
+                android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R
+            ) {
+                // Claim the whole cover window, including the top
+                // camera-tab strip, so no system area pushes the
+                // unit down on the cover screen.
+                setDecorFitsSystemWindows(false)
+                attributes = attributes.apply {
+                    layoutInDisplayCutoutMode =
+                        WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                }
+            }
+        }
+
+        if (onCoverScreen) {
+            // Self-correct the top anchor once laid out, in two parts:
+            // any offset INSIDE the window is subtracted from the top
+            // margins, and if the window itself starts below the top
+            // of the cover display, the window is pulled up by its own
+            // offset. Repeated a few times because the cover window
+            // manager may settle the window after the first layout.
+            var windowPulledUp = false
+            val correctCoverTop = {
+                val decor = window?.decorView
+                if (decor != null) {
+                    val decorLoc = IntArray(2)
+                    decor.getLocationOnScreen(decorLoc)
+                    val unitLoc = IntArray(2)
+                    unit.getLocationOnScreen(unitLoc)
+                    val insideDelta = (unitLoc[1] - decorLoc[1]) - dp(2)
+                    android.util.Log.d(
+                        "ReplyCover",
+                        "decorY=${decorLoc[1]} unitY=${unitLoc[1]} " +
+                            "insideDelta=$insideDelta pulledUp=$windowPulledUp"
+                    )
+                    if (insideDelta > 0) {
+                        val lp = unit.layoutParams as FrameLayout.LayoutParams
+                        lp.topMargin -= insideDelta
+                        unit.layoutParams = lp
+                        cardTopMargin -= insideDelta
+                        refreshNextPreview()
+                    }
+                    if (decorLoc[1] > 0 && !windowPulledUp) {
+                        windowPulledUp = true
+                        window?.let { w ->
+                            w.attributes = w.attributes.apply { y -= decorLoc[1] }
+                        }
+                    }
+                }
+            }
+            root.post { correctCoverTop() }
+            mainHandler.postDelayed({ correctCoverTop() }, 300)
+            mainHandler.postDelayed({ correctCoverTop() }, 800)
         }
 
         input.requestFocus()
@@ -182,9 +282,74 @@ class ReplyInputActivity : Activity() {
             val imm = getSystemService(InputMethodManager::class.java)
             imm?.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT)
         }
+
+        // Start the mirror watch (first tick immediately, so a stale
+        // open onto an already-gone notification closes at once).
+        mainHandler.post(mirrorWatchRunnable)
+    }
+
+    override fun onDestroy() {
+        mainHandler.removeCallbacks(mirrorWatchRunnable)
+        pendingSwitchCompletion?.let { mainHandler.removeCallbacks(it) }
+        super.onDestroy()
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    /**
+     * Best-effort shade retraction for editors opened from the
+     * notification shade: modern Android restricts apps here, so both
+     * remaining routes are tried and every failure is ignored — the
+     * legacy close-system-dialogs broadcast and the status bar
+     * service's collapse call.
+     */
+    private fun collapseNotificationShade() {
+        try {
+            @Suppress("DEPRECATION")
+            sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS))
+        } catch (e: Exception) {
+            // Best effort only.
+        }
+        try {
+            val statusBarService = getSystemService("statusbar") ?: return
+            val collapse = statusBarService.javaClass.getMethod("collapsePanels")
+            collapse.isAccessible = true
+            collapse.invoke(statusBarService)
+        } catch (e: Throwable) {
+            // Hidden API, blocked on modern Android: best effort only.
+        }
+    }
+
+    /**
+     * Whether this editor is running on the Z Flip cover screen: its
+     * window is short and near-square (720x748 px on the Flip5), unlike
+     * the tall main display.
+     */
+    private fun isOnCoverScreen(): Boolean {
+        // The cover display is near-square: the Flip5 panel is
+        // 720x748, but Android reports 1282x1234 to apps running on
+        // it (measured on device), while the main display is a tall
+        // 1080x2640. A near-square size with a modest long side can
+        // only be the cover.
+        fun nearSquareCover(width: Int, height: Int): Boolean {
+            val shortSide = minOf(width, height)
+            val longSide = maxOf(width, height)
+            return longSide in 1..1500 && longSide - shortSide <= 160
+        }
+        val metrics = resources.displayMetrics
+        if (nearSquareCover(metrics.widthPixels, metrics.heightPixels)) {
+            return true
+        }
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.R) {
+            return false
+        }
+        return try {
+            val bounds = windowManager.currentWindowMetrics.bounds
+            nearSquareCover(bounds.width(), bounds.height())
+        } catch (e: Exception) {
+            false
+        }
+    }
 
     /** Blends two colors; ratio 0 returns [from], 1 returns [to]. */
     private fun blendColor(from: Int, to: Int, ratio: Float): Int {
@@ -507,6 +672,7 @@ class ReplyInputActivity : Activity() {
             switchingSession = false
             return
         }
+        mirrorMissCount = 0
         setIntent(targetIntent)
         resultKey = targetIntent.getStringExtra(ReplyProxyService.EXTRA_RESULT_KEY).orEmpty()
         val unit = currentUnit ?: run {
@@ -532,7 +698,7 @@ class ReplyInputActivity : Activity() {
      * no next conversation.
      */
     private fun buildNextPreview(): LinearLayout? {
-        val keys = LiveUpdateNotifier.replyableMirrorKeys()
+        val keys = LiveUpdateNotifier.replyableMirrorKeys(this)
         val currentKey = intent.getStringExtra(ReplyProxyService.EXTRA_MIRROR_KEY).orEmpty()
         val index = keys.indexOf(currentKey)
         if (index < 0 || keys.size < 2) return null
@@ -762,7 +928,7 @@ class ReplyInputActivity : Activity() {
     private fun switchToNext(unit: LinearLayout) {
         if (switchingSession) return
         stopFollow()
-        val keys = LiveUpdateNotifier.replyableMirrorKeys()
+        val keys = LiveUpdateNotifier.replyableMirrorKeys(this)
         val currentKey = intent.getStringExtra(ReplyProxyService.EXTRA_MIRROR_KEY).orEmpty()
         val index = keys.indexOf(currentKey)
         // Loop like the Now Bar stack: after the last card, the first.

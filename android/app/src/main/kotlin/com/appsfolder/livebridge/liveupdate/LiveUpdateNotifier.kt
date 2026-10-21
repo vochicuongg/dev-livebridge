@@ -9282,15 +9282,70 @@ object LiveUpdateNotifier {
     }
 
     /**
+     * Ids of the notifications this app actually has posted right now,
+     * per the system — the ground truth for what the Now Bar shows.
+     * Null when the query itself failed (callers then trust the
+     * internal bookkeeping instead).
+     */
+    private fun activeMirrorNotificationIds(context: Context): Set<Int>? {
+        return try {
+            val manager =
+                context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            manager?.activeNotifications?.map { it.id }?.toSet()
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Whether [mirrorKey]'s mirror is really up: the internal registry
+     * must know it AND (when the system can be asked) at least one of
+     * its notification ids must be among the system's active
+     * notifications. The registry alone can go stale when a removal
+     * path skips its cleanup (e.g. prevent-dismiss swallowing the
+     * event), which used to leave phantom cards in the reply editor.
+     */
+    internal fun isMirrorPosted(context: Context, mirrorKey: String): Boolean {
+        if (mirrorKey.isBlank()) return false
+        val trackedIds = synchronized(stateLock) {
+            mirrorNotificationIdsByKey[mirrorKey]?.let { ids ->
+                ids.toSet() + mirrorIdForKey(mirrorKey)
+            }
+        } ?: return false
+        val activeIds = activeMirrorNotificationIds(context) ?: return true
+        return trackedIds.any { it in activeIds }
+    }
+
+    /**
      * Mirror keys whose source currently offers a reply action and whose
      * mirror is still posted, newest first — the swipe order for the
      * reply editor's card stack.
      */
-    internal fun replyableMirrorKeys(): List<String> {
+    internal fun replyableMirrorKeys(context: Context): List<String> {
+        val activeIds = activeMirrorNotificationIds(context)
         val entries = synchronized(stateLock) {
-            sourceSnapshotsByMirrorKey.entries
+            val snapshotEntries = sourceSnapshotsByMirrorKey.entries
                 .filter { (key, _) -> mirrorNotificationIdsByKey.containsKey(key) }
                 .map { it.key to it.value }
+            if (activeIds != null) {
+                // Cross-check against the system: a mirror the user
+                // already cleared must not surface as an editor card,
+                // even if a removal path left its registry entry
+                // behind. Forget such stale state so it cannot
+                // resurface later either.
+                val staleKeys = snapshotEntries
+                    .filter { (key, _) ->
+                        val trackedIds =
+                            mirrorNotificationIdsByKey[key].orEmpty() +
+                                mirrorIdForKey(key)
+                        trackedIds.none { it in activeIds }
+                    }
+                    .map { it.first }
+                staleKeys.forEach { collectMirrorIdsAndForgetStateLocked(it) }
+                snapshotEntries.filter { (key, _) -> key !in staleKeys }
+            } else {
+                snapshotEntries
+            }
         }
         return entries
             .filter { (_, sbn) ->
