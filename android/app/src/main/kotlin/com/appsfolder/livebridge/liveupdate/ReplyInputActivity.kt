@@ -154,6 +154,9 @@ class ReplyInputActivity : Activity() {
             .takeIf { it > 0 }
             ?.let { resources.getDimensionPixelSize(it) }
             ?: dp(24)
+        // On the Z Flip cover screen there is no status bar to clear:
+        // the unit anchors to the very top of the cover display.
+        val unitTopMargin = if (isOnCoverScreen()) dp(6) else statusBarHeight + dp(4)
         val root = FrameLayout(this).apply {
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
