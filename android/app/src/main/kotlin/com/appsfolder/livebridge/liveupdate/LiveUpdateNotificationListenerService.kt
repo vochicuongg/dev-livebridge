@@ -254,6 +254,10 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         if (sbn.packageName == packageName) {
             return
         }
+        // TEMP diagnostic (round 36): entry trace for the WARP source.
+        if (sbn.packageName.contains("cloudflare", ignoreCase = true)) {
+            Log.d("VpnDiag", "POSTED key=${sbn.key} ongoing=${sbn.isOngoing}")
+        }
         processingHandler.post {
             if (!destroyed) {
                 sourceLifecycle.posted(sbn.key)

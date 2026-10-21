@@ -1981,6 +1981,10 @@ object LiveUpdateNotifier {
 
     fun maybeMirror(context: Context, prefs: ConverterPrefs, sbn: StatusBarNotification): MirrorResult {
         ensureChannel(context)
+        // TEMP diagnostic (round 36): layer trace for the WARP source.
+        if (sbn.packageName.contains("cloudflare", ignoreCase = true)) {
+            Log.d("VpnDiag", "ENTRY converter=${prefs.getConverterEnabled()}")
+        }
 
         val manager = NotificationManagerCompat.from(context)
         if (!prefs.getConverterEnabled()) {
@@ -1993,6 +1997,9 @@ object LiveUpdateNotifier {
         }
         // An explicit channel exclusion takes precedence over package bypass and smart detection.
         if (!prefs.isSourceChannelAllowed(sbn.packageName, sbn.notification.channelId)) {
+            if (sbn.packageName.contains("cloudflare", ignoreCase = true)) {
+                Log.d("VpnDiag", "CHANNEL-BLOCKED channel=${sbn.notification.channelId}")
+            }
             cancelMirrorsForIgnoredSource(manager, sbn)
             return notMirroredResult()
         }
@@ -2041,6 +2048,9 @@ object LiveUpdateNotifier {
             if (!isZaloPackage &&
                 !passesCoreFilters(context.packageName, sbn, ongoingSmartCandidate)
             ) {
+                if (sbn.packageName.contains("cloudflare", ignoreCase = true)) {
+                    Log.d("VpnDiag", "CORE-FILTERED candidate=$ongoingSmartCandidate")
+                }
                 val staleAggregateIds = synchronized(stateLock) {
                     clearAggregateTrackingForSbnKeyLocked(sbn.key)
                 }
@@ -2215,6 +2225,9 @@ object LiveUpdateNotifier {
             // Zalo VIP Bypass: Skip base filters for Zalo to prevent filtering on
             // silent/low-priority characteristics
             if (!isZaloPackage && !passesBaseFilters(prefs, sbn, parserDictionary, mediaPlaybackSmartEnabled)) {
+                if (sbn.packageName.contains("cloudflare", ignoreCase = true)) {
+                    Log.d("VpnDiag", "BASE-FILTERED")
+                }
                 val staleAggregateIds = synchronized(stateLock) {
                     clearAggregateTrackingForSbnKeyLocked(sbn.key)
                 }

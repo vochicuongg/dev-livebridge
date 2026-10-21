@@ -463,3 +463,16 @@ merges only ENABLED language packs over an EMPTY default, and "vi" is
 not in SUPPORTED_PARSER_DICTIONARY_LANGUAGE_IDS, so a customized
 enabled set would silently empty the dictionary). Remove the VpnDiag
 points once the on-device cause is read. Static checks only.
+
+## VpnDiag layer trace extended (round 36, 2026-10-22)
+
+The round-35 build produced NO VpnDiag output at all on the owner's
+phone after a fresh WARP toggle, so the trace is extended to every
+layer: listener POSTED, maybeMirror ENTRY, CHANNEL-BLOCKED,
+CORE-FILTERED (with the candidate value), BASE-FILTERED — combined
+with round 35's candidate/smart/dictionary line, SUPPRESSED, ongoing
+GUARD and PUBLISH points, one test run now identifies the exact layer
+that stops the WARP source. All points are TEMP and come out together
+once the cause is read. Test protocol for the owner: flutter clean +
+full build (rules out any stale-APK doubt), install, open the app,
+toggle WARP off/on, read logcat -s VpnDiag.
