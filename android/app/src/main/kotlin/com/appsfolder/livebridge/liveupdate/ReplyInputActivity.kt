@@ -548,6 +548,7 @@ class ReplyInputActivity : Activity() {
             switchingSession = false
             return
         }
+        mirrorMissCount = 0
         setIntent(targetIntent)
         resultKey = targetIntent.getStringExtra(ReplyProxyService.EXTRA_RESULT_KEY).orEmpty()
         val unit = currentUnit ?: run {
