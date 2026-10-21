@@ -365,3 +365,26 @@ capsule; removing the slider from the UI is a separate decision left
 to the owner. This intentionally diverges from upstream behavior.
 Static checks only (brace/paren balance 0/0, latch references gone);
 Windows build + on-device verification by the owner pending.
+
+## VPN / external devices: feature toggle is sufficient (round 32, 2026-10-21)
+
+Same owner product rule as round 31, applied to the two remaining
+Network & connections features. Before: a VPN status notification
+converted only while its text carried parseable speed figures (a
+plain "Connected" status never converted and was actively cancelled
+by the no-traffic suppression); an external-device notification
+converted only when the device name could be extracted from the
+current text. Now detectSmartStage has two context fallbacks after
+the rich detectors: detectVpnContextSmartStage (known VPN package, or
+VPN context on an ongoing status notification — the ongoing
+requirement keeps promos out for unknown packages) and
+detectExternalDeviceContextSmartStage (curated external-device
+package identity alone; the debugging-ignore setting still applies).
+Both reuse the existing aggregate keys and stage shape, so the smart
+branch publishes them like any smart match and its content extraction
+degrades gracefully (default status text until real speeds/device
+data can be parsed). Combined with the round-29 latch, first
+conversion no longer depends on fragile text content and later
+updates can no longer flap the form. Static checks only (brace
+balance 0; file paren baseline unchanged); Windows build + on-device
+verification by the owner pending.

@@ -5816,6 +5816,20 @@ object LiveUpdateNotifier {
                 source = source,
                 parserDictionary = parserDictionary
             )?.let { return it }
+            detectVpnContextSmartStage(
+                packageNameLower = packageLower,
+                source = source,
+                parserDictionary = parserDictionary
+            )?.let { return it }
+        }
+
+        if (externalDevicesEnabled) {
+            detectExternalDeviceContextSmartStage(
+                packageNameLower = packageLower,
+                source = source,
+                parserDictionary = parserDictionary,
+                ignoreDebugging = externalDevicesIgnoreDebugging
+            )?.let { return it }
         }
 
         return null
@@ -5892,6 +5906,97 @@ object LiveUpdateNotifier {
             aggregateKey = "$packageNameLower:vpn:vpn",
             stageValue = 1,
             maxStage = 1,
+            compactOrderCode = null,
+            keepHighestStage = false
+        )
+    }
+
+    /**
+     * Context-only VPN fallback (fork rule, 2026-10-21 — same product
+     * decision as the network-speed capsule: enabling the feature must
+     * be sufficient). Until now a VPN status notification converted only
+     * while its text carried speed figures; a plain "Connected" status
+     * never converted at all and was actively suppressed by the
+     * no-traffic rule. A notification from a known VPN package, or any
+     * ongoing status notification carrying VPN context, now converts
+     * immediately; the smart branch already falls back to the default
+     * VPN status text when no speeds can be parsed, and shows the real
+     * speeds as soon as the app reports them. The ongoing requirement
+     * for unknown packages keeps promos/news mentioning "VPN" out.
+     */
+    private fun detectVpnContextSmartStage(
+        packageNameLower: String,
+        source: Notification,
+        parserDictionary: LiveParserDictionary
+    ): SmartStageMatch? {
+        val combinedText = collectNotificationText(
+            notification = source,
+            fallbackTitle = packageNameLower,
+            includeRemoteViewTexts = true
+        )
+        if (combinedText.isBlank()) {
+            return null
+        }
+        val likelyVpnPackage = isLikelyVpnPackage(packageNameLower, parserDictionary)
+        val hasVpnContext = parserDictionary.vpnContextPattern.containsMatchIn(combinedText)
+        if (!likelyVpnPackage && !hasVpnContext) {
+            return null
+        }
+        if (!likelyVpnPackage &&
+            (source.flags and Notification.FLAG_ONGOING_EVENT) == 0
+        ) {
+            return null
+        }
+        return SmartStageMatch(
+            aggregateKey = "$packageNameLower:vpn:vpn",
+            stageValue = 1,
+            maxStage = 1,
+            compactOrderCode = null,
+            keepHighestStage = false
+        )
+    }
+
+    /**
+     * Context-only external-device fallback (same fork rule): the
+     * dictionary rule additionally required the device name to be
+     * extractable from the current text, so status notifications from a
+     * known device package whose wording hid the name never converted.
+     * A notification from a curated external-device package now
+     * converts on package identity alone; the status text extraction in
+     * the smart branch degrades to the default status text when it
+     * cannot parse anything better. The debugging-notification ignore
+     * setting is still respected.
+     */
+    private fun detectExternalDeviceContextSmartStage(
+        packageNameLower: String,
+        source: Notification,
+        parserDictionary: LiveParserDictionary,
+        ignoreDebugging: Boolean
+    ): SmartStageMatch? {
+        val isExternalDevicePackage = isLikelySmartRulePackage(
+            packageNameLower = packageNameLower,
+            ruleId = "external_device",
+            parserDictionary = parserDictionary
+        )
+        if (!isExternalDevicePackage) {
+            return null
+        }
+        val combinedText = collectNotificationText(
+            notification = source,
+            fallbackTitle = packageNameLower,
+            includeRemoteViewTexts = true
+        ).lowercase(Locale.ROOT)
+        if (combinedText.isBlank()) {
+            return null
+        }
+        if (ignoreDebugging && isExternalDeviceDebuggingNotification(combinedText)) {
+            return null
+        }
+        val rule = parserDictionary.smartRules.firstOrNull { it.id == "external_device" }
+        return SmartStageMatch(
+            aggregateKey = "$packageNameLower:external_device:device",
+            stageValue = 1,
+            maxStage = rule?.maxStage ?: 1,
             compactOrderCode = null,
             keepHighestStage = false
         )
