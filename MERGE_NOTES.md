@@ -329,3 +329,20 @@ change-only) regular/threshold/total/latched/promote/samsung plus a
 read-back of the semFlags ongoing bit after markEligible, the system's
 canPostPromotedNotifications state, and the channel importance.
 REMOVE this logging once the owner's logcat identifies the branch.
+
+## Round 30 CLOSED — diagnosis result (2026-10-21)
+
+The owner's NetSpeedDiag logcat settled it: NO code bug. At the time of
+the "still not a Now Bar" screenshot the stored prefs were
+regular=true (22:34 block, speeds up to 12,269 B/s, promote=false);
+after he switched regular off, threshold=73728 (72 KB/s = nine 8 KB/s
+UI steps) kept every ordinary tick (60–2,000 B/s) below the gate
+(22:35:57–22:37:11, latched=false). The moment real traffic exceeded
+the threshold (2,260,285 B/s at 22:37:13) the log shows
+latched=true promote=true samsung=true semOngoing=true — the capsule
+promoted and the round-28 latch held it. The whole "sometimes not a
+Now Bar" history was the 72 KB/s threshold vs bursty traffic.
+canPostPromotedNotifications=true and channelImp=2 throughout.
+TEMP diagnostics removed in this commit; the threshold local-val
+refactor stays (behavior identical). Owner action (no code): set the
+network-speed threshold back to 0 for an always-on capsule.
