@@ -2006,8 +2006,24 @@ object LiveUpdateNotifier {
             // Zalo uses silent background syncs, low-priority channels, and rapid group
             // summary updates that would otherwise be filtered out before reaching mirror logic.
             val isZaloPackage = sbn.packageName.lowercase(Locale.ROOT).contains("zalo")
-            
-            if (!isZaloPackage && !passesCoreFilters(context.packageName, sbn)) {
+            val parserDictionary = LiveParserDictionaryLoader.get(context, prefs)
+            // Fork exemption (2026-10-21): VPN and external-device STATUS
+            // notifications are ongoing by nature, and the core filters
+            // reject every ongoing notification — so those two smart
+            // features could never convert anything at all (a connected
+            // VPN or watch never produced a Now Bar capsule). A
+            // notification that qualifies as a candidate for one of
+            // these two enabled features may pass the two ongoing
+            // checks; every other core check still applies, and the
+            // ongoingExemption guard further below keeps such a
+            // notification out of the generic mirror when detection
+            // finds no smart match, so the exemption cannot leak.
+            val ongoingSmartCandidate = !isZaloPackage &&
+                isOngoingSmartStatusCandidate(prefs, sbn, parserDictionary)
+
+            if (!isZaloPackage &&
+                !passesCoreFilters(context.packageName, sbn, ongoingSmartCandidate)
+            ) {
                 val staleAggregateIds = synchronized(stateLock) {
                     clearAggregateTrackingForSbnKeyLocked(sbn.key)
                 }
@@ -2019,7 +2035,6 @@ object LiveUpdateNotifier {
                 cancelMirrorsForIgnoredSource(manager, sbn)
                 return notMirroredResult()
             }
-            val parserDictionary = LiveParserDictionaryLoader.get(context, prefs)
             if (isPrivacyRedactedNotification(sbn.notification, parserDictionary)) {
                 return notMirroredResult()
             }
@@ -2269,6 +2284,20 @@ object LiveUpdateNotifier {
                         parserDictionary = parserDictionary
                     )
             if (shouldSuppressNonTrafficVpn) {
+                val staleAggregateIds = synchronized(stateLock) {
+                    clearAggregateTrackingForSbnKeyLocked(sbn.key)
+                }
+                staleAggregateIds.forEach { cancelMirroredNotification(manager, it) }
+                cancelMirroredNotification(manager, mirrorIdForKey(sbn.key))
+                return notMirroredResult()
+            }
+
+            if (ongoingSmartCandidate && smartMatch == null) {
+                // Entered only through the ongoing exemption for the VPN /
+                // external-device features; detection found no smart
+                // match, so there is nothing to publish — do not fall
+                // through to the generic mirror for an ongoing
+                // notification the core filters would have rejected.
                 val staleAggregateIds = synchronized(stateLock) {
                     clearAggregateTrackingForSbnKeyLocked(sbn.key)
                 }
@@ -3503,9 +3532,50 @@ object LiveUpdateNotifier {
         return prefs.isPackageAllowed(sbn.packageName)
     }
 
+    /**
+     * Whether an ongoing notification is a plausible status source for
+     * the smart VPN or external-device features (whose toggles are on).
+     * Only notifications that are ongoing at all can need the core-filter
+     * exemption; package identity is the primary signal, with the VPN
+     * context text check (same collection the suppression logic uses) as
+     * the secondary one.
+     */
+    private fun isOngoingSmartStatusCandidate(
+        prefs: ConverterPrefs,
+        sbn: StatusBarNotification,
+        parserDictionary: LiveParserDictionary
+    ): Boolean {
+        if (!sbn.isOngoing || !prefs.getSmartStatusDetectionEnabled()) {
+            return false
+        }
+        val packageLower = sbn.packageName.lowercase(Locale.ROOT)
+        if (prefs.getSmartVpnEnabled()) {
+            if (isLikelyVpnPackage(packageLower, parserDictionary)) {
+                return true
+            }
+            val detectionText = collectVpnDetectionText(
+                notification = sbn.notification,
+                fallbackTitle = sbn.packageName,
+                includeRemoteViewTexts = true
+            )
+            if (detectionText.isNotBlank() &&
+                parserDictionary.vpnContextPattern.containsMatchIn(detectionText)
+            ) {
+                return true
+            }
+        }
+        if (prefs.getSmartExternalDevicesEnabled() &&
+            isLikelySmartRulePackage(packageLower, "external_device", parserDictionary)
+        ) {
+            return true
+        }
+        return false
+    }
+
     private fun passesCoreFilters(
         appPackageName: String,
-        sbn: StatusBarNotification
+        sbn: StatusBarNotification,
+        allowOngoingSmartCandidate: Boolean = false
     ): Boolean {
         val packageNameLower = sbn.packageName.lowercase(Locale.ROOT)
         val allowTwoGisGroupSummary = packageNameLower == TWO_GIS_PACKAGE
@@ -3547,14 +3617,18 @@ object LiveUpdateNotifier {
         // Chat bubbles mark notifications as ongoing foreground services.
         // Allow Zalo notifications even if they have the ongoing event flag.
         val hasOngoingEventFlag = source.flags and Notification.FLAG_ONGOING_EVENT != 0
-        if (!isZaloPackage && hasOngoingEventFlag && sbn.isOngoing) {
+        if (!isZaloPackage && hasOngoingEventFlag && sbn.isOngoing &&
+            !allowOngoingSmartCandidate
+        ) {
             return false
         }
-        
+
         // Zalo VIP Bypass: Bypass Non-Clearable check
         // Chat bubbles prevent notifications from being swiped away.
         // Allow Zalo notifications even if they cannot be cleared by the user.
-        if (!isZaloPackage && !sbn.isClearable && sbn.isOngoing) {
+        if (!isZaloPackage && !sbn.isClearable && sbn.isOngoing &&
+            !allowOngoingSmartCandidate
+        ) {
             return false
         }
         

@@ -388,3 +388,38 @@ conversion no longer depends on fragile text content and later
 updates can no longer flap the form. Static checks only (brace
 balance 0; file paren baseline unchanged); Windows build + on-device
 verification by the owner pending.
+
+## VPN / external devices: the real blocker was the ongoing core filter (round 33, 2026-10-21)
+
+Owner test of round 32: with 1.1.1.1 (WARP) connected and a Galaxy
+Watch FE connected, neither appeared as a Live Update. Root cause
+found one level above detection: maybeMirror runs passesCoreFilters
+first, and that filter rejects EVERY ongoing notification
+(FLAG_ONGOING_EVENT + isOngoing, and non-clearable + isOngoing) for
+non-Zalo packages. VPN status and device-connection notifications are
+ongoing by nature, so they were discarded before detection ever ran —
+rounds 29/32 improved a stage these sources never reached (the same
+filter also explains the A15 reporter's Play Store complaint:
+download progress notifications are ongoing too; fixing THAT path is
+not in this round's scope).
+
+Fix, deliberately narrow: (1) passesCoreFilters gains
+allowOngoingSmartCandidate, which waives ONLY the two ongoing checks.
+(2) maybeMirror computes isOngoingSmartStatusCandidate (ongoing +
+smart master switch on + the feature's toggle on + likely VPN package
+or VPN-context text, resp. curated external-device package). All
+other core checks (own package, group summary, local-only, blocked
+sources, channel/text filters) still apply. (3) Scoped guard: a
+notification admitted via the exemption that produces no smart match
+is NOT mirrored generically — it is cancelled/ignored as before, so
+the exemption cannot leak into chat/progress mirroring.
+(4) Dictionary coverage: "cloudflare" added to vpn_package_markers
+and the vpn rule's package_hints in all 7 dictionary files (WARP's
+package com.cloudflare.onedotonedotonedotone matched no marker and
+its notification text carries neither "vpn" nor speeds); "watchmanager"
+added to the external_device package_hints (the Galaxy Wearable app
+package contains neither "wearable" nor "galaxywearable"). All files
+re-validated as JSON. Static checks only (brace 0, paren baseline
+unchanged); Windows build + on-device verification by the owner
+pending — if the watch still does not convert, the deciding datum is
+the posting package of its connection notification (dumpsys).
