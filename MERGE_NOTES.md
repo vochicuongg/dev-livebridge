@@ -536,3 +536,17 @@ for 12h (the app cancelling its own notification on disconnect
 clears the snooze with it). TEMP VpnDismiss log line confirms which
 mechanism took effect; remove after on-device confirmation.
 Static checks only.
+
+## VPN source snooze confirmed; temp trace removed (round 40, 2026-10-22)
+
+On-device log confirmed the round-39 fallback firing exactly as
+designed ("cancel ineffective; snoozed 0|com.cloudflare...|101"):
+One UI ignores the listener cancel for the WARP foreground-service
+notification, the verification pass finds it still active, and the
+snooze hides it — the shade now shows only the VPN capsule, which
+keeps updating with self-measured traffic on the 1.5s tick. The
+TEMP VpnDismiss trace line is removed; the mechanism stays. The
+Network & connections trio (speed / VPN / external devices) is now
+functionally complete on the owner's device, with the external-
+device capsule still awaiting a source that actually posts a
+notification (the Galaxy Watch FE posts none on One UI 9).

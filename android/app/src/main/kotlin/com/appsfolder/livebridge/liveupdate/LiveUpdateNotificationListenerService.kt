@@ -1102,10 +1102,6 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
                     if (stillActive) {
                         runCatching {
                             snoozeNotification(sbn.key, VPN_SOURCE_SNOOZE_MS)
-                        }.onSuccess {
-                            // TEMP trace (round 39): remove once the
-                            // snooze fallback is confirmed on-device.
-                            Log.d("VpnDismiss", "cancel ineffective; snoozed ${sbn.key}")
                         }.onFailure { error ->
                             Log.w(TAG, "Failed to snooze VPN source: ${sbn.key}", error)
                         }
