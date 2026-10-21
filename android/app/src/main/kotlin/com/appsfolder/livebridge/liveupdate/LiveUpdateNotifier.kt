@@ -282,6 +282,26 @@ object LiveUpdateNotifier {
 
     private val stateLock = Any()
     private val sbnToAggregateKey = mutableMapOf<String, String>()
+
+    /**
+     * Sticky smart classification for the VPN and external-device rules,
+     * keyed by source notification key. Both rules re-run text detection
+     * on every source update and are brittle to transient wording: a VPN
+     * status notification that momentarily drops its speed figures fails
+     * the speed-pattern gate (and then hits the no-traffic suppression,
+     * which cancels the mirror outright), and a device notification whose
+     * text momentarily loses the device name fails its gate and the
+     * mirror downgrades to the plain form — the capsule flapped in and
+     * out of the Now Bar on ordinary status updates. Once a notification
+     * has been published under one of these rules, its last match is
+     * latched here and reused for later updates of the SAME notification
+     * while the rule stays enabled, so the FORM persists and only the
+     * content degrades (the smart branch already falls back to the
+     * default status text when the current text carries no fresh data).
+     * The latch is dropped with the rest of the per-key smart state in
+     * clearSmartTrackingForSbnKeyLocked (source removal, kind change).
+     */
+    private val latchedSmartMatchesBySbnKey = mutableMapOf<String, SmartStageMatch>()
     private val aggregateStates = mutableMapOf<String, AggregateState>()
     private val sbnToOtpAggregateKey = mutableMapOf<String, String>()
     private val sbnToOtpSourceKey = mutableMapOf<String, String>()
@@ -2194,7 +2214,7 @@ object LiveUpdateNotifier {
                 null
             }
 
-            val smartMatch = if (!isMediaPlaybackNotification &&
+            var smartMatch = if (!isMediaPlaybackNotification &&
                 otpMatch == null &&
                 prefs.getSmartStatusDetectionEnabled()
             ) {
@@ -2214,6 +2234,14 @@ object LiveUpdateNotifier {
                 )
             } else {
                 null
+            }
+            if (smartMatch == null && !isMediaPlaybackNotification && otpMatch == null) {
+                // A latched VPN / external-device classification keeps the
+                // capsule's form across updates whose text momentarily
+                // fails detection; it also keeps smartMatch non-null, so
+                // the no-traffic VPN suppression below cannot cancel a
+                // capsule that has already proven it carries traffic.
+                smartMatch = latchedSmartMatchFor(sbn, prefs)
             }
 
             val textProgressMatch = if (!isMediaPlaybackNotification &&
@@ -2480,6 +2508,10 @@ object LiveUpdateNotifier {
                             smartMatch.stageValue
                         }
                         sbnToAggregateKey[sbn.key] = smartMatch.aggregateKey
+                        val publishedRuleId = smartRuleIdFromAggregateKey(smartMatch.aggregateKey)
+                        if (publishedRuleId == "vpn" || publishedRuleId == "external_device") {
+                            latchedSmartMatchesBySbnKey[sbn.key] = smartMatch
+                        }
                         val sourceEntry = selectSmartSourceEntryLocked(
                             aggregateState = state,
                             keepHighestStage = smartMatch.keepHighestStage
@@ -5616,6 +5648,39 @@ object LiveUpdateNotifier {
                 sourceSbn = sbn
             )
         }
+    }
+
+    /**
+     * Returns the latched smart match for a source notification when its
+     * rule is one of the sticky ones (vpn, external_device) and that rule
+     * is still enabled. The package guard refuses to resurrect a match
+     * for a different package that happens to reuse the same key.
+     */
+    private fun latchedSmartMatchFor(
+        sbn: StatusBarNotification,
+        prefs: ConverterPrefs
+    ): SmartStageMatch? {
+        if (!prefs.getSmartStatusDetectionEnabled()) {
+            return null
+        }
+        val latched = synchronized(stateLock) {
+            latchedSmartMatchesBySbnKey[sbn.key]
+        } ?: return null
+        val featureEnabled = when (smartRuleIdFromAggregateKey(latched.aggregateKey)) {
+            "vpn" -> prefs.getSmartVpnEnabled()
+            "external_device" -> prefs.getSmartExternalDevicesEnabled()
+            else -> false
+        }
+        if (!featureEnabled) {
+            return null
+        }
+        if (!latched.aggregateKey.startsWith(
+                sbn.packageName.lowercase(Locale.ROOT) + ":"
+            )
+        ) {
+            return null
+        }
+        return latched
     }
 
     private fun detectSmartStage(
@@ -9678,6 +9743,7 @@ object LiveUpdateNotifier {
 
     private fun clearSmartTrackingForSbnKeyLocked(sbnKey: String): List<Int> {
         val idsToCancel = mutableListOf<Int>()
+        latchedSmartMatchesBySbnKey.remove(sbnKey)
         val smartAggregateKey = sbnToAggregateKey.remove(sbnKey)
         if (smartAggregateKey != null) {
             val state = aggregateStates[smartAggregateKey]

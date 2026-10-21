@@ -277,3 +277,33 @@ update-post failures (retries next tick); only a failed initial
 startForeground still stops the service (system watchdog parity).
 Static checks only (brace balance 0/0 on both files); Windows build +
 on-device verification by the owner pending.
+
+## VPN / external-device Now Bar stickiness (round 29, 2026-10-21)
+
+Same intermittency class as round 28, on the source-conversion side:
+detectSmartStage re-runs text detection on EVERY update of a VPN or
+external-device notification. The vpn rule requires a speed pattern in
+the CURRENT text — a transient speed-less update ("Connecting...", a
+status line without figures) failed the gate and then hit
+shouldSuppressNonTrafficVpn, which CANCELLED the mirror outright; the
+external_device rule similarly requires the device name in the current
+text, and a miss downgraded the mirror to the plain form. The capsule
+flapped in and out of the Now Bar on ordinary status updates.
+
+Fix (sticky classification): a new latchedSmartMatchesBySbnKey map
+(stateLock-guarded). When the smart branch publishes a vpn or
+external_device match it latches the match for that sbn.key; when a
+later update of the same key detects nothing, maybeMirror reuses the
+latched match (helper latchedSmartMatchFor: master smart switch +
+per-rule toggle still on + aggregate package matches the source
+package). The smart branch already degrades content gracefully
+(formatDominantVpnTrafficText / extractExternalDeviceStatusText fall
+back to the default status text), so only fresh DATA is lost on a
+missed update, never the form; a non-null smartMatch also makes the
+no-traffic suppression unreachable for a proven-traffic capsule. The
+latch is cleared inside clearSmartTrackingForSbnKeyLocked, the funnel
+for source removal and kind changes. Other smart rules (taxi, food,
+navigation, weather) are intentionally NOT latched — their stage
+semantics are progression-based, not connection-based.
+Static checks only (brace/paren balance verified); Windows build +
+on-device verification by the owner pending.
