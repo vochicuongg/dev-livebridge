@@ -6576,6 +6576,25 @@ object LiveUpdateNotifier {
     }
 
     /**
+     * Whether a notification qualifies as an ongoing smart-status
+     * source (VPN / external device). The listener uses this to keep
+     * SNOOZED sources of those features visible to its sync and
+     * reconcile passes (round 41): the VPN source is snoozed on
+     * purpose once its capsule replaces it, and a snoozed source is
+     * absent from the active list — without this, the first sync
+     * after the snooze (or after any reinstall) treated the source as
+     * gone and cancelled the capsule while the original stayed hidden.
+     */
+    fun isSmartStatusSource(
+        context: Context,
+        prefs: ConverterPrefs,
+        sbn: StatusBarNotification
+    ): Boolean {
+        val parserDictionary = LiveParserDictionaryLoader.get(context, prefs)
+        return isOngoingSmartStatusCandidate(prefs, sbn, parserDictionary)
+    }
+
+    /**
      * Re-drives the mirror for the active VPN source so its capsule
      * rates stay live; called by the network foreground service on its
      * 1.5s sampling tick while any Network & connections feature keeps

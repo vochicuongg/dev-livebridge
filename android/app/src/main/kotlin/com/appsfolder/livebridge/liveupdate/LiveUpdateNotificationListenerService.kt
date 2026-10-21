@@ -157,7 +157,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
                         mainHandler.post { if (!destroyed) scheduleSnapshotSync() }
                         return@post
                     }
-                    val snapshots = activeNotifications?.toList()
+                    val snapshots = sourceSnapshots()
                         ?: throw IllegalStateException("Notification snapshot unavailable")
                     reconcileSources(snapshots)
                     refreshPolicy.retain(snapshots.mapTo(mutableSetOf()) { it.key })
@@ -226,7 +226,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
             if (destroyed || !listenerConnected) return@post
             refreshPolicy.invalidate()
             val snapshots = try {
-                activeNotifications?.toList()
+                sourceSnapshots()
             } catch (error: Throwable) {
                 Log.w(TAG, "Unable to read active notifications on connect", error)
                 null
@@ -590,6 +590,31 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         } catch (_: Throwable) {
             null
         }
+    }
+
+    /**
+     * Snapshots for source-presence and processing: the active list
+     * plus any SNOOZED smart-status sources (round 41). The VPN
+     * source is deliberately snoozed once its capsule replaces it;
+     * counting only active notifications made every sync/reconnect
+     * treat that source as removed and cancel the capsule. The
+     * candidate filter keeps notifications the user snoozed for
+     * unrelated reasons out of the mirror pipeline.
+     */
+    private fun sourceSnapshots(): List<StatusBarNotification>? {
+        val active = activeNotifications?.toList() ?: return null
+        val snoozed = runCatching { snoozedNotifications?.toList() }
+            .getOrNull()
+            .orEmpty()
+        if (snoozed.isEmpty()) {
+            return active
+        }
+        val activeKeys = active.mapTo(HashSet()) { it.key }
+        val snoozedSources = snoozed.filter { snoozedSbn ->
+            snoozedSbn.key !in activeKeys &&
+                LiveUpdateNotifier.isSmartStatusSource(applicationContext, prefs, snoozedSbn)
+        }
+        return if (snoozedSources.isEmpty()) active else active + snoozedSources
     }
 
     private fun reconcileSources(snapshots: List<StatusBarNotification>) {
@@ -1025,6 +1050,15 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
             return
         }
         if (result.retainOriginal) {
+            return
+        }
+        // A source that is already snoozed (round 41) is already
+        // hidden; attempting to cancel it could delete the snoozed
+        // record and orphan the mirror that replaced it.
+        val isSnoozed = runCatching {
+            snoozedNotifications?.any { it.key == sbn.key } == true
+        }.getOrDefault(false)
+        if (isSnoozed) {
             return
         }
         // A VPN mirror replaces its ongoing source outright (round 38):

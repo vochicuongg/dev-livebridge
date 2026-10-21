@@ -550,3 +550,22 @@ Network & connections trio (speed / VPN / external devices) is now
 functionally complete on the owner's device, with the external-
 device capsule still awaiting a source that actually posts a
 notification (the Galaxy Watch FE posts none on One UI 9).
+
+## Snoozed VPN source must stay visible to sync/reconcile (round 41, 2026-10-22)
+
+Regression from round 39, found by the owner minutes after the
+cleanup build: the VPN capsule vanished entirely. Cause: a snoozed
+source is absent from the listener's active list, so the periodic
+snapshot sync / reconnect reconcile treated it as removed and
+cancelled the capsule — while the original stayed snoozed and
+hidden, leaving no VPN UI at all. Fix: the two snapshot reads that
+drive reconcile and (re)processing now use sourceSnapshots() =
+active + snoozed notifications that still qualify as ongoing
+smart-status sources (new LiveUpdateNotifier.isSmartStatusSource
+wrapper over the round-33 candidate check; the candidate filter
+keeps user-snoozed unrelated notifications out of the pipeline).
+Dismissal is also skipped for an already-snoozed source (a cancel
+against the snoozed record could delete it and orphan the mirror).
+Disconnect still cleans up: the app cancelling its notification
+removes the snoozed record, the removal event fires, and the mirror
+is cancelled as before. Static checks only.
