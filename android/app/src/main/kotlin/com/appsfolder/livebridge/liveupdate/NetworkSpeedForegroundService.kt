@@ -217,10 +217,15 @@ class NetworkSpeedForegroundService : Service() {
     }
 
     private fun startForegroundCompat(notification: Notification) {
+        // Must match the manifest declaration for this service
+        // (foregroundServiceType="specialUse" + the special-use
+        // permission and subtype property). Passing a type the
+        // manifest does not declare (the old DATA_SYNC) makes
+        // startForeground throw on Android 14+.
         startForeground(
             NetworkSpeedNotificationBuilder.NOTIFICATION_ID,
             notification,
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
         )
     }
 
@@ -243,12 +248,24 @@ class NetworkSpeedForegroundService : Service() {
                 return
             }
 
-            ContextCompat.startForegroundService(
-                context,
-                Intent(context, NetworkSpeedForegroundService::class.java).apply {
-                    action = ACTION_REFRESH
-                }
-            )
+            // Callers include the notification listener service, which
+            // runs in the background: a background foreground-service
+            // start can be denied by the system (Android 12+), and an
+            // uncaught ForegroundServiceStartNotAllowedException here
+            // crashed the process on every listener (re)connect — an
+            // uninstall-to-recover crash loop while the toggle stayed
+            // on. A denied start is not fatal: log it and let the next
+            // foreground sync retry.
+            try {
+                ContextCompat.startForegroundService(
+                    context,
+                    Intent(context, NetworkSpeedForegroundService::class.java).apply {
+                        action = ACTION_REFRESH
+                    }
+                )
+            } catch (error: Exception) {
+                Log.e(TAG, "Failed to start network speed service", error)
+            }
         }
 
         fun stop(context: Context) {
