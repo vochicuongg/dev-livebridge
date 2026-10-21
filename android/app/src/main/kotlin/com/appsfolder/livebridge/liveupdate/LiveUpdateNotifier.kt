@@ -308,9 +308,13 @@ object LiveUpdateNotifier {
     // source notification behind the currently published VPN mirror so
     // the network foreground service's 1.5s tick can re-drive the
     // mirror with fresh self-measured rates (VPN apps like WARP print
-    // no speeds in their own notification).
+    // no speeds in their own notification). The SBN itself is kept:
+    // NotificationManager.activeNotifications only returns this app's
+    // OWN notifications, so the source can never be looked up by key
+    // (round-38 fix — the first refresh attempt silently self-disabled
+    // on exactly that).
     @Volatile
-    private var activeVpnMirrorSbnKey: String? = null
+    private var activeVpnMirrorSourceSbn: StatusBarNotification? = null
 
     private val vpnSelfTrafficLock = Any()
     private var vpnSelfTrafficLastRxBytes = -1L
@@ -2619,7 +2623,7 @@ object LiveUpdateNotifier {
                         null
                     }
                     if (smartRuleId == "vpn") {
-                        activeVpnMirrorSbnKey = sourceSbn.key
+                        activeVpnMirrorSourceSbn = sourceSbn
                     }
                     val smartStatusText = when (smartRuleId) {
                         "navigation" -> extractNavigationDistanceText(
@@ -2714,7 +2718,14 @@ object LiveUpdateNotifier {
                             samsungBridge = samsungBridge
                         )
                     }
-                    mirroredResult(dedupKind = dedupKind, retainOriginal = smartRuleId == "external_device")
+                    mirroredResult(
+                        dedupKind = dedupKind,
+                        retainOriginal = smartRuleId == "external_device",
+                        // The VPN capsule replaces its source outright
+                        // (round 38): a converted WARP status left its
+                        // plain notification sitting next to the capsule.
+                        removeSource = smartRuleId == "vpn"
+                    )
                 }
 
                 hasNativeProgress -> {
@@ -3336,11 +3347,16 @@ object LiveUpdateNotifier {
         return MirrorResult(mirrored = false, retryNeeded = retryNeeded)
     }
 
-    private fun mirroredResult(dedupKind: MirrorDedupKind = MirrorDedupKind.NONE, retainOriginal: Boolean = false): MirrorResult {
+    private fun mirroredResult(
+        dedupKind: MirrorDedupKind = MirrorDedupKind.NONE,
+        retainOriginal: Boolean = false,
+        removeSource: Boolean = false
+    ): MirrorResult {
         return MirrorResult(
             mirrored = true,
             dedupKind = dedupKind,
-            retainOriginal = retainOriginal
+            retainOriginal = retainOriginal,
+            removeSource = removeSource
         )
     }
 
@@ -6566,7 +6582,7 @@ object LiveUpdateNotifier {
      * that service alive. No-op when no VPN mirror is published.
      */
     fun refreshActiveVpnMirror(context: Context, prefs: ConverterPrefs) {
-        val key = activeVpnMirrorSbnKey ?: return
+        val sbn = activeVpnMirrorSourceSbn ?: return
         if (!prefs.getConverterEnabled() ||
             !prefs.getSmartStatusDetectionEnabled() ||
             !prefs.getSmartVpnEnabled()
@@ -6578,14 +6594,6 @@ object LiveUpdateNotifier {
             return
         }
         lastVpnMirrorRateRefreshMs = nowMs
-        val manager = context.getSystemService(NotificationManager::class.java) ?: return
-        val sbn = runCatching {
-            manager.activeNotifications.firstOrNull { it.key == key }
-        }.getOrNull()
-        if (sbn == null) {
-            activeVpnMirrorSbnKey = null
-            return
-        }
         runCatching { maybeMirror(context, prefs, sbn) }
     }
 
@@ -10053,8 +10061,8 @@ object LiveUpdateNotifier {
 
     private fun clearSmartTrackingForSbnKeyLocked(sbnKey: String): List<Int> {
         val idsToCancel = mutableListOf<Int>()
-        if (activeVpnMirrorSbnKey == sbnKey) {
-            activeVpnMirrorSbnKey = null
+        if (activeVpnMirrorSourceSbn?.key == sbnKey) {
+            activeVpnMirrorSourceSbn = null
         }
         latchedSmartMatchesBySbnKey.remove(sbnKey)
         val smartAggregateKey = sbnToAggregateKey.remove(sbnKey)

@@ -1024,7 +1024,13 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         if (!result.mirrored) {
             return
         }
-        if (!sbn.isClearable || result.retainOriginal) {
+        if (result.retainOriginal) {
+            return
+        }
+        // A VPN mirror replaces its ongoing source outright (round 38):
+        // its removeSource request outranks the clearable check that
+        // otherwise protects persistent notifications from dismissal.
+        if (!sbn.isClearable && !result.removeSource) {
             return
         }
         val appPresentationRemoveOriginal = AppPresentationOverridesLoader
@@ -1069,7 +1075,9 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         val title = sbn.notification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
         val contentRevision = (title + "\n" + extractLogText(sbn.notification)).hashCode()
         val removalKey = "${sbn.packageName}|${sbn.notification.channelId}|${sbn.id}|$contentRevision"
-        if (!originalRemovalPolicy.mayRemove(removalKey, SystemClock.elapsedRealtime(), persistent)) return
+        if (!result.removeSource &&
+            !originalRemovalPolicy.mayRemove(removalKey, SystemClock.elapsedRealtime(), persistent)
+        ) return
         rememberSelfDismissedSourceKey(sbn.key)
         sourceLifecycle.retainMirrorAfterRemoval(sbn.key)
         try {

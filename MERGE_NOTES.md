@@ -500,3 +500,25 @@ generic mirror. All TEMP VpnDiag points (rounds 35-36) removed; the
 round-35 self-measured live traffic for the VPN capsule stays.
 Static checks only (brace 0, paren baseline unchanged, no VpnDiag
 references remain).
+
+## VPN capsule confirmed; live refresh fixed + source replaced (round 38, 2026-10-22)
+
+Owner confirmed the VPN capsule appears on the round-37 build. Two
+follow-ups from his test: (1) The round-35 rate refresh never worked
+— refreshActiveVpnMirror looked the source up via
+NotificationManager.activeNotifications, which returns only THIS
+app's own notifications, so the first tick found nothing and cleared
+the tracking key. Fix: the notifier now keeps the source SBN itself
+(activeVpnMirrorSourceSbn) and re-drives maybeMirror with it.
+(2) The capsule sat next to WARP's own plain notification. Upstream's
+removal policy hard-blocks dismissing persistent sources
+(OriginalRemovalPolicy.mayRemove returns false for persistent, and
+maybeDismissOriginalSource required isClearable), which is why
+originals of ongoing sources were never hidden. The VPN feature is a
+replacement by design, so smart VPN mirrors now return
+removeSource=true and the listener's dismissal honors that request
+over the clearable check and the removal policy (self-dismiss
+bookkeeping + mirror retention unchanged, so the mirror survives the
+source's removal and the round-35 refresh keeps its rates live from
+the stored snapshot). If WARP re-posts on state changes, each repost
+is mirrored and dismissed again. Static checks only.
