@@ -37,6 +37,7 @@ import android.os.BatteryManager
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
+import android.net.TrafficStats
 import android.os.SystemClock
 import android.service.notification.StatusBarNotification
 import android.util.Log
@@ -302,6 +303,22 @@ object LiveUpdateNotifier {
      * clearSmartTrackingForSbnKeyLocked (source removal, kind change).
      */
     private val latchedSmartMatchesBySbnKey = mutableMapOf<String, SmartStageMatch>()
+
+    // Live-traffic support for the VPN capsule (round 35): tracks the
+    // source notification behind the currently published VPN mirror so
+    // the network foreground service's 1.5s tick can re-drive the
+    // mirror with fresh self-measured rates (VPN apps like WARP print
+    // no speeds in their own notification).
+    @Volatile
+    private var activeVpnMirrorSbnKey: String? = null
+
+    private val vpnSelfTrafficLock = Any()
+    private var vpnSelfTrafficLastRxBytes = -1L
+    private var vpnSelfTrafficLastTxBytes = -1L
+    private var vpnSelfTrafficLastSampleMs = 0L
+
+    @Volatile
+    private var lastVpnMirrorRateRefreshMs = 0L
     private val aggregateStates = mutableMapOf<String, AggregateState>()
     private val sbnToOtpAggregateKey = mutableMapOf<String, String>()
     private val sbnToOtpSourceKey = mutableMapOf<String, String>()
@@ -2259,6 +2276,21 @@ object LiveUpdateNotifier {
                 smartMatch = latchedSmartMatchFor(sbn, prefs)
             }
 
+            // TEMP diagnostic (round 35): trace the WARP source through
+            // the smart pipeline on the owner's device. Remove with the
+            // NetSpeedDiag precedent once the VPN capsule is confirmed.
+            if (sbn.packageName.contains("cloudflare", ignoreCase = true)) {
+                Log.d(
+                    "VpnDiag",
+                    "candidate=$ongoingSmartCandidate smart=${smartMatch?.aggregateKey} " +
+                        "master=${prefs.getSmartStatusDetectionEnabled()} " +
+                        "vpnOn=${prefs.getSmartVpnEnabled()} " +
+                        "markers=${parserDictionary.vpnPackageMarkers.size} " +
+                        "cloudflare=${parserDictionary.vpnPackageMarkers.any { it.contains("cloudflare") }} " +
+                        "rules=${parserDictionary.smartRules.size}"
+                )
+            }
+
             val textProgressMatch = if (!isMediaPlaybackNotification &&
                 !hasNativeProgress &&
                 otpMatch == null &&
@@ -2284,6 +2316,9 @@ object LiveUpdateNotifier {
                         parserDictionary = parserDictionary
                     )
             if (shouldSuppressNonTrafficVpn) {
+                if (sbn.packageName.contains("cloudflare", ignoreCase = true)) {
+                    Log.d("VpnDiag", "SUPPRESSED by the no-traffic VPN rule")
+                }
                 val staleAggregateIds = synchronized(stateLock) {
                     clearAggregateTrackingForSbnKeyLocked(sbn.key)
                 }
@@ -2293,6 +2328,9 @@ object LiveUpdateNotifier {
             }
 
             if (ongoingSmartCandidate && smartMatch == null) {
+                if (sbn.packageName.contains("cloudflare", ignoreCase = true)) {
+                    Log.d("VpnDiag", "BLOCKED at the ongoing guard: candidate admitted, no smart match")
+                }
                 // Entered only through the ongoing exemption for the VPN /
                 // external-device features; detection found no smart
                 // match, so there is nothing to publish — do not fall
@@ -2590,9 +2628,12 @@ object LiveUpdateNotifier {
                             notification = sourceNotification,
                             fallbackTitle = sourceSbn.packageName,
                             parserDictionary = parserDictionary
-                        )
+                        ) ?: sampleSelfVpnTrafficSpeeds()
                     } else {
                         null
+                    }
+                    if (smartRuleId == "vpn") {
+                        activeVpnMirrorSbnKey = sourceSbn.key
                     }
                     val smartStatusText = when (smartRuleId) {
                         "navigation" -> extractNavigationDistanceText(
@@ -2621,6 +2662,9 @@ object LiveUpdateNotifier {
 
                         else -> defaultSmartStatus
                     } ?: routeState.compactOrderCode
+                    if (smartRuleId == "vpn") {
+                        Log.d("VpnDiag", "PUBLISH vpn mirror status=$smartStatusText")
+                    }
                     val smartProgressOverride = if (
                         smartRuleId == "weather" ||
                         smartRuleId == "external_device" ||
@@ -6473,6 +6517,87 @@ object LiveUpdateNotifier {
         return normalized
     }
 
+    /**
+     * Self-measured traffic for the VPN capsule (round 35): while a
+     * VPN is connected, the device totals ARE the VPN throughput, so
+     * when the source notification prints no speeds (WARP), the
+     * capsule falls back to rates sampled from TrafficStats deltas.
+     * Returns null on the first sample (no delta yet) — the next
+     * refresh tick fills the rates in.
+     */
+    private fun sampleSelfVpnTrafficSpeeds(): VpnTrafficSpeeds? {
+        val rxBytes = TrafficStats.getTotalRxBytes()
+        val txBytes = TrafficStats.getTotalTxBytes()
+        if (rxBytes < 0L || txBytes < 0L) {
+            return null
+        }
+        val nowMs = SystemClock.elapsedRealtime()
+        synchronized(vpnSelfTrafficLock) {
+            val prevRxBytes = vpnSelfTrafficLastRxBytes
+            val prevTxBytes = vpnSelfTrafficLastTxBytes
+            val prevMs = vpnSelfTrafficLastSampleMs
+            vpnSelfTrafficLastRxBytes = rxBytes
+            vpnSelfTrafficLastTxBytes = txBytes
+            vpnSelfTrafficLastSampleMs = nowMs
+            if (prevRxBytes < 0L || prevTxBytes < 0L || prevMs <= 0L) {
+                return null
+            }
+            val elapsedMs = nowMs - prevMs
+            if (elapsedMs < 200L) {
+                return null
+            }
+            val downRate = (rxBytes - prevRxBytes).coerceAtLeast(0L) * 1000.0 / elapsedMs
+            val upRate = (txBytes - prevTxBytes).coerceAtLeast(0L) * 1000.0 / elapsedMs
+            return VpnTrafficSpeeds(
+                outgoingSpeed = formatSelfMeasuredSpeed(upRate),
+                incomingSpeed = formatSelfMeasuredSpeed(downRate)
+            )
+        }
+    }
+
+    private fun formatSelfMeasuredSpeed(bytesPerSecond: Double): String {
+        val kib = 1024.0
+        val mib = kib * 1024.0
+        return when {
+            bytesPerSecond >= mib ->
+                String.format(Locale.US, "%.2fMB/s", bytesPerSecond / mib)
+            bytesPerSecond >= kib ->
+                String.format(Locale.US, "%.1fKB/s", bytesPerSecond / kib)
+            else ->
+                String.format(Locale.US, "%.0fB/s", bytesPerSecond)
+        }
+    }
+
+    /**
+     * Re-drives the mirror for the active VPN source so its capsule
+     * rates stay live; called by the network foreground service on its
+     * 1.5s sampling tick while any Network & connections feature keeps
+     * that service alive. No-op when no VPN mirror is published.
+     */
+    fun refreshActiveVpnMirror(context: Context, prefs: ConverterPrefs) {
+        val key = activeVpnMirrorSbnKey ?: return
+        if (!prefs.getConverterEnabled() ||
+            !prefs.getSmartStatusDetectionEnabled() ||
+            !prefs.getSmartVpnEnabled()
+        ) {
+            return
+        }
+        val nowMs = SystemClock.elapsedRealtime()
+        if (nowMs - lastVpnMirrorRateRefreshMs < 1200L) {
+            return
+        }
+        lastVpnMirrorRateRefreshMs = nowMs
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return
+        val sbn = runCatching {
+            manager.activeNotifications.firstOrNull { it.key == key }
+        }.getOrNull()
+        if (sbn == null) {
+            activeVpnMirrorSbnKey = null
+            return
+        }
+        runCatching { maybeMirror(context, prefs, sbn) }
+    }
+
     private fun extractVpnTrafficSpeeds(
         notification: Notification,
         fallbackTitle: String,
@@ -9937,6 +10062,9 @@ object LiveUpdateNotifier {
 
     private fun clearSmartTrackingForSbnKeyLocked(sbnKey: String): List<Int> {
         val idsToCancel = mutableListOf<Int>()
+        if (activeVpnMirrorSbnKey == sbnKey) {
+            activeVpnMirrorSbnKey = null
+        }
         latchedSmartMatchesBySbnKey.remove(sbnKey)
         val smartAggregateKey = sbnToAggregateKey.remove(sbnKey)
         if (smartAggregateKey != null) {

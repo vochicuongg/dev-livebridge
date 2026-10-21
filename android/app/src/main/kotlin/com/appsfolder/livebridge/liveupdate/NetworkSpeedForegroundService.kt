@@ -64,6 +64,8 @@ class NetworkSpeedForegroundService : Service() {
             lastSnapshot = snapshot
             lastSampleAtElapsedMs = nowElapsedMs
             refreshServiceState()
+            // Keep an active VPN capsule's self-measured rates live.
+            LiveUpdateNotifier.refreshActiveVpnMirror(applicationContext, prefs)
 
             workerHandler?.postDelayed(this, SAMPLE_INTERVAL_MS)
         }

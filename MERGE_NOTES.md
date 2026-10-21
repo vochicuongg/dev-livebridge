@@ -443,3 +443,23 @@ If the capsule still does not appear on the next build, the remaining
 unknowns are runtime-side (listener bind timing at post time, the
 notification's actual extras) and the next datum is a full dumpsys.
 Static checks only (brace 0, paren baseline unchanged).
+
+## VPN capsule live traffic + VpnDiag trace (round 35, 2026-10-22)
+
+Owner's point: WARP's own notification prints no speeds, so a
+converted capsule would show status only. Round 35: (1) when the
+source prints no speeds, the VPN capsule falls back to self-measured
+rates (TrafficStats total deltas — while a VPN is on, device totals
+are the VPN throughput), formatted like parsed tokens; (2) the
+notifier tracks the active VPN mirror's source key and the network
+foreground service re-drives its mirror on the existing 1.5s tick
+(refreshActiveVpnMirror, 1.2s throttle, validates source still active
++ features still on) so the rates stay live. TEMP VpnDiag logcat
+points trace the cloudflare source through maybeMirror (candidate,
+smartMatch, live dictionary stats, suppression/guard blocks, publish)
+— the round-34 build produced no capsule on the owner's phone and
+static audit exhausted the gates (one suspect: the parser dictionary
+merges only ENABLED language packs over an EMPTY default, and "vi" is
+not in SUPPORTED_PARSER_DICTIONARY_LANGUAGE_IDS, so a customized
+enabled set would silently empty the dictionary). Remove the VpnDiag
+points once the on-device cause is read. Static checks only.
