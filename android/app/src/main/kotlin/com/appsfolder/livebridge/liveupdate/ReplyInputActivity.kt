@@ -297,18 +297,26 @@ class ReplyInputActivity : Activity() {
      * the tall main display.
      */
     private fun isOnCoverScreen(): Boolean {
-        // The cover display is short and near-square (720x748 px on
-        // the Flip5); the tall main display never matches either test.
+        // The cover display is near-square: the Flip5 panel is
+        // 720x748, but Android reports 1282x1234 to apps running on
+        // it (measured on device), while the main display is a tall
+        // 1080x2640. A near-square size with a modest long side can
+        // only be the cover.
+        fun nearSquareCover(width: Int, height: Int): Boolean {
+            val shortSide = minOf(width, height)
+            val longSide = maxOf(width, height)
+            return longSide in 1..1500 && longSide - shortSide <= 160
+        }
         val metrics = resources.displayMetrics
-        val shortSide = minOf(metrics.widthPixels, metrics.heightPixels)
-        val longSide = maxOf(metrics.widthPixels, metrics.heightPixels)
-        if (longSide in 1..1100 && longSide - shortSide <= 160) return true
+        if (nearSquareCover(metrics.widthPixels, metrics.heightPixels)) {
+            return true
+        }
         if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.R) {
             return false
         }
         return try {
             val bounds = windowManager.currentWindowMetrics.bounds
-            bounds.height() <= 1100 && bounds.width() <= 900
+            nearSquareCover(bounds.width(), bounds.height())
         } catch (e: Exception) {
             false
         }
