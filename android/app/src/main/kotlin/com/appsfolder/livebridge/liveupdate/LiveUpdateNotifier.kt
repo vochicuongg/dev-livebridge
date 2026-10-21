@@ -6003,6 +6003,20 @@ object LiveUpdateNotifier {
         source: Notification,
         parserDictionary: LiveParserDictionary
     ): SmartStageMatch? {
+        // A known VPN package is sufficient on identity alone — some VPN
+        // apps post a nearly text-less foreground-service notification,
+        // and requiring text made those unconvertible even with the
+        // package curated (found on the owner's device, round 34).
+        val likelyVpnPackage = isLikelyVpnPackage(packageNameLower, parserDictionary)
+        if (likelyVpnPackage) {
+            return SmartStageMatch(
+                aggregateKey = "$packageNameLower:vpn:vpn",
+                stageValue = 1,
+                maxStage = 1,
+                compactOrderCode = null,
+                keepHighestStage = false
+            )
+        }
         val combinedText = collectNotificationText(
             notification = source,
             fallbackTitle = packageNameLower,
@@ -6011,14 +6025,11 @@ object LiveUpdateNotifier {
         if (combinedText.isBlank()) {
             return null
         }
-        val likelyVpnPackage = isLikelyVpnPackage(packageNameLower, parserDictionary)
         val hasVpnContext = parserDictionary.vpnContextPattern.containsMatchIn(combinedText)
-        if (!likelyVpnPackage && !hasVpnContext) {
+        if (!hasVpnContext) {
             return null
         }
-        if (!likelyVpnPackage &&
-            (source.flags and Notification.FLAG_ONGOING_EVENT) == 0
-        ) {
+        if ((source.flags and Notification.FLAG_ONGOING_EVENT) == 0) {
             return null
         }
         return SmartStageMatch(
@@ -6060,10 +6071,14 @@ object LiveUpdateNotifier {
             fallbackTitle = packageNameLower,
             includeRemoteViewTexts = true
         ).lowercase(Locale.ROOT)
-        if (combinedText.isBlank()) {
-            return null
-        }
-        if (ignoreDebugging && isExternalDeviceDebuggingNotification(combinedText)) {
+        // Package identity alone is the design for curated device
+        // packages (see the function doc): a text-less status post must
+        // still convert, so blank text only skips the debugging check,
+        // it does not block the match.
+        if (combinedText.isNotBlank() &&
+            ignoreDebugging &&
+            isExternalDeviceDebuggingNotification(combinedText)
+        ) {
             return null
         }
         val rule = parserDictionary.smartRules.firstOrNull { it.id == "external_device" }

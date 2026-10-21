@@ -423,3 +423,23 @@ re-validated as JSON. Static checks only (brace 0, paren baseline
 unchanged); Windows build + on-device verification by the owner
 pending — if the watch still does not convert, the deciding datum is
 the posting package of its connection notification (dumpsys).
+
+## VPN/external context fallbacks: package identity is enough (round 34, 2026-10-21)
+
+Owner device timeline: 1.1.1.1 notifications were system-blocked
+(importance=NONE in dumps 1-3); after he enabled them, the WARP status
+notification exists (channel VpnService, ONGOING_EVENT|NO_CLEAR|
+FOREGROUND_SERVICE, posted 23:49) and the round-33 build is installed,
+yet no VPN capsule appeared. Remaining suspect in the round-32
+fallbacks themselves: both still required NON-BLANK collected text
+before matching, so a (nearly) text-less VPN/device status post could
+never match even from a curated package — contradicting the stated
+"package identity alone" design. Fix: detectVpnContextSmartStage now
+returns a match immediately for a likely VPN package; the
+text+context+ongoing requirements remain for unknown packages.
+detectExternalDeviceContextSmartStage likewise no longer blocks on
+blank text (the debugging-ignore check only runs when text exists).
+If the capsule still does not appear on the next build, the remaining
+unknowns are runtime-side (listener bind timing at post time, the
+notification's actual extras) and the next datum is a full dumpsys.
+Static checks only (brace 0, paren baseline unchanged).
