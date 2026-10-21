@@ -169,8 +169,9 @@ class ReplyInputActivity : Activity() {
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                     Gravity.TOP
                 ).apply {
-                    // Just under the status/info bar, with a 4dp gap.
-                    topMargin = statusBarHeight + dp(4)
+                    // Just under the status/info bar, with a 4dp gap —
+                    // or flush to the top on the cover screen.
+                    topMargin = unitTopMargin
                 }
             )
             setOnTouchListener { _, event ->
@@ -189,7 +190,7 @@ class ReplyInputActivity : Activity() {
         // current one (invisible at rest): the pull-down drag reveals it
         // as it scales up to take the front, like the Now Bar card stack.
         rootView = root
-        cardTopMargin = statusBarHeight + dp(4)
+        cardTopMargin = unitTopMargin
         refreshNextPreview()
 
         window?.apply {
@@ -229,6 +230,23 @@ class ReplyInputActivity : Activity() {
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    /**
+     * Whether this editor is running on the Z Flip cover screen: its
+     * window is short and near-square (720x748 px on the Flip5), unlike
+     * the tall main display.
+     */
+    private fun isOnCoverScreen(): Boolean {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.R) {
+            return false
+        }
+        return try {
+            val bounds = windowManager.currentWindowMetrics.bounds
+            bounds.height() <= 1100 && bounds.width() <= 900
+        } catch (e: Exception) {
+            false
+        }
+    }
 
     /** Blends two colors; ratio 0 returns [from], 1 returns [to]. */
     private fun blendColor(from: Int, to: Int, ratio: Float): Int {
