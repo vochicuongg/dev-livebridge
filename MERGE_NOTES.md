@@ -587,3 +587,14 @@ fallback title got a context parameter threaded through so it can
 localize too ("Pin yếu X%"; other locales keep the old text there).
 Verified statically: every when(appLocale) block carries a VI branch
 (or an else), brace balance 0, paren baseline unchanged.
+
+## Charging remaining time: hours + minutes, VI wording (round 43, 2026-10-23)
+
+Owner refinements after round 42 tested well: (1) the Vietnamese
+until-full wording changes from "là đầy" to "sẽ đầy"; (2) estimated
+times of an hour or more now render as hours + minutes in every
+locale (70 -> "Còn 1 tiếng 10 phút nữa sẽ đầy" / "1 h 10 min until
+full"), with an hours-only form when minutes are 0; sub-hour values
+keep each locale's previous minutes-only phrasing verbatim. The
+low-battery side already mirrors the device's own system
+notification text, so it needed no wording work. Static checks only.

@@ -1594,15 +1594,53 @@ object LiveUpdateNotifier {
     }
 
     private fun chargingInfoUntilFullText(context: Context, remainingMinutes: Int): String {
+        // Durations of an hour or more read as hours + minutes in every
+        // locale (owner request, round 43: 70 minutes should display as
+        // 1 hour 10 minutes); sub-hour values keep each locale's
+        // original minutes-only phrasing verbatim.
+        val hours = remainingMinutes / 60
+        val minutes = remainingMinutes % 60
         return when (appLocale(context)) {
-            AppLocale.RU -> "$remainingMinutes мин до полного заряда"
-            AppLocale.TR -> "Dolmaya $remainingMinutes dk"
-            AppLocale.PT_BR -> "$remainingMinutes min até completar"
-            AppLocale.ZH_HANS -> "距离充满还有 $remainingMinutes 分钟"
-            AppLocale.ZH_HANT -> "距離充滿還有 $remainingMinutes 分鐘"
-            AppLocale.KO -> "완충까지 ${remainingMinutes}분"
-            AppLocale.VI -> "Còn $remainingMinutes phút nữa là đầy"
-            AppLocale.EN -> "$remainingMinutes min until full"
+            AppLocale.RU -> when {
+                hours > 0 && minutes > 0 -> "$hours ч $minutes мин до полного заряда"
+                hours > 0 -> "$hours ч до полного заряда"
+                else -> "$minutes мин до полного заряда"
+            }
+            AppLocale.TR -> when {
+                hours > 0 && minutes > 0 -> "Dolmaya $hours sa $minutes dk"
+                hours > 0 -> "Dolmaya $hours sa"
+                else -> "Dolmaya $minutes dk"
+            }
+            AppLocale.PT_BR -> when {
+                hours > 0 && minutes > 0 -> "$hours h $minutes min até completar"
+                hours > 0 -> "$hours h até completar"
+                else -> "$minutes min até completar"
+            }
+            AppLocale.ZH_HANS -> when {
+                hours > 0 && minutes > 0 -> "距离充满还有 $hours 小时 $minutes 分钟"
+                hours > 0 -> "距离充满还有 $hours 小时"
+                else -> "距离充满还有 $minutes 分钟"
+            }
+            AppLocale.ZH_HANT -> when {
+                hours > 0 && minutes > 0 -> "距離充滿還有 $hours 小時 $minutes 分鐘"
+                hours > 0 -> "距離充滿還有 $hours 小時"
+                else -> "距離充滿還有 $minutes 分鐘"
+            }
+            AppLocale.KO -> when {
+                hours > 0 && minutes > 0 -> "완충까지 ${hours}시간 ${minutes}분"
+                hours > 0 -> "완충까지 ${hours}시간"
+                else -> "완충까지 ${minutes}분"
+            }
+            AppLocale.VI -> when {
+                hours > 0 && minutes > 0 -> "Còn $hours tiếng $minutes phút nữa sẽ đầy"
+                hours > 0 -> "Còn $hours tiếng nữa sẽ đầy"
+                else -> "Còn $minutes phút nữa sẽ đầy"
+            }
+            AppLocale.EN -> when {
+                hours > 0 && minutes > 0 -> "$hours h $minutes min until full"
+                hours > 0 -> "$hours h until full"
+                else -> "$minutes min until full"
+            }
         }
     }
 
