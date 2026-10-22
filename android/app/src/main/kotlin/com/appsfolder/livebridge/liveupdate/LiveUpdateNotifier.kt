@@ -10,6 +10,7 @@ import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.ComponentName
 import android.content.IntentFilter
 import android.provider.Settings
 import android.content.pm.PackageManager
@@ -89,6 +90,9 @@ object LiveUpdateNotifier {
     private const val SYSTEMUI_PACKAGE = "com.android.systemui"
     private const val LOW_BATTERY_TAG = "low_battery"
     private const val CHARGING_STATE_TAG = "charging_state"
+    private const val SAMSUNG_DEVICE_CARE_PACKAGE = "com.samsung.android.lool"
+    private const val SAMSUNG_BATTERY_SETTINGS_ACTIVITY =
+        "com.samsung.android.sm.battery.ui.BatteryActivity"
     private const val LOW_BATTERY_CHANNEL_ID = "LOWBAT"
     private const val NOTIFICATION_CAPSULE_MAX_APP_NAMES = 25
     private const val NOTIFICATION_CAPSULE_MAX_MESSAGE_LINES = 2
@@ -4534,12 +4538,27 @@ object LiveUpdateNotifier {
         return SamsungOneUi7NowBarCompat.markEligible(builder.build())
     }
 
-    // Tapping the charging capsule opens the system's Battery
-    // settings page instead of the app (owner request, round 52).
-    // POWER_USAGE_SUMMARY is the battery page entry on One UI and
-    // most OEM ROMs; fall back to the battery-saver page, then to
-    // the app itself, so the tap never dead-ends.
+    // Tapping the charging capsule opens the system's main Battery
+    // settings page (Settings > Battery), not the app (owner
+    // requests, rounds 52-53). On One UI that page is Device Care's
+    // BatteryActivity — identified from a device activity dump; it
+    // is used only when it resolves AND is exported, since a
+    // non-exported system page would silently refuse the tap.
+    // Otherwise fall back to POWER_USAGE_SUMMARY (which lands on
+    // the battery *activity* sub-page), then the battery-saver page,
+    // then the app itself, so the tap never dead-ends.
     private fun chargingInfoContentIntent(context: Context): PendingIntent? {
+        val samsungBatteryIntent = Intent().apply {
+            component = ComponentName(
+                SAMSUNG_DEVICE_CARE_PACKAGE,
+                SAMSUNG_BATTERY_SETTINGS_ACTIVITY
+            )
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        val samsungBatteryUsable = runCatching {
+            context.packageManager.resolveActivity(samsungBatteryIntent, 0)
+                ?.activityInfo?.exported == true
+        }.getOrDefault(false)
         val batteryPageIntent = Intent(Intent.ACTION_POWER_USAGE_SUMMARY).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
@@ -4547,6 +4566,7 @@ object LiveUpdateNotifier {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         val targetIntent = when {
+            samsungBatteryUsable -> samsungBatteryIntent
             batteryPageIntent.resolveActivity(context.packageManager) != null ->
                 batteryPageIntent
             saverIntent.resolveActivity(context.packageManager) != null -> saverIntent

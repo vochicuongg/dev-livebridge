@@ -719,3 +719,16 @@ app via the shared helper, which is untouched. Note: his J7 Prime
 (S22 Ultra port ROM) needs `adb install --no-streaming` — its old
 adbd rejects streamed installs with a splice EINVAL. Static checks
 only.
+
+## Capsule tap targets the main Settings > Battery page (round 53, 2026-10-23)
+
+Round 52's POWER_USAGE_SUMMARY landed on the battery *activity*
+sub-page; the owner wants the parent Settings > Battery page.
+His activity dump (J7 Prime, S22 Ultra port) shows that page is
+Device Care's com.samsung.android.lool/
+com.samsung.android.sm.battery.ui.BatteryActivity, launched from
+the Settings root list. The content intent now prefers that
+explicit component, guarded by a resolve + exported check (a
+non-exported system activity would silently refuse a third-party
+tap); fallbacks unchanged: POWER_USAGE_SUMMARY, battery saver,
+then the app. Static checks only.
