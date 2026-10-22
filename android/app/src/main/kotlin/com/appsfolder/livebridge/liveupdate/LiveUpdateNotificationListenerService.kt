@@ -259,6 +259,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         processingHandler.post {
             if (!destroyed) {
                 maybeSnoozeSystemChargingNotification(sbn)
+                maybeSnoozeSystemFlashlightNotification(sbn)
                 sourceLifecycle.posted(sbn.key)
                 processSafely(sbn)
             }
@@ -720,6 +721,38 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
             snoozeNotification(sbn.key, SYSTEM_CHARGING_SOURCE_SNOOZE_MS)
         }.onFailure { error ->
             Log.w(TAG, "snoozeNotification failed for system charging source: ${sbn.key}", error)
+        }
+    }
+
+    // Flashlight counterpart of the charging snooze above (round
+    // 58): hide the system's flashlight notification in the posted
+    // event itself instead of waiting for the snapshot-sync ->
+    // tracked-key -> dismissal chain, which left the system card
+    // visible for ~1.5s after torch-on (owner feedback). The round
+    // 57 dismissal machinery stays as the backstop for records
+    // posted before the listener connected. The key is remembered
+    // and marked self-dismissed before snoozing, so a removal event
+    // caused by our own snooze is not mistaken for the user turning
+    // the torch off (which would tear the capsule down).
+    private fun maybeSnoozeSystemFlashlightNotification(sbn: StatusBarNotification) {
+        if (
+            !prefs.getConverterEnabled() ||
+            !prefs.getSmartFlashlightEnabled() ||
+            isUnsupportedDevice()
+        ) {
+            return
+        }
+        if (!isFlashlightSourceNotification(sbn)) {
+            return
+        }
+        rememberTrackedFlashlightSourceKey(sbn.key)
+        synchronized(selfDismissLock) {
+            selfDismissedFlashlightSourceKeys.add(sbn.key)
+        }
+        runCatching {
+            snoozeNotification(sbn.key, FLASHLIGHT_SOURCE_SNOOZE_MS)
+        }.onFailure { error ->
+            Log.w(TAG, "snoozeNotification failed for system flashlight source: ${sbn.key}", error)
         }
     }
 

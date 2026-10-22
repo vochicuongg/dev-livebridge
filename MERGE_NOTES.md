@@ -791,3 +791,21 @@ reconcileSources) and from the onListenerConnected snapshot pass.
 Each pass that sees the source re-arms the key and re-triggers
 the service sync, so dismissal now runs and self-heals. Static
 checks only; device verification pending.
+
+## Flashlight source hidden at post time (round 58, 2026-10-23)
+
+Owner asked for the ~1.5s of visible SystemUI flashlight card
+after torch-on to go away. The round 57 chain (snapshot sync ->
+tracked key -> service dismissal) is correct but inherently
+laggy; the charging capsule already proves the fast pattern on
+this device. maybeSnoozeSystemFlashlightNotification now runs in
+onNotificationPosted next to maybeSnoozeSystemChargingNotification:
+on sight of the SystemUI flashlight record (converter + smart
+flashlight on, supported device) it remembers the key, marks it
+self-dismissed (so the removal handler does not read our snooze
+as a torch-off and tear the capsule down), and snoozes it for 12h
+immediately. The dismissal machinery remains as backstop for
+records posted before the listener connected. Literal zero delay
+is impossible for any listener app — the notification must exist
+before it can be snoozed — but the snooze now lands in the posted
+event itself. Static checks only; device verification pending.
