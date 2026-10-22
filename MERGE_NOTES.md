@@ -612,3 +612,16 @@ arms a generation-guarded 30-second self-tick (same pattern as the
 appearance delay) after every successful charging post; the tick
 re-runs the refresh and re-arms, and stops on low-battery posts,
 cancellation, or unplug. Static checks only.
+
+## Charging capsule allowed on the standby screen (round 45, 2026-10-23)
+
+Owner: the charging capsule never appeared on the standby (AOD)
+Now Bar although the other capsules do. The charging builder was
+the only self-posted capsule hardwired lockscreenOnly = true,
+which the Samsung bridge renders as STYLE_NOW_BAR_ONLY; smart
+mirrors only use that style when their per-feature lockscreen-only
+setting is on (weather/VPN), everything else takes STYLE_DEFAULT.
+The charging capsule now uses the default style too, so it is
+eligible on the standby surface like the rest. The notification-
+counter capsule keeps its hardwired lockscreen-only style (not
+requested). Static checks only; on-device standby check pending.

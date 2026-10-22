@@ -1533,7 +1533,11 @@ object LiveUpdateNotifier {
             showSecondaryInNowBar = collapsedText.isNotBlank(),
             disableNowBarRemoteView = true,
             reuseNotificationRemoteViews = false,
-            lockscreenOnly = true
+            // Not lockscreen-only: with STYLE_NOW_BAR_ONLY the capsule
+            // never appeared on the standby (AOD) Now Bar. The default
+            // style lets it show there like the other capsules
+            // (owner request, round 45).
+            lockscreenOnly = false
         )
         return SamsungOneUi7NowBarCompat.markEligible(builder.build())
     }
