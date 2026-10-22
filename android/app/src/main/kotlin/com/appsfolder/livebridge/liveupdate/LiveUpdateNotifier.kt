@@ -1724,10 +1724,14 @@ object LiveUpdateNotifier {
         }
     }
 
-    // Compact chip form of the remaining time (round 47): the full
-    // sentence is too long for the standby chip and gets cut off, so
-    // the chip shows "≈ HH:mm". A zero estimate reads as a status
-    // ("almost full", localized below) instead of "≈ 00:00".
+    // Compact chip form of the remaining time (rounds 47/51): the
+    // full sentence is too long for the standby chip and gets cut
+    // off. Round 47's "≈ HH:mm" was dropped because it is visually
+    // identical to a clock time — sitting next to the standby clock,
+    // "≈ 03:37" reads as "full at 3:37" instead of a 3h37 duration.
+    // The chip now uses each locale's compact unit form ("≈ 3h 37p",
+    // "≈ 45m"), which cannot be mistaken for a time of day. A zero
+    // estimate reads as a status ("almost full", localized below).
     private fun chargingInfoChipRemainingText(
         context: Context,
         remainingMinutes: Int
@@ -1737,10 +1741,48 @@ object LiveUpdateNotifier {
         }
         val hours = remainingMinutes / 60
         val minutes = remainingMinutes % 60
-        return "≈ " +
-            hours.toString().padStart(2, '0') +
-            ":" +
-            minutes.toString().padStart(2, '0')
+        return when (appLocale(context)) {
+            AppLocale.RU -> when {
+                hours > 0 && minutes > 0 -> "≈ ${hours}ч ${minutes}мин"
+                hours > 0 -> "≈ ${hours}ч"
+                else -> "≈ ${minutes}мин"
+            }
+            AppLocale.TR -> when {
+                hours > 0 && minutes > 0 -> "≈ $hours sa $minutes dk"
+                hours > 0 -> "≈ $hours sa"
+                else -> "≈ $minutes dk"
+            }
+            AppLocale.PT_BR -> when {
+                hours > 0 && minutes > 0 -> "≈ ${hours}h ${minutes}min"
+                hours > 0 -> "≈ ${hours}h"
+                else -> "≈ ${minutes}min"
+            }
+            AppLocale.ZH_HANS -> when {
+                hours > 0 && minutes > 0 -> "≈ $hours 小时 $minutes 分钟"
+                hours > 0 -> "≈ $hours 小时"
+                else -> "≈ $minutes 分钟"
+            }
+            AppLocale.ZH_HANT -> when {
+                hours > 0 && minutes > 0 -> "≈ $hours 小時 $minutes 分鐘"
+                hours > 0 -> "≈ $hours 小時"
+                else -> "≈ $minutes 分鐘"
+            }
+            AppLocale.KO -> when {
+                hours > 0 && minutes > 0 -> "≈ ${hours}시간 ${minutes}분"
+                hours > 0 -> "≈ ${hours}시간"
+                else -> "≈ ${minutes}분"
+            }
+            AppLocale.VI -> when {
+                hours > 0 && minutes > 0 -> "≈ ${hours}h ${minutes}p"
+                hours > 0 -> "≈ ${hours}h"
+                else -> "≈ ${minutes}p"
+            }
+            AppLocale.EN -> when {
+                hours > 0 && minutes > 0 -> "≈ ${hours}h ${minutes}m"
+                hours > 0 -> "≈ ${hours}h"
+                else -> "≈ ${minutes}m"
+            }
+        }
     }
 
     private fun chargingInfoAlmostFullText(context: Context): String {

@@ -694,3 +694,15 @@ charged", RU "Полностью заряжено", TR "Tamamen şarj oldu", PT_
 already complete and are unchanged. Single source:
 chargingInfoFullText feeds the collapsed text, the expanded text
 and the standby chip's full state. Static checks only.
+
+## Chip duration no longer looks like a clock time (round 51, 2026-10-23)
+
+Owner caught a real misreading in round 47's "≈ HH:mm" chip: at
+03:30 a chip reading "≈ 03:37" (a 3h37 duration) sits next to the
+standby clock and reads as the wall-clock time 03:37 — "full in a
+few minutes". The chip now renders each locale's compact unit form
+instead: EN "≈ 3h 37m" / "≈ 45m", VI "≈ 3h 37p" / "≈ 45p", RU
+"≈ 3ч 37мин", TR "≈ 3 sa 37 dk", PT_BR "≈ 3h 37min", ZH "≈ 3小时
+37分钟", KO "≈ 3시간 37분"; hours-only and minutes-only cases drop
+the empty part. The zero-estimate "almost full" status and all
+other surfaces are unchanged. Static checks only.
