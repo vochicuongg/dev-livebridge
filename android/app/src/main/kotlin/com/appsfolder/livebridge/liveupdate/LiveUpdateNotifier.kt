@@ -87,6 +87,7 @@ object LiveUpdateNotifier {
     private const val LOW_BATTERY_THRESHOLD_PERCENT = 15
     private const val SYSTEMUI_PACKAGE = "com.android.systemui"
     private const val LOW_BATTERY_TAG = "low_battery"
+    private const val CHARGING_STATE_TAG = "charging_state"
     private const val LOW_BATTERY_CHANNEL_ID = "LOWBAT"
     private const val NOTIFICATION_CAPSULE_MAX_APP_NAMES = 25
     private const val NOTIFICATION_CAPSULE_MAX_MESSAGE_LINES = 2
@@ -1897,6 +1898,14 @@ object LiveUpdateNotifier {
             .filter(::isLowBatterySystemNotification)
             .sortedByDescending { sbn -> sbn.postTime }
             .firstNotNullOfOrNull { sbn -> parseLowBatterySystemText(sbn, percent) }
+    }
+
+    // Identity of the system's own charging notification (One UI:
+    // SystemUI, tag "charging_state", channel CHR) — verified against
+    // a device dumpsys capture, 2026-10-23. The tag is stable across
+    // languages, unlike its localized title text.
+    fun isSystemChargingNotification(sbn: StatusBarNotification): Boolean {
+        return sbn.packageName == SYSTEMUI_PACKAGE && sbn.tag == CHARGING_STATE_TAG
     }
 
     private fun isLowBatterySystemNotification(sbn: StatusBarNotification): Boolean {

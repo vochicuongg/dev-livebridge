@@ -651,3 +651,21 @@ estimate shows a localized "almost full" status (VI "Sắp đầy")
 instead of "≈ 00:00". No-estimate and full states keep the previous
 chip text ("Đang sạc" / "Đã sạc đầy"); the lock-screen pill, the
 shade and low battery are untouched. Static checks only.
+
+## System charging notification hidden while the capsule is on (round 48, 2026-10-23)
+
+Owner: with the charging capsule present, the system's own
+"Đang sạc" entry still sat in the shade under Other notifications —
+the same duplication the VPN work removed. Identity verified from
+his dumpsys capture: SystemUI, tag "charging_state", channel CHR,
+importance MIN, and the channel is not user-blockable
+(mBlockableSystem=false), so settings cannot hide it. While the
+converter + charging-capsule feature is on, the listener now
+snoozes that record on sight (12h, the round-39 pattern) — both in
+the posted pipeline and in the charging-monitoring sync, so
+toggling the feature on mid-charge hides an already-posted one.
+Identity lives in LiveUpdateNotifier.isSystemChargingNotification
+(tag-based, language-independent). Known limit: no un-snooze API,
+so switching the feature off mid-charge restores the system's
+entry at the latest on the next plug-in; unplugging kills the
+record and its snooze as usual. Static checks only.
