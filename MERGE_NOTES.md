@@ -825,3 +825,19 @@ drops) is preferred; the instantaneous current is the immediate
 fallback (accepted only within 50mA..12A). Sanity-bounded to
 1..1440 minutes. System estimates keep priority. Static checks
 only; device verification pending.
+
+## Percent-rate estimate for counter-less devices (round 60, 2026-10-23)
+
+The round 59 property estimate cannot fire on the owner's J7
+Prime: the device has no /sys/class/power_supply/battery/
+charge_counter at all (owner-verified via adb), so the counter
+gate returns null and the capsule again waited on the system's
+2+ minute calibration after a replug. Final fallback added:
+estimate from the observed percent-per-minute rate (percent is
+always available). Samples are taken on every charging refresh;
+a rate needs >=1% gained over >=45s. The learned rate is kept
+for 30 minutes across an unplug (samples themselves are cleared
+on cancel), so a quick unplug/replug shows an estimate
+immediately from the pre-unplug rate. Priority order is now:
+system estimate -> Samsung extras -> charge counter/current ->
+percent rate. Static checks only; device verification pending.

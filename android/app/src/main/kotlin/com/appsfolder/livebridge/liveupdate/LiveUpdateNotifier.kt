@@ -87,6 +87,9 @@ object LiveUpdateNotifier {
     private const val CHARGING_INFO_TICK_MS = 30_000L
     private const val CHARGING_RATE_SAMPLE_WINDOW_MS = 300_000L
     private const val CHARGING_RATE_MIN_SPAN_MS = 20_000L
+    private const val PERCENT_SAMPLE_WINDOW_MS = 600_000L
+    private const val PERCENT_RATE_MIN_SPAN_MS = 45_000L
+    private const val CHARGING_RATE_MEMORY_MS = 1_800_000L
     private const val LOW_BATTERY_THRESHOLD_PERCENT = 15
     private const val SYSTEMUI_PACKAGE = "com.android.systemui"
     private const val LOW_BATTERY_TAG = "low_battery"
@@ -369,6 +372,9 @@ object LiveUpdateNotifier {
     private var chargingInfoVisible = false
     private var retainedLowBatterySnapshot: RetainedLowBatterySnapshot? = null
     private val chargingRateSamples = java.util.ArrayDeque<Pair<Long, Int>>()
+    private val chargingPercentSamples = java.util.ArrayDeque<Pair<Long, Int>>()
+    private var lastChargingRatePercentPerMinute: Double? = null
+    private var lastChargingRateAtMs: Long = 0L
     private var callMirrorGenerationCounter = 0L
     private var animationGenerationCounter = 0L
 
@@ -1059,6 +1065,8 @@ object LiveUpdateNotifier {
             chargingInfoDelayGeneration += 1
             chargingInfoVisible = false
             retainedLowBatterySnapshot = null
+            chargingPercentSamples.clear()
+            chargingRateSamples.clear()
         }
         synchronized(appIconCacheLock) {
             appIconCache.clear()
@@ -1382,6 +1390,8 @@ object LiveUpdateNotifier {
             chargingInfoTickGeneration += 1
             chargingInfoVisible = false
             retainedLowBatterySnapshot = null
+            chargingPercentSamples.clear()
+            chargingRateSamples.clear()
         }
         runCatching {
             NotificationManagerCompat.from(context).cancel(CHARGING_INFO_ID)
@@ -2094,6 +2104,7 @@ object LiveUpdateNotifier {
         if (percent >= 100) {
             return 0
         }
+        recordChargingPercentSample(percent)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             val batteryManager = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
             val millis = runCatching {
@@ -2129,7 +2140,64 @@ object LiveUpdateNotifier {
         batteryPropertyEstimateMinutes(context, percent)?.let { estimate ->
             return estimate
         }
+        percentRateEstimateMinutes(percent)?.let { estimate ->
+            return estimate
+        }
         return null
+    }
+
+    private fun recordChargingPercentSample(percent: Int) {
+        val nowMs = SystemClock.elapsedRealtime()
+        synchronized(stateLock) {
+            if (chargingPercentSamples.lastOrNull()?.second != percent) {
+                chargingPercentSamples.addLast(nowMs to percent)
+            }
+            while (chargingPercentSamples.size > 40) {
+                chargingPercentSamples.removeFirst()
+            }
+        }
+    }
+
+    // Final fallback (round 60): devices whose battery stack
+    // exposes no charge counter at all (the owner's J7 Prime has
+    // no /sys/class/power_supply/battery/charge_counter, so the
+    // round 59 property estimate can never fire there) still
+    // always report their percentage. Estimate from the observed
+    // percent-per-minute rate; the learned rate is remembered for
+    // 30 minutes so a quick unplug/replug — the owner's exact
+    // complaint — gets an instant estimate from the rate observed
+    // before unplugging instead of waiting out the system's
+    // calibration again.
+    private fun percentRateEstimateMinutes(percent: Int): Int? {
+        if (percent !in 1..99) {
+            return null
+        }
+        val nowMs = SystemClock.elapsedRealtime()
+        val ratePerMinute = synchronized(stateLock) {
+            while (
+                chargingPercentSamples.isNotEmpty() &&
+                nowMs - chargingPercentSamples.first().first > PERCENT_SAMPLE_WINDOW_MS
+            ) {
+                chargingPercentSamples.removeFirst()
+            }
+            val first = chargingPercentSamples.firstOrNull()
+            val last = chargingPercentSamples.lastOrNull()
+            var rate: Double? = null
+            if (first != null && last != null) {
+                val gainedPercent = last.second - first.second
+                val spanMs = last.first - first.first
+                if (gainedPercent >= 1 && spanMs >= PERCENT_RATE_MIN_SPAN_MS) {
+                    rate = gainedPercent.toDouble() * 60_000.0 / spanMs
+                    lastChargingRatePercentPerMinute = rate
+                    lastChargingRateAtMs = nowMs
+                }
+            }
+            rate ?: lastChargingRatePercentPerMinute?.takeIf {
+                nowMs - lastChargingRateAtMs <= CHARGING_RATE_MEMORY_MS
+            }
+        } ?: return null
+        val minutes = ((100 - percent) / ratePerMinute).roundToInt()
+        return minutes.takeIf { it in 1..(24 * 60) }
     }
 
     // Last-resort estimate (round 59): some devices — the owner's
