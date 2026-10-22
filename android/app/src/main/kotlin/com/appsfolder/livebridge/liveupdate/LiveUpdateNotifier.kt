@@ -1657,15 +1657,19 @@ object LiveUpdateNotifier {
     }
 
     private fun chargingInfoFullText(context: Context): String {
+        // Full-meaning "fully charged" in every locale (round 50):
+        // the old table clipped several languages to a bare "full"
+        // (EN "Full", TR "Dolu", PT_BR "Completo"); VI and ZH were
+        // already complete and stay unchanged.
         return when (appLocale(context)) {
-            AppLocale.RU -> "Заряжено"
-            AppLocale.TR -> "Dolu"
-            AppLocale.PT_BR -> "Completo"
+            AppLocale.RU -> "Полностью заряжено"
+            AppLocale.TR -> "Tamamen şarj oldu"
+            AppLocale.PT_BR -> "Totalmente carregado"
             AppLocale.ZH_HANS -> "已充满"
             AppLocale.ZH_HANT -> "已充滿"
-            AppLocale.KO -> "완충됨"
+            AppLocale.KO -> "완전히 충전됨"
             AppLocale.VI -> "Đã sạc đầy"
-            AppLocale.EN -> "Full"
+            AppLocale.EN -> "Fully charged"
         }
     }
 

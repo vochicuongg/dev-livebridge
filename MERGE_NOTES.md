@@ -683,3 +683,14 @@ for the SystemUI charging_state one and re-snoozes it with a
 effectively immediately. No-op when nothing is snoozed. This
 replaces round 48's "returns at the next plug-in" limitation.
 Static checks only.
+
+## "Fully charged" spelled out in every locale (round 50, 2026-10-23)
+
+Owner: the full-charge state read complete in Vietnamese ("Đã sạc
+đầy") but clipped in English ("Full"). Audited the whole table and
+completed every clipped entry to the full meaning: EN "Fully
+charged", RU "Полностью заряжено", TR "Tamamen şarj oldu", PT_BR
+"Totalmente carregado", KO "완전히 충전됨". VI and ZH (简/繁) were
+already complete and are unchanged. Single source:
+chargingInfoFullText feeds the collapsed text, the expanded text
+and the standby chip's full state. Static checks only.
