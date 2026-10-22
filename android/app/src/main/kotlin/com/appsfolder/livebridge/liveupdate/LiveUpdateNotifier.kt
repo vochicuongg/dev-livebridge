@@ -5304,12 +5304,13 @@ object LiveUpdateNotifier {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
         var deterministicMessagingThreadKey: String? = null
 
-        // Chat apps alert through the dedicated ALERTS channel (whose own
-        // system settings govern sound/vibration); the converted-notification
-        // sound/vibration preferences must not silence them.
-        if (effectiveChannel != MirrorNotificationChannel.ALERTS &&
-            !convertedNotificationSound && !convertedNotificationVibration
-        ) {
+        // When the user turns BOTH sound and vibration off in the app,
+        // every mirror stays silent — chat apps included (round 61:
+        // the old ALERTS-channel exemption meant the in-app toggles
+        // did nothing for chat mirrors, which kept ringing anyway).
+        // While either preference is on, the ALERTS channel's own
+        // system settings govern chat alerting as before.
+        if (!convertedNotificationSound && !convertedNotificationVibration) {
             builder.setSilent(true).setDefaults(0)
         } else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             builder.setDefaults(
@@ -5932,14 +5933,20 @@ object LiveUpdateNotifier {
                 // syncs), while allowing actual new messages to pop up.
                 val sourceAlertOnce = source.flags and Notification.FLAG_ONLY_ALERT_ONCE != 0
                 builder.setOnlyAlertOnce(sourceAlertOnce)
-                builder.setSilent(false)
+                // The in-app sound/vibration preferences win over this
+                // path's forced alerting (round 61): with both off, the
+                // mirror stays silent like every other mirror.
+                if (convertedNotificationSound || convertedNotificationVibration) {
+                    builder.setSilent(false)
+                    // Force explicit sound and vibration to override silent defaults
+                    val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                    builder.setSound(soundUri)
+                    builder.setVibrate(longArrayOf(0, 200, 100, 200))
+                } else {
+                    builder.setSilent(true)
+                }
                 builder.setCategory(NotificationCompat.CATEGORY_MESSAGE)
                 builder.setPriority(NotificationCompat.PRIORITY_MAX)
-                
-                // Force explicit sound and vibration to override silent defaults
-                val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-                builder.setSound(soundUri)
-                builder.setVibrate(longArrayOf(0, 200, 100, 200))
                 
                 // Timestamp Refresh: use current time so the OS does not
                 // bury the notification at the bottom of the queue.
@@ -5987,14 +5994,19 @@ object LiveUpdateNotifier {
                 if (isChatApp) {
                     // Messaging apps: every new message should alert (vibrate)
                     builder.setOnlyAlertOnce(false)
-                    builder.setSilent(false)
+                    // Same round 61 rule as the Zalo path above: the
+                    // in-app preferences override the forced alerting.
+                    if (convertedNotificationSound || convertedNotificationVibration) {
+                        builder.setSilent(false)
+                        // Force explicit sound and vibration to override silent defaults
+                        val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                        builder.setSound(soundUri)
+                        builder.setVibrate(longArrayOf(0, 200, 100, 200))
+                    } else {
+                        builder.setSilent(true)
+                    }
                     builder.setCategory(NotificationCompat.CATEGORY_MESSAGE)
                     builder.setPriority(NotificationCompat.PRIORITY_MAX)
-                    
-                    // Force explicit sound and vibration to override silent defaults
-                    val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-                    builder.setSound(soundUri)
-                    builder.setVibrate(longArrayOf(0, 200, 100, 200))
                 } else {
                     // Tracking / ride-hailing apps: alert once on first appearance,
                     // then stay silent for subsequent updates

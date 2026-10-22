@@ -841,3 +841,22 @@ on cancel), so a quick unplug/replug shows an estimate
 immediately from the pre-unplug rate. Priority order is now:
 system estimate -> Samsung extras -> charge counter/current ->
 percent rate. Static checks only; device verification pending.
+
+## In-app sound/vibration OFF now silences chat mirrors (round 61, 2026-10-23)
+
+Reporter: notification sound is duplicated / still plays even
+with sound and vibration disabled inside the app. Code audit:
+chat mirrors post to the ALERTS channel (created always-audible
+by design), the setSilent gate explicitly EXEMPTED that channel,
+and the Zalo / Messenger Wear-bridging paths called
+setSilent(false) + forced sound/vibration AFTER the gate,
+undoing it entirely. So for chat — the flagship case — the
+in-app toggles had no effect at all, and every mirror update
+re-alerted on top of the source app's own sound. Fix: the
+both-off gate now applies to every channel, and both bridging
+paths only force alerting when at least one of the two
+preferences is on (otherwise they post silent). Defaults are
+unchanged: with the preferences on, chat alerting behaves
+exactly as before and the ALERTS channel's system settings
+still govern it. Static checks only; device verification
+pending.
