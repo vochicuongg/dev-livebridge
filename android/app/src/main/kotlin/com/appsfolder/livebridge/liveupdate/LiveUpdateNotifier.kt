@@ -83,9 +83,11 @@ object LiveUpdateNotifier {
     private const val BATTERY_EXTRA_MAX_CHARGING_CURRENT = "max_charging_current"
     private const val BATTERY_EXTRA_MAX_CHARGING_VOLTAGE = "max_charging_voltage"
     private const val CHARGING_INFO_APPEAR_DELAY_MS = 3_000L
+    private const val CHARGING_INFO_TICK_MS = 30_000L
     private const val LOW_BATTERY_THRESHOLD_PERCENT = 15
     private const val SYSTEMUI_PACKAGE = "com.android.systemui"
     private const val LOW_BATTERY_TAG = "low_battery"
+    private const val CHARGING_STATE_TAG = "charging_state"
     private const val LOW_BATTERY_CHANNEL_ID = "LOWBAT"
     private const val NOTIFICATION_CAPSULE_MAX_APP_NAMES = 25
     private const val NOTIFICATION_CAPSULE_MAX_MESSAGE_LINES = 2
@@ -356,6 +358,8 @@ object LiveUpdateNotifier {
     private val notificationCapsuleIds = mutableSetOf<Int>()
     private var chargingInfoDelayScheduled = false
     private var chargingInfoDelayGeneration = 0L
+    private var chargingInfoTickScheduled = false
+    private var chargingInfoTickGeneration = 0L
     private var chargingInfoVisible = false
     private var retainedLowBatterySnapshot: RetainedLowBatterySnapshot? = null
     private var callMirrorGenerationCounter = 0L
@@ -389,7 +393,10 @@ object LiveUpdateNotifier {
         val iconRes: Int,
         val color: Int,
         val lowBattery: Boolean,
-        val lowBatteryPowerSavingAction: LowBatteryPowerSavingAction? = null
+        val lowBatteryPowerSavingAction: LowBatteryPowerSavingAction? = null,
+        // Raw estimate for the compact standby chip; null when there
+        // is no estimate or the battery is already full (round 47).
+        val remainingMinutes: Int? = null
     )
 
     private data class LowBatterySystemText(
@@ -1338,7 +1345,7 @@ object LiveUpdateNotifier {
 
         ensureChannel(context)
         val notification = buildChargingInfoNotification(context, snapshot)
-        return runCatching {
+        val posted = runCatching {
             NotificationManagerCompat.from(context).notify(CHARGING_INFO_ID, notification)
             synchronized(stateLock) {
                 chargingInfoDelayScheduled = false
@@ -1348,12 +1355,24 @@ object LiveUpdateNotifier {
         }.onFailure { error ->
             Log.e(TAG, "Failed to post charging info capsule", error)
         }.isSuccess
+        // While the device is charging, re-check every 30 seconds so
+        // the remaining-time estimate tracks the system's own number
+        // instead of only moving when a battery broadcast lands
+        // (owner request, round 44).
+        if (posted && !snapshot.lowBattery) {
+            scheduleChargingInfoTick(context)
+        } else {
+            stopChargingInfoTicker()
+        }
+        return posted
     }
 
     fun cancelChargingInfo(context: Context) {
         synchronized(stateLock) {
             chargingInfoDelayScheduled = false
             chargingInfoDelayGeneration += 1
+            chargingInfoTickScheduled = false
+            chargingInfoTickGeneration += 1
             chargingInfoVisible = false
             retainedLowBatterySnapshot = null
         }
@@ -1396,6 +1415,45 @@ object LiveUpdateNotifier {
         )
     }
 
+    private fun scheduleChargingInfoTick(context: Context) {
+        val appContext = context.applicationContext
+        val generation = synchronized(stateLock) {
+            if (chargingInfoTickScheduled) {
+                return
+            }
+            chargingInfoTickScheduled = true
+            chargingInfoTickGeneration += 1
+            chargingInfoTickGeneration
+        }
+        mainHandler.postDelayed(
+            {
+                val shouldRun = synchronized(stateLock) {
+                    chargingInfoTickScheduled && chargingInfoTickGeneration == generation
+                }
+                if (!shouldRun) {
+                    return@postDelayed
+                }
+                synchronized(stateLock) {
+                    chargingInfoTickScheduled = false
+                }
+                refreshChargingInfo(
+                    context = appContext,
+                    prefs = ConverterPrefs(appContext),
+                    batteryIntent = null,
+                    delayAppearance = false
+                )
+            },
+            CHARGING_INFO_TICK_MS
+        )
+    }
+
+    private fun stopChargingInfoTicker() {
+        synchronized(stateLock) {
+            chargingInfoTickScheduled = false
+            chargingInfoTickGeneration += 1
+        }
+    }
+
     private fun isChargingInfoActive(context: Context): Boolean {
         synchronized(stateLock) {
             if (chargingInfoVisible) {
@@ -1423,6 +1481,20 @@ object LiveUpdateNotifier {
         val collapsedText = snapshot.collapsedText
         val expandedText = snapshot.expandedText
         val icon = IconCompat.createWithResource(context, snapshot.iconRes)
+        // Condensed surfaces (standby/AOD chip, status-bar chip) lead
+        // with the time until full instead of the percentage — that is
+        // the glanceable value there (user feedback, round 46) — in a
+        // compact "≈ HH:mm" form, because the full sentence is too
+        // long and gets cut off on the chip (round 47). The
+        // lock-screen pill and the shade keep the percentage as the
+        // title with the full time sentence underneath. Low battery
+        // keeps its existing expanded-text chip.
+        val capsuleChipText = when {
+            snapshot.lowBattery -> expandedText
+            else -> snapshot.remainingMinutes?.let { minutes ->
+                chargingInfoChipRemainingText(context, minutes)
+            } ?: collapsedText.ifBlank { title }
+        }
         val builder = NotificationCompat.Builder(
             context,
             MirrorNotificationChannel.CHARGING_INFO.id
@@ -1443,7 +1515,7 @@ object LiveUpdateNotifier {
             .setCategory(Notification.CATEGORY_STATUS)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setRequestPromotedOngoing(true)
-            .setShortCriticalText(title)
+            .setShortCriticalText(capsuleChipText)
 
         if (snapshot.lowBattery && !isPowerSaveMode(context)) {
             snapshot.lowBatteryPowerSavingAction?.let { action ->
@@ -1467,7 +1539,7 @@ object LiveUpdateNotifier {
             secondaryText = expandedText,
             nowBarPrimaryText = title,
             nowBarSecondaryText = collapsedText,
-            chipText = if (snapshot.lowBattery) expandedText else title,
+            chipText = capsuleChipText,
             chipIcon = icon,
             nowBarIcon = icon,
             rightIcon = null,
@@ -1479,7 +1551,11 @@ object LiveUpdateNotifier {
             showSecondaryInNowBar = collapsedText.isNotBlank(),
             disableNowBarRemoteView = true,
             reuseNotificationRemoteViews = false,
-            lockscreenOnly = true
+            // Not lockscreen-only: with STYLE_NOW_BAR_ONLY the capsule
+            // never appeared on the standby (AOD) Now Bar. The default
+            // style lets it show there like the other capsules
+            // (owner request, round 45).
+            lockscreenOnly = false
         )
         return SamsungOneUi7NowBarCompat.markEligible(builder.build())
     }
@@ -1541,6 +1617,7 @@ object LiveUpdateNotifier {
                 AppLocale.ZH_HANS -> "快速充电"
                 AppLocale.ZH_HANT -> "快速充電"
                 AppLocale.KO -> "고속 충전"
+                AppLocale.VI -> "Sạc nhanh"
                 AppLocale.EN -> "Fast charging"
             }
             ChargingInfoSpeed.SUPER_FAST -> when (appLocale(context)) {
@@ -1550,6 +1627,7 @@ object LiveUpdateNotifier {
                 AppLocale.ZH_HANS -> "超快速充电"
                 AppLocale.ZH_HANT -> "超快速充電"
                 AppLocale.KO -> "초고속 충전"
+                AppLocale.VI -> "Sạc siêu nhanh"
                 AppLocale.EN -> "Super fast charging"
             }
             ChargingInfoSpeed.SUPER_FAST_2 -> when (appLocale(context)) {
@@ -1559,6 +1637,7 @@ object LiveUpdateNotifier {
                 AppLocale.ZH_HANS -> "超快速充电 2.0"
                 AppLocale.ZH_HANT -> "超快速充電 2.0"
                 AppLocale.KO -> "초고속 충전 2.0"
+                AppLocale.VI -> "Sạc siêu nhanh 2.0"
                 AppLocale.EN -> "Super fast charging 2.0"
             }
         }
@@ -1572,31 +1651,108 @@ object LiveUpdateNotifier {
             AppLocale.ZH_HANS -> "正在充电"
             AppLocale.ZH_HANT -> "正在充電"
             AppLocale.KO -> "충전 중"
+            AppLocale.VI -> "Đang sạc"
             AppLocale.EN -> "Charging"
         }
     }
 
     private fun chargingInfoFullText(context: Context): String {
+        // Full-meaning "fully charged" in every locale (round 50):
+        // the old table clipped several languages to a bare "full"
+        // (EN "Full", TR "Dolu", PT_BR "Completo"); VI and ZH were
+        // already complete and stay unchanged.
         return when (appLocale(context)) {
-            AppLocale.RU -> "Заряжено"
-            AppLocale.TR -> "Dolu"
-            AppLocale.PT_BR -> "Completo"
+            AppLocale.RU -> "Полностью заряжено"
+            AppLocale.TR -> "Tamamen şarj oldu"
+            AppLocale.PT_BR -> "Totalmente carregado"
             AppLocale.ZH_HANS -> "已充满"
             AppLocale.ZH_HANT -> "已充滿"
-            AppLocale.KO -> "완충됨"
-            AppLocale.EN -> "Full"
+            AppLocale.KO -> "완전히 충전됨"
+            AppLocale.VI -> "Đã sạc đầy"
+            AppLocale.EN -> "Fully charged"
         }
     }
 
     private fun chargingInfoUntilFullText(context: Context, remainingMinutes: Int): String {
+        // Durations of an hour or more read as hours + minutes in every
+        // locale (owner request, round 43: 70 minutes should display as
+        // 1 hour 10 minutes); sub-hour values keep each locale's
+        // original minutes-only phrasing verbatim.
+        val hours = remainingMinutes / 60
+        val minutes = remainingMinutes % 60
         return when (appLocale(context)) {
-            AppLocale.RU -> "$remainingMinutes мин до полного заряда"
-            AppLocale.TR -> "Dolmaya $remainingMinutes dk"
-            AppLocale.PT_BR -> "$remainingMinutes min até completar"
-            AppLocale.ZH_HANS -> "距离充满还有 $remainingMinutes 分钟"
-            AppLocale.ZH_HANT -> "距離充滿還有 $remainingMinutes 分鐘"
-            AppLocale.KO -> "완충까지 ${remainingMinutes}분"
-            AppLocale.EN -> "$remainingMinutes min until full"
+            AppLocale.RU -> when {
+                hours > 0 && minutes > 0 -> "$hours ч $minutes мин до полного заряда"
+                hours > 0 -> "$hours ч до полного заряда"
+                else -> "$minutes мин до полного заряда"
+            }
+            AppLocale.TR -> when {
+                hours > 0 && minutes > 0 -> "Dolmaya $hours sa $minutes dk"
+                hours > 0 -> "Dolmaya $hours sa"
+                else -> "Dolmaya $minutes dk"
+            }
+            AppLocale.PT_BR -> when {
+                hours > 0 && minutes > 0 -> "$hours h $minutes min até completar"
+                hours > 0 -> "$hours h até completar"
+                else -> "$minutes min até completar"
+            }
+            AppLocale.ZH_HANS -> when {
+                hours > 0 && minutes > 0 -> "距离充满还有 $hours 小时 $minutes 分钟"
+                hours > 0 -> "距离充满还有 $hours 小时"
+                else -> "距离充满还有 $minutes 分钟"
+            }
+            AppLocale.ZH_HANT -> when {
+                hours > 0 && minutes > 0 -> "距離充滿還有 $hours 小時 $minutes 分鐘"
+                hours > 0 -> "距離充滿還有 $hours 小時"
+                else -> "距離充滿還有 $minutes 分鐘"
+            }
+            AppLocale.KO -> when {
+                hours > 0 && minutes > 0 -> "완충까지 ${hours}시간 ${minutes}분"
+                hours > 0 -> "완충까지 ${hours}시간"
+                else -> "완충까지 ${minutes}분"
+            }
+            AppLocale.VI -> when {
+                hours > 0 && minutes > 0 -> "Còn $hours tiếng $minutes phút nữa sẽ đầy"
+                hours > 0 -> "Còn $hours tiếng nữa sẽ đầy"
+                else -> "Còn $minutes phút nữa sẽ đầy"
+            }
+            AppLocale.EN -> when {
+                hours > 0 && minutes > 0 -> "$hours h $minutes min until full"
+                hours > 0 -> "$hours h until full"
+                else -> "$minutes min until full"
+            }
+        }
+    }
+
+    // Compact chip form of the remaining time (round 47): the full
+    // sentence is too long for the standby chip and gets cut off, so
+    // the chip shows "≈ HH:mm". A zero estimate reads as a status
+    // ("almost full", localized below) instead of "≈ 00:00".
+    private fun chargingInfoChipRemainingText(
+        context: Context,
+        remainingMinutes: Int
+    ): String {
+        if (remainingMinutes <= 0) {
+            return chargingInfoAlmostFullText(context)
+        }
+        val hours = remainingMinutes / 60
+        val minutes = remainingMinutes % 60
+        return "≈ " +
+            hours.toString().padStart(2, '0') +
+            ":" +
+            minutes.toString().padStart(2, '0')
+    }
+
+    private fun chargingInfoAlmostFullText(context: Context): String {
+        return when (appLocale(context)) {
+            AppLocale.RU -> "Почти заряжено"
+            AppLocale.TR -> "Dolmak üzere"
+            AppLocale.PT_BR -> "Quase cheio"
+            AppLocale.ZH_HANS -> "即将充满"
+            AppLocale.ZH_HANT -> "即將充滿"
+            AppLocale.KO -> "거의 완충"
+            AppLocale.VI -> "Sắp đầy"
+            AppLocale.EN -> "Almost full"
         }
     }
 
@@ -1635,10 +1791,10 @@ object LiveUpdateNotifier {
         }
         lowBatterySystemText(activeNotifications, percent)?.let { lowBatteryText ->
             rememberRetainedLowBatterySnapshot(lowBatteryText)
-            return lowBatterySnapshot(percent, lowBatteryText)
+            return lowBatterySnapshot(context, percent, lowBatteryText)
         }
         return retainedLowBatterySnapshot()?.let { retained ->
-            lowBatterySnapshot(percent, retained)
+            lowBatterySnapshot(context, percent, retained)
         }
     }
 
@@ -1647,9 +1803,10 @@ object LiveUpdateNotifier {
         batteryIntent: Intent,
         percent: Int
     ): ChargingInfoSnapshot {
+        val remainingMinutes = remainingChargingMinutes(context, batteryIntent, percent)
         val remainingText = chargingInfoRemainingText(
             context = context,
-            remainingMinutes = remainingChargingMinutes(context, batteryIntent, percent)
+            remainingMinutes = remainingMinutes
         )
         val speed = resolveChargingInfoSpeed(batteryIntent)
         val speedLabel = chargingInfoSpeedLabel(context, speed)
@@ -1660,17 +1817,19 @@ object LiveUpdateNotifier {
             expandedText = chargingInfoExpandedText(speedLabel, remainingText),
             iconRes = speed.iconRes,
             color = speed.color,
-            lowBattery = false
+            lowBattery = false,
+            remainingMinutes = remainingMinutes?.takeIf { percent < 100 }
         )
     }
 
     private fun lowBatterySnapshot(
+        context: Context,
         percent: Int,
         lowBatteryText: LowBatterySystemText
     ): ChargingInfoSnapshot {
         return ChargingInfoSnapshot(
             percent = percent,
-            title = lowBatteryTitleForPercent(lowBatteryText.title, percent),
+            title = lowBatteryTitleForPercent(context, lowBatteryText.title, percent),
             collapsedText = lowBatteryText.collapsedText,
             expandedText = lowBatteryText.expandedText,
             iconRes = R.drawable.ic_charging_bolt,
@@ -1681,12 +1840,13 @@ object LiveUpdateNotifier {
     }
 
     private fun lowBatterySnapshot(
+        context: Context,
         percent: Int,
         retained: RetainedLowBatterySnapshot
     ): ChargingInfoSnapshot {
         return ChargingInfoSnapshot(
             percent = percent,
-            title = lowBatteryTitleForPercent(retained.titleTemplate, percent),
+            title = lowBatteryTitleForPercent(context, retained.titleTemplate, percent),
             collapsedText = retained.collapsedText,
             expandedText = retained.expandedText,
             iconRes = R.drawable.ic_charging_bolt,
@@ -1719,8 +1879,12 @@ object LiveUpdateNotifier {
         }
     }
 
-    private fun lowBatteryTitleForPercent(titleTemplate: String?, percent: Int): String {
-        val fallback = lowBatteryFallbackTitle(percent)
+    private fun lowBatteryTitleForPercent(
+        context: Context,
+        titleTemplate: String?,
+        percent: Int
+    ): String {
+        val fallback = lowBatteryFallbackTitle(context, percent)
         val title = titleTemplate?.trim()?.takeIf { it.isNotEmpty() } ?: return fallback
         val percentText = "$percent%"
         if (LOW_BATTERY_TITLE_PERCENT_PATTERN.containsMatchIn(title)) {
@@ -1738,6 +1902,14 @@ object LiveUpdateNotifier {
             .filter(::isLowBatterySystemNotification)
             .sortedByDescending { sbn -> sbn.postTime }
             .firstNotNullOfOrNull { sbn -> parseLowBatterySystemText(sbn, percent) }
+    }
+
+    // Identity of the system's own charging notification (One UI:
+    // SystemUI, tag "charging_state", channel CHR) — verified against
+    // a device dumpsys capture, 2026-10-23. The tag is stable across
+    // languages, unlike its localized title text.
+    fun isSystemChargingNotification(sbn: StatusBarNotification): Boolean {
+        return sbn.packageName == SYSTEMUI_PACKAGE && sbn.tag == CHARGING_STATE_TAG
     }
 
     private fun isLowBatterySystemNotification(sbn: StatusBarNotification): Boolean {
@@ -1849,8 +2021,13 @@ object LiveUpdateNotifier {
         return normalizedBody to normalizedBody
     }
 
-    private fun lowBatteryFallbackTitle(percent: Int): String {
-        return "Battery power $percent%"
+    private fun lowBatteryFallbackTitle(context: Context, percent: Int): String {
+        // Only Vietnamese is localized here for now (the fork's added
+        // locale); every other locale keeps the previous text.
+        return when (appLocale(context)) {
+            AppLocale.VI -> "Pin yếu $percent%"
+            else -> "Battery power $percent%"
+        }
     }
 
     private fun stickyBatteryIntent(context: Context): Intent? {
@@ -1874,28 +2051,30 @@ object LiveUpdateNotifier {
                 batteryManager?.computeChargeTimeRemaining() ?: -1L
             }.getOrDefault(-1L)
             if (millis > 0L) {
-                return ((millis + 59_999L) / 60_000L).toInt().coerceAtLeast(1)
+                // Round to the nearest minute like the system does;
+                // the old ceiling read +1 almost all the time (round 44).
+                return ((millis + 30_000L) / 60_000L).toInt().coerceAtLeast(1)
             }
         }
 
         batteryLongExtra(batteryIntent, "remain")?.let { seconds ->
             if (seconds >= 0L) {
-                return ((seconds + 59L) / 60L).toInt().coerceAtLeast(1)
+                return ((seconds + 30L) / 60L).toInt().coerceAtLeast(1)
             }
         }
         batteryLongExtra(batteryIntent, "remaining_charging_time")?.let { seconds ->
             if (seconds >= 0L) {
-                return ((seconds + 59L) / 60L).toInt().coerceAtLeast(1)
+                return ((seconds + 30L) / 60L).toInt().coerceAtLeast(1)
             }
         }
         batteryLongExtra(batteryIntent, "charge_time_remaining")?.let { seconds ->
             if (seconds >= 0L) {
-                return ((seconds + 59L) / 60L).toInt().coerceAtLeast(1)
+                return ((seconds + 30L) / 60L).toInt().coerceAtLeast(1)
             }
         }
         batteryLongExtra(batteryIntent, "charge_time_remaining_ms")?.let { millis ->
             if (millis >= 0L) {
-                return ((millis + 59_999L) / 60_000L).toInt().coerceAtLeast(1)
+                return ((millis + 30_000L) / 60_000L).toInt().coerceAtLeast(1)
             }
         }
         return null
@@ -4339,6 +4518,7 @@ object LiveUpdateNotifier {
             AppLocale.ZH_HANS -> "$count 条通知"
             AppLocale.ZH_HANT -> "$count 則通知"
             AppLocale.KO -> "알림 ${count}개"
+            AppLocale.VI -> "$count thông báo"
             AppLocale.EN -> if (count == 1) {
                 "1 notification"
             } else {
@@ -6994,6 +7174,7 @@ object LiveUpdateNotifier {
             language.startsWith("zh") && isTraditionalChinese(locale) -> AppLocale.ZH_HANT
             language.startsWith("zh") -> AppLocale.ZH_HANS
             language.startsWith("ko") -> AppLocale.KO
+            language.startsWith("vi") -> AppLocale.VI
             else -> AppLocale.EN
         }
     }
@@ -7012,6 +7193,7 @@ object LiveUpdateNotifier {
             isTraditionalChineseLanguageTag(normalized) -> AppLocale.ZH_HANT
             normalized.startsWith("zh") -> AppLocale.ZH_HANS
             normalized.startsWith("ko") -> AppLocale.KO
+            normalized.startsWith("vi") -> AppLocale.VI
             else -> AppLocale.EN
         }
     }
@@ -7062,6 +7244,10 @@ object LiveUpdateNotifier {
                 name = "알림 캡슐",
                 description = "잠금화면 알림 개수 캡슐"
             )
+            AppLocale.VI -> MirrorChannelText(
+                name = "Viên thông báo",
+                description = "Viên đếm thông báo trên màn hình khóa"
+            )
             AppLocale.EN -> MirrorChannelText(
                 name = "Notification capsule",
                 description = "Lock screen notification counter capsule"
@@ -7095,6 +7281,10 @@ object LiveUpdateNotifier {
                 name = "충전 정보",
                 description = "잠금 화면에 배터리 잔량, 남은 시간, 충전 속도와 배터리 부족 알림 표시"
             )
+            AppLocale.VI -> MirrorChannelText(
+                name = "Thông tin sạc",
+                description = "Mức pin, tốc độ sạc và cảnh báo pin yếu trên màn hình khóa"
+            )
             AppLocale.EN -> MirrorChannelText(
                 name = "Charging information",
                 description = "Battery charge, charging speed, and low-battery warnings on the lock screen"
@@ -7109,6 +7299,7 @@ object LiveUpdateNotifier {
             AppLocale.ZH_HANS -> "清除"
             AppLocale.ZH_HANT -> "清除"
             AppLocale.KO -> "지우기"
+            AppLocale.VI -> "Xóa"
             AppLocale.RU,
             AppLocale.EN -> "Clear"
         }
@@ -7122,6 +7313,7 @@ object LiveUpdateNotifier {
             AppLocale.ZH_HANS -> "系统"
             AppLocale.ZH_HANT -> "系統"
             AppLocale.KO -> "시스템"
+            AppLocale.VI -> "Hệ thống"
             AppLocale.EN -> "System"
         }
     }
@@ -10269,7 +10461,8 @@ object LiveUpdateNotifier {
         PT_BR,
         ZH_HANS,
         ZH_HANT,
-        KO
+        KO,
+        VI
     }
 
     private enum class MirrorNotificationChannel(val id: String) {

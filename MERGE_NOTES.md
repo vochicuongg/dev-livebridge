@@ -569,3 +569,128 @@ against the snoozed record could delete it and orphan the mirror).
 Disconnect still cleans up: the app cancelling its notification
 removes the snoozed record, the removal event fires, and the mirror
 is cancelled as before. Static checks only.
+
+## Vietnamese added to the native locale system (round 42, 2026-10-23)
+
+Owner: the charging capsule showed only English. Root cause: the
+notifier's AppLocale enum (which drives every native string table)
+covered EN/RU/TR/PT_BR/ZH/KO but had no VI at all, so a Vietnamese
+app/device setting silently fell back to EN even though the Dart UI
+is fully translated. Added AppLocale.VI end to end: enum value, both
+mappings (app language tag + device locale), and a Vietnamese branch
+in all 12 locale whens — the charging set ("Đang sạc", "Sạc nhanh",
+"Sạc siêu nhanh", "Sạc siêu nhanh 2.0", "Đã sạc đầy", "Còn X phút
+nữa là đầy", charging channel name/description) plus the capsule-
+frame set the enum forces to stay exhaustive (capsule title "X
+thông báo", capsule channel, "Xóa", "Hệ thống"). The low-battery
+fallback title got a context parameter threaded through so it can
+localize too ("Pin yếu X%"; other locales keep the old text there).
+Verified statically: every when(appLocale) block carries a VI branch
+(or an else), brace balance 0, paren baseline unchanged.
+
+## Charging remaining time: hours + minutes, VI wording (round 43, 2026-10-23)
+
+Owner refinements after round 42 tested well: (1) the Vietnamese
+until-full wording changes from "là đầy" to "sẽ đầy"; (2) estimated
+times of an hour or more now render as hours + minutes in every
+locale (70 -> "Còn 1 tiếng 10 phút nữa sẽ đầy" / "1 h 10 min until
+full"), with an hours-only form when minutes are 0; sub-hour values
+keep each locale's previous minutes-only phrasing verbatim. The
+low-battery side already mirrors the device's own system
+notification text, so it needed no wording work. Static checks only.
+
+## Charging estimate syncs with the system (round 44, 2026-10-23)
+
+Owner observed the capsule's remaining minutes sat +1 against the
+system's own charging estimate. Two causes, both fixed:
+(1) remainingChargingMinutes rounded UP everywhere (millis and all
+seconds fallbacks now round to the nearest minute, keeping the
+at-least-1-minute floor); (2) the capsule only recomputed on
+battery broadcasts, so between events the system's live number
+moved on while the capsule's stood still — refreshChargingInfo now
+arms a generation-guarded 30-second self-tick (same pattern as the
+appearance delay) after every successful charging post; the tick
+re-runs the refresh and re-arms, and stops on low-battery posts,
+cancellation, or unplug. Static checks only.
+
+## Charging capsule allowed on the standby screen (round 45, 2026-10-23)
+
+Owner: the charging capsule never appeared on the standby (AOD)
+Now Bar although the other capsules do. The charging builder was
+the only self-posted capsule hardwired lockscreenOnly = true,
+which the Samsung bridge renders as STYLE_NOW_BAR_ONLY; smart
+mirrors only use that style when their per-feature lockscreen-only
+setting is on (weather/VPN), everything else takes STYLE_DEFAULT.
+The charging capsule now uses the default style too, so it is
+eligible on the standby surface like the rest. The notification-
+counter capsule keeps its hardwired lockscreen-only style (not
+requested). Static checks only; on-device standby check pending.
+
+## Standby chip shows time until full, not the percentage (round 46, 2026-10-23)
+
+User feedback relayed by the owner: on the standby screen the
+charging capsule's percentage is the least useful glanceable value;
+the time until full is what people want there. The capsule's
+condensed text (bridge chipText + the promoted short critical text,
+which is what the standby/status-bar chip renders) now carries the
+remaining-time text ("Còn X phút nữa sẽ đầy"; the charging label
+when no estimate exists, "Đã sạc đầy" when full) instead of the
+percentage. The lock-screen pill and the shade are unchanged: the
+percentage stays as the title with the time underneath. Low battery
+keeps its expanded-text chip. Static checks only.
+
+## Standby chip: compact "≈ HH:mm" remaining time (round 47, 2026-10-23)
+
+Owner relayed that the round-46 full sentence is too long for the
+standby chip and gets cut off. The chip (bridge chipText + promoted
+short critical text) now uses a compact numeric form built from the
+raw estimate, which the charging snapshot now carries
+(remainingMinutes, null when there is no estimate or the battery is
+full): "≈ 01:05" for 65 minutes, "≈ 00:45" under an hour. A zero
+estimate shows a localized "almost full" status (VI "Sắp đầy")
+instead of "≈ 00:00". No-estimate and full states keep the previous
+chip text ("Đang sạc" / "Đã sạc đầy"); the lock-screen pill, the
+shade and low battery are untouched. Static checks only.
+
+## System charging notification hidden while the capsule is on (round 48, 2026-10-23)
+
+Owner: with the charging capsule present, the system's own
+"Đang sạc" entry still sat in the shade under Other notifications —
+the same duplication the VPN work removed. Identity verified from
+his dumpsys capture: SystemUI, tag "charging_state", channel CHR,
+importance MIN, and the channel is not user-blockable
+(mBlockableSystem=false), so settings cannot hide it. While the
+converter + charging-capsule feature is on, the listener now
+snoozes that record on sight (12h, the round-39 pattern) — both in
+the posted pipeline and in the charging-monitoring sync, so
+toggling the feature on mid-charge hides an already-posted one.
+Identity lives in LiveUpdateNotifier.isSystemChargingNotification
+(tag-based, language-independent). Known limit: no un-snooze API,
+so switching the feature off mid-charge restores the system's
+entry at the latest on the next plug-in; unplugging kills the
+record and its snooze as usual. Static checks only.
+
+## System charging notification restored when the capsule is off (round 49, 2026-10-23)
+
+Owner's rule, completing round 48: hiding the system's charging
+notification applies only while the charging capsule is enabled;
+switching the capsule off must bring the system's entry back.
+Android has no un-snooze API, so the disabled branch of
+syncChargingInfoMonitoring (which both MainActivity toggle paths
+reach via requestChargingInfoSync) now scans the snoozed records
+for the SystemUI charging_state one and re-snoozes it with a
+1-second duration — the system hands it back to the shade
+effectively immediately. No-op when nothing is snoozed. This
+replaces round 48's "returns at the next plug-in" limitation.
+Static checks only.
+
+## "Fully charged" spelled out in every locale (round 50, 2026-10-23)
+
+Owner: the full-charge state read complete in Vietnamese ("Đã sạc
+đầy") but clipped in English ("Full"). Audited the whole table and
+completed every clipped entry to the full meaning: EN "Fully
+charged", RU "Полностью заряжено", TR "Tamamen şarj oldu", PT_BR
+"Totalmente carregado", KO "완전히 충전됨". VI and ZH (简/繁) were
+already complete and are unchanged. Single source:
+chargingInfoFullText feeds the collapsed text, the expanded text
+and the standby chip's full state. Static checks only.

@@ -256,6 +256,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         }
         processingHandler.post {
             if (!destroyed) {
+                maybeSnoozeSystemChargingNotification(sbn)
                 sourceLifecycle.posted(sbn.key)
                 processSafely(sbn)
             }
@@ -693,6 +694,57 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         }
     }
 
+    // While the charging capsule is enabled it fully replaces the
+    // system's own charging notification (SystemUI "charging_state"):
+    // snooze that record on sight, the same approach that hid the
+    // VPN source in round 39. A plain cancel is not offered by One UI
+    // for this ongoing system record, and its channel is not user-
+    // blockable either. The snooze dies with the record when the
+    // system cancels it on unplug; if the feature is switched off
+    // mid-charge there is no un-snooze API, so the system's entry
+    // reappears at the latest on the next plug-in.
+    private fun maybeSnoozeSystemChargingNotification(sbn: StatusBarNotification) {
+        if (
+            !prefs.getConverterEnabled() ||
+            !prefs.getSmartChargingInfoEnabled() ||
+            isUnsupportedDevice()
+        ) {
+            return
+        }
+        if (!LiveUpdateNotifier.isSystemChargingNotification(sbn)) {
+            return
+        }
+        runCatching {
+            snoozeNotification(sbn.key, SYSTEM_CHARGING_SOURCE_SNOOZE_MS)
+        }.onFailure { error ->
+            Log.w(TAG, "snoozeNotification failed for system charging source: ${sbn.key}", error)
+        }
+    }
+
+    // Counterpart of the snooze above (round 49): when the charging
+    // capsule feature is switched off, the system's charging
+    // notification must come back. There is no un-snooze API, so the
+    // snoozed record is re-snoozed with a near-zero duration, which
+    // hands it back to the shade effectively immediately.
+    private fun restoreSystemChargingNotification() {
+        val snoozed = runCatching { snoozedNotifications?.toList() }
+            .getOrNull()
+            .orEmpty()
+        snoozed
+            .filter { sbn -> LiveUpdateNotifier.isSystemChargingNotification(sbn) }
+            .forEach { sbn ->
+                runCatching {
+                    snoozeNotification(sbn.key, SYSTEM_CHARGING_RESTORE_SNOOZE_MS)
+                }.onFailure { error ->
+                    Log.w(
+                        TAG,
+                        "Failed to restore system charging notification: ${sbn.key}",
+                        error
+                    )
+                }
+            }
+    }
+
     private fun syncChargingInfoMonitoring(
         snapshots: Collection<StatusBarNotification>? = null
     ) {
@@ -702,12 +754,19 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
             !isUnsupportedDevice()
         ) {
             ensureChargingInfoReceiverRegistered()
+            // The charging capsule replaces the system's own charging
+            // notification: keep that record snoozed while the capsule
+            // feature is on (round 48). Re-checked here so toggling
+            // the feature on mid-charge hides an already-posted one.
+            (snapshots ?: activeNotificationSnapshotsForChargingInfo())
+                .forEach(::maybeSnoozeSystemChargingNotification)
             LiveUpdateNotifier.refreshChargingInfo(
                 context = applicationContext,
                 prefs = prefs,
                 activeNotifications = snapshots ?: activeNotificationSnapshotsForChargingInfo()
             )
         } else {
+            restoreSystemChargingNotification()
             unregisterChargingInfoReceiverIfNeeded()
             LiveUpdateNotifier.cancelChargingInfo(applicationContext)
         }
@@ -1535,6 +1594,8 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         private const val ORIGINAL_DISMISS_INITIAL_GRACE_MS = 750L
         private const val VPN_SOURCE_DISMISS_VERIFY_DELAY_MS = 1200L
         private const val VPN_SOURCE_SNOOZE_MS = 12 * 60 * 60 * 1000L
+        private const val SYSTEM_CHARGING_SOURCE_SNOOZE_MS = 12 * 60 * 60 * 1000L
+        private const val SYSTEM_CHARGING_RESTORE_SNOOZE_MS = 1_000L
         private const val ORIGINAL_DISMISS_RETRY_DELAY_MS = 250L
         private const val ORIGINAL_DISMISS_MAX_ATTEMPTS = 6
         private const val ORIGINAL_SOURCE_SNOOZE_MS = 500L
