@@ -625,3 +625,16 @@ The charging capsule now uses the default style too, so it is
 eligible on the standby surface like the rest. The notification-
 counter capsule keeps its hardwired lockscreen-only style (not
 requested). Static checks only; on-device standby check pending.
+
+## Standby chip shows time until full, not the percentage (round 46, 2026-10-23)
+
+User feedback relayed by the owner: on the standby screen the
+charging capsule's percentage is the least useful glanceable value;
+the time until full is what people want there. The capsule's
+condensed text (bridge chipText + the promoted short critical text,
+which is what the standby/status-bar chip renders) now carries the
+remaining-time text ("Còn X phút nữa sẽ đầy"; the charging label
+when no estimate exists, "Đã sạc đầy" when full) instead of the
+percentage. The lock-screen pill and the shade are unchanged: the
+percentage stays as the title with the time underneath. Low battery
+keeps its expanded-text chip. Static checks only.

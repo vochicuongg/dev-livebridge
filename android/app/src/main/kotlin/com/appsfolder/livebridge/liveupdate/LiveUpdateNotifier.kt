@@ -1477,6 +1477,17 @@ object LiveUpdateNotifier {
         val collapsedText = snapshot.collapsedText
         val expandedText = snapshot.expandedText
         val icon = IconCompat.createWithResource(context, snapshot.iconRes)
+        // Condensed surfaces (standby/AOD chip, status-bar chip) lead
+        // with the time until full instead of the percentage — that is
+        // the glanceable value there (user feedback, round 46). The
+        // lock-screen pill and the shade keep the percentage as the
+        // title with the same time text underneath. Low battery keeps
+        // its existing expanded-text chip.
+        val capsuleChipText = if (snapshot.lowBattery) {
+            expandedText
+        } else {
+            collapsedText.ifBlank { title }
+        }
         val builder = NotificationCompat.Builder(
             context,
             MirrorNotificationChannel.CHARGING_INFO.id
@@ -1497,7 +1508,7 @@ object LiveUpdateNotifier {
             .setCategory(Notification.CATEGORY_STATUS)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setRequestPromotedOngoing(true)
-            .setShortCriticalText(title)
+            .setShortCriticalText(capsuleChipText)
 
         if (snapshot.lowBattery && !isPowerSaveMode(context)) {
             snapshot.lowBatteryPowerSavingAction?.let { action ->
@@ -1521,7 +1532,7 @@ object LiveUpdateNotifier {
             secondaryText = expandedText,
             nowBarPrimaryText = title,
             nowBarSecondaryText = collapsedText,
-            chipText = if (snapshot.lowBattery) expandedText else title,
+            chipText = capsuleChipText,
             chipIcon = icon,
             nowBarIcon = icon,
             rightIcon = null,
