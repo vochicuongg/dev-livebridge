@@ -732,3 +732,13 @@ explicit component, guarded by a resolve + exported check (a
 non-exported system activity would silently refuse a third-party
 tap); fallbacks unchanged: POWER_USAGE_SUMMARY, battery saver,
 then the app. Static checks only.
+
+## Build fix: duplicate ComponentName import (round 54, 2026-10-23)
+
+Round 53 added `import android.content.ComponentName`, but the
+file already imported it (the import block is not sorted, so the
+anchor missed it) — Kotlin rejected the build with "Conflicting
+import". The duplicate line is removed; no behavior change. Note
+the owner's install right after the failed build silently pushed
+the stale round-52 APK, which is why the capsule tap still opened
+the battery activity page in his check.
