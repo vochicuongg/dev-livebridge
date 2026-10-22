@@ -809,3 +809,19 @@ records posted before the listener connected. Literal zero delay
 is impossible for any listener app — the notification must exist
 before it can be snoozed — but the snooze now lands in the posted
 event itself. Static checks only; device verification pending.
+
+## Self-estimated time-to-full while the system has none (round 59, 2026-10-23)
+
+Owner's J7 Prime (port ROM) takes 2+ minutes after a replug
+before the system produces a charge-time estimate again; the
+capsule sat on the bare "charging" text meanwhile (the app polls
+every 30s and adopts the system number the moment it exists —
+the data itself was late). remainingChargingMinutes gains a
+last-resort fallback, tried only after computeChargeTimeRemaining
+and all Samsung extras come back empty: estimate from the
+battery's charge counter + flow. A counter-delta rate over
+samples (window 5 min, min span 20s, reset when the counter
+drops) is preferred; the instantaneous current is the immediate
+fallback (accepted only within 50mA..12A). Sanity-bounded to
+1..1440 minutes. System estimates keep priority. Static checks
+only; device verification pending.

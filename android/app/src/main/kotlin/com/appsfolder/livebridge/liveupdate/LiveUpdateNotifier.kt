@@ -85,6 +85,8 @@ object LiveUpdateNotifier {
     private const val BATTERY_EXTRA_MAX_CHARGING_VOLTAGE = "max_charging_voltage"
     private const val CHARGING_INFO_APPEAR_DELAY_MS = 3_000L
     private const val CHARGING_INFO_TICK_MS = 30_000L
+    private const val CHARGING_RATE_SAMPLE_WINDOW_MS = 300_000L
+    private const val CHARGING_RATE_MIN_SPAN_MS = 20_000L
     private const val LOW_BATTERY_THRESHOLD_PERCENT = 15
     private const val SYSTEMUI_PACKAGE = "com.android.systemui"
     private const val LOW_BATTERY_TAG = "low_battery"
@@ -366,6 +368,7 @@ object LiveUpdateNotifier {
     private var chargingInfoTickGeneration = 0L
     private var chargingInfoVisible = false
     private var retainedLowBatterySnapshot: RetainedLowBatterySnapshot? = null
+    private val chargingRateSamples = java.util.ArrayDeque<Pair<Long, Int>>()
     private var callMirrorGenerationCounter = 0L
     private var animationGenerationCounter = 0L
 
@@ -2123,7 +2126,85 @@ object LiveUpdateNotifier {
                 return ((millis + 30_000L) / 60_000L).toInt().coerceAtLeast(1)
             }
         }
+        batteryPropertyEstimateMinutes(context, percent)?.let { estimate ->
+            return estimate
+        }
         return null
+    }
+
+    // Last-resort estimate (round 59): some devices — the owner's
+    // J7 Prime port ROM among them — take minutes after a replug
+    // before computeChargeTimeRemaining() and the Samsung extras
+    // produce a value again, leaving the capsule on the bare
+    // "charging" text. The battery's charge counter and current
+    // flow are available immediately, so estimate from them while
+    // the system has no number; the system's own estimate keeps
+    // priority because it is tried first in the chain above. The
+    // counter-delta rate (needs ~20s of samples) is preferred for
+    // stability; the instantaneous current is the instant fallback.
+    private fun batteryPropertyEstimateMinutes(
+        context: Context,
+        percent: Int
+    ): Int? {
+        if (percent !in 1..99) {
+            return null
+        }
+        val batteryManager =
+            context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+                ?: return null
+        val chargeCounterMicroAh = runCatching {
+            batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER)
+        }.getOrDefault(Int.MIN_VALUE)
+        if (chargeCounterMicroAh <= 0) {
+            return null
+        }
+        val nowMs = SystemClock.elapsedRealtime()
+        val counterRatePerMinute = synchronized(stateLock) {
+            while (
+                chargingRateSamples.isNotEmpty() &&
+                nowMs - chargingRateSamples.first().first > CHARGING_RATE_SAMPLE_WINDOW_MS
+            ) {
+                chargingRateSamples.removeFirst()
+            }
+            if (
+                chargingRateSamples.isNotEmpty() &&
+                chargeCounterMicroAh < chargingRateSamples.last().second
+            ) {
+                // Counter went backwards: unplugged or a new session.
+                chargingRateSamples.clear()
+            }
+            if (chargingRateSamples.lastOrNull()?.second != chargeCounterMicroAh) {
+                chargingRateSamples.addLast(nowMs to chargeCounterMicroAh)
+            }
+            val first = chargingRateSamples.firstOrNull()
+            val last = chargingRateSamples.lastOrNull()
+            if (first != null && last != null) {
+                val spanMs = last.first - first.first
+                val gainedMicroAh = last.second - first.second
+                if (spanMs >= CHARGING_RATE_MIN_SPAN_MS && gainedMicroAh > 0) {
+                    gainedMicroAh.toDouble() * 60_000.0 / spanMs
+                } else {
+                    null
+                }
+            } else {
+                null
+            }
+        }
+        val microAhPerMinute = counterRatePerMinute ?: run {
+            val currentMicroAmps = runCatching {
+                batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
+            }.getOrDefault(0)
+            val magnitude = kotlin.math.abs(currentMicroAmps)
+            if (magnitude in 50_000..12_000_000) {
+                magnitude.toDouble() / 60.0
+            } else {
+                return null
+            }
+        }
+        val remainingMicroAh =
+            chargeCounterMicroAh.toDouble() * (100 - percent) / percent
+        val minutes = (remainingMicroAh / microAhPerMinute).roundToInt()
+        return minutes.takeIf { it in 1..(24 * 60) }
     }
 
     private fun resolveChargingInfoSpeed(batteryIntent: Intent): ChargingInfoSpeed {
