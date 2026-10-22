@@ -11,6 +11,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.provider.Settings
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -1524,7 +1525,7 @@ object LiveUpdateNotifier {
             }
         }
 
-        notificationCapsuleContentIntent(context, CHARGING_INFO_ID)?.let(builder::setContentIntent)
+        chargingInfoContentIntent(context)?.let(builder::setContentIntent)
 
         @Suppress("DEPRECATION")
         val bridgeSource = Notification().apply {
@@ -4531,6 +4532,32 @@ object LiveUpdateNotifier {
         }
 
         return SamsungOneUi7NowBarCompat.markEligible(builder.build())
+    }
+
+    // Tapping the charging capsule opens the system's Battery
+    // settings page instead of the app (owner request, round 52).
+    // POWER_USAGE_SUMMARY is the battery page entry on One UI and
+    // most OEM ROMs; fall back to the battery-saver page, then to
+    // the app itself, so the tap never dead-ends.
+    private fun chargingInfoContentIntent(context: Context): PendingIntent? {
+        val batteryPageIntent = Intent(Intent.ACTION_POWER_USAGE_SUMMARY).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        val saverIntent = Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        val targetIntent = when {
+            batteryPageIntent.resolveActivity(context.packageManager) != null ->
+                batteryPageIntent
+            saverIntent.resolveActivity(context.packageManager) != null -> saverIntent
+            else -> null
+        } ?: return notificationCapsuleContentIntent(context, CHARGING_INFO_ID)
+        return PendingIntent.getActivity(
+            context,
+            CHARGING_INFO_ID,
+            targetIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
     }
 
     private fun notificationCapsuleContentIntent(

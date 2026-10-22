@@ -706,3 +706,16 @@ instead: EN "≈ 3h 37m" / "≈ 45m", VI "≈ 3h 37p" / "≈ 45p", RU
 37分钟", KO "≈ 3시간 37분"; hours-only and minutes-only cases drop
 the empty part. The zero-estimate "almost full" status and all
 other surfaces are unchanged. Static checks only.
+
+## Tapping the charging capsule opens Settings > Battery (round 52, 2026-10-23)
+
+Owner: tapping the charging capsule should open the phone's
+Battery settings page, not LiveBridge. The charging builder now
+uses a dedicated content intent: ACTION_POWER_USAGE_SUMMARY (the
+battery page on One UI and most OEM ROMs), falling back to
+ACTION_BATTERY_SAVER_SETTINGS, then to the previous open-the-app
+intent so the tap never dead-ends. Other capsules keep opening the
+app via the shared helper, which is untouched. Note: his J7 Prime
+(S22 Ultra port ROM) needs `adb install --no-streaming` — its old
+adbd rejects streamed installs with a splice EINVAL. Static checks
+only.
