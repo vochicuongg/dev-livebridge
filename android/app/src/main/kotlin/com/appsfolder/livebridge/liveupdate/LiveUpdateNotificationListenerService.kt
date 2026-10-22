@@ -957,6 +957,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
     private fun syncFlashlightMirror(snapshots: Collection<StatusBarNotification>) {
         syncTorchMonitoring()
         if (!prefs.getSmartFlashlightEnabled()) {
+            restoreSnoozedFlashlightSource()
             resetFlashlightSourceDismissState()
             FlashlightSourceState.clear()
             FlashlightForegroundService.stop(applicationContext)
@@ -1530,6 +1531,30 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         }
     }
 
+    // Counterpart of the long source snooze (round 55, same rule as
+    // the charging capsule in round 49): when the flashlight
+    // feature is switched off, hand the system's flashlight
+    // notification back by re-snoozing it for ~zero time — there is
+    // no un-snooze API.
+    private fun restoreSnoozedFlashlightSource() {
+        val snoozed = runCatching { snoozedNotifications?.toList() }
+            .getOrNull()
+            .orEmpty()
+        snoozed
+            .filter(::isFlashlightSourceNotification)
+            .forEach { sbn ->
+                runCatching {
+                    snoozeNotification(sbn.key, FLASHLIGHT_SOURCE_RESTORE_SNOOZE_MS)
+                }.onFailure { error ->
+                    Log.w(
+                        TAG,
+                        "Failed to restore system flashlight notification: ${sbn.key}",
+                        error
+                    )
+                }
+            }
+    }
+
     private fun resetFlashlightSourceDismissState() {
         synchronized(selfDismissLock) {
             trackedFlashlightSourceKey = null
@@ -1604,7 +1629,14 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         private const val PROTECTED_MIRROR_MAX_REPOSTS = 2
         private const val LOCKSCREEN_PRIVACY_REFRESH_DELAY_MS = 650L
         private const val CAPSULE_CLEAR_REFRESH_DELAY_MS = 250L
-        private const val FLASHLIGHT_SOURCE_SNOOZE_MS = 1_500L
+        // The snooze is the fallback that actually hides the
+        // SystemUI flashlight source on One UI builds that silently
+        // ignore listener cancels (the round-39 lesson): at 1.5s the
+        // source simply popped back, which is the duplication users
+        // reported. 12h matches the VPN / system-charging sources;
+        // the snooze dies with the record when the torch turns off.
+        private const val FLASHLIGHT_SOURCE_SNOOZE_MS = 12 * 60 * 60 * 1000L
+        private const val FLASHLIGHT_SOURCE_RESTORE_SNOOZE_MS = 1_000L
         private const val FLASHLIGHT_SOURCE_VERIFY_DELAY_MS = 300L
         private const val FLASHLIGHT_SOURCE_PACKAGE = "com.android.systemui"
         private const val FLASHLIGHT_SOURCE_CHANNEL_ID = "FLASHLIGHT_ONGOING"

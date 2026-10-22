@@ -742,3 +742,18 @@ import". The duplicate line is removed; no behavior change. Note
 the owner's install right after the failed build silently pushed
 the stale round-52 APK, which is why the capsule tap still opened
 the battery activity page in his check.
+
+## Flashlight source duplication: fallback snooze was 1.5 seconds (round 55, 2026-10-23)
+
+User report (pt-BR device): with the flashlight capsule on, the
+system's own "Lanterna" notification stayed in the shade under it.
+The dismissal chain tries cancelNotification + cancelNotifications
+first, but on One UI builds that silently ignore listener cancels
+(the round-39 finding) the only fallback was a 1.5-second snooze —
+and the 300ms verify even saw the source "gone" during that
+window, so nothing ever re-hid it when it popped back ~1.5s
+later. The fallback snooze is now 12 hours, matching the VPN and
+system-charging sources (it dies with the record when the torch
+turns off). Added the round-49 counterpart too: switching the
+flashlight feature off restores the system's notification by
+re-snoozing it for 1 second. Static checks only.
