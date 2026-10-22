@@ -757,3 +757,20 @@ system-charging sources (it dies with the record when the torch
 turns off). Added the round-49 counterpart too: switching the
 flashlight feature off restores the system's notification by
 re-snoozing it for 1 second. Static checks only.
+
+## Flashlight capsule fully localized (round 56, 2026-10-23)
+
+Owner: apply all app languages to the flashlight capsule. It was
+the last binary holdout — builder and foreground service switched
+strings on a device-locale Russian check, everything else saw
+English. New FlashlightStrings table (same rules as the charging
+capsule: app language setting first, device locale fallback;
+EN/RU/TR/PT_BR/ZH_HANS/ZH_HANT/KO/VI) covers the title, chip text,
+turn-off action, both secondary texts, both warning texts, and
+the channel name + description; the service re-applies the channel
+name on each sync, so language switches rename it live. Upstream's
+Russian strings kept verbatim. The duplication fix from round 55
+is NOT confirmed on the owner's devices (he reports the latest
+build still duplicates on Flip5 and J7 Prime) — reopened, pending
+a torch-on dumpsys capture to compare the SystemUI record's real
+tag/channel against the identity constants. Static checks only.

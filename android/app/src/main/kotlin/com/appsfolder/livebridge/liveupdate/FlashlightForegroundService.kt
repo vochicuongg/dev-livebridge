@@ -234,12 +234,6 @@ class FlashlightForegroundService : Service() {
         const val EXTRA_LEVEL_INDEX = "level_index"
 
         private const val TAG = "FlashlightService"
-        private const val CHANNEL_NAME_EN = "Flashlight"
-        private const val CHANNEL_NAME_RU = "\u0424\u043e\u043d\u0430\u0440\u0438\u043a"
-        private const val CHANNEL_DESCRIPTION_EN =
-            "Shows a flashlight control notification and mirrors it into the Now Bar"
-        private const val CHANNEL_DESCRIPTION_RU =
-            "\u041f\u043e\u043a\u0430\u0437\u044b\u0432\u0430\u0435\u0442 \u0443\u0432\u0435\u0434\u043e\u043c\u043b\u0435\u043d\u0438\u0435 \u0444\u043e\u043d\u0430\u0440\u0438\u043a\u0430 \u0438 \u0432\u044b\u0432\u043e\u0434\u0438\u0442 \u0435\u0433\u043e \u0432 Now Bar"
 
         @Volatile
         private var activeNotificationVisible = false
@@ -274,12 +268,8 @@ class FlashlightForegroundService : Service() {
         private fun ensureChannel(context: Context) {
             val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             val existing = manager.getNotificationChannel(FlashlightNotificationBuilder.CHANNEL_ID)
-            val channelName = if (isRussianLocale(context)) CHANNEL_NAME_RU else CHANNEL_NAME_EN
-            val channelDescription = if (isRussianLocale(context)) {
-                CHANNEL_DESCRIPTION_RU
-            } else {
-                CHANNEL_DESCRIPTION_EN
-            }
+            val channelName = FlashlightStrings.channelName(context)
+            val channelDescription = FlashlightStrings.channelDescription(context)
 
             if (existing != null) {
                 existing.description = channelDescription
@@ -305,9 +295,5 @@ class FlashlightForegroundService : Service() {
             )
         }
 
-        private fun isRussianLocale(context: Context): Boolean {
-            val locale = context.resources.configuration.locales.get(0)
-            return locale?.language?.startsWith("ru", ignoreCase = true) == true
-        }
     }
 }
