@@ -638,3 +638,16 @@ when no estimate exists, "Đã sạc đầy" when full) instead of the
 percentage. The lock-screen pill and the shade are unchanged: the
 percentage stays as the title with the time underneath. Low battery
 keeps its expanded-text chip. Static checks only.
+
+## Standby chip: compact "≈ HH:mm" remaining time (round 47, 2026-10-23)
+
+Owner relayed that the round-46 full sentence is too long for the
+standby chip and gets cut off. The chip (bridge chipText + promoted
+short critical text) now uses a compact numeric form built from the
+raw estimate, which the charging snapshot now carries
+(remainingMinutes, null when there is no estimate or the battery is
+full): "≈ 01:05" for 65 minutes, "≈ 00:45" under an hour. A zero
+estimate shows a localized "almost full" status (VI "Sắp đầy")
+instead of "≈ 00:00". No-estimate and full states keep the previous
+chip text ("Đang sạc" / "Đã sạc đầy"); the lock-screen pill, the
+shade and low battery are untouched. Static checks only.

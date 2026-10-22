@@ -392,7 +392,10 @@ object LiveUpdateNotifier {
         val iconRes: Int,
         val color: Int,
         val lowBattery: Boolean,
-        val lowBatteryPowerSavingAction: LowBatteryPowerSavingAction? = null
+        val lowBatteryPowerSavingAction: LowBatteryPowerSavingAction? = null,
+        // Raw estimate for the compact standby chip; null when there
+        // is no estimate or the battery is already full (round 47).
+        val remainingMinutes: Int? = null
     )
 
     private data class LowBatterySystemText(
@@ -1479,14 +1482,17 @@ object LiveUpdateNotifier {
         val icon = IconCompat.createWithResource(context, snapshot.iconRes)
         // Condensed surfaces (standby/AOD chip, status-bar chip) lead
         // with the time until full instead of the percentage — that is
-        // the glanceable value there (user feedback, round 46). The
+        // the glanceable value there (user feedback, round 46) — in a
+        // compact "≈ HH:mm" form, because the full sentence is too
+        // long and gets cut off on the chip (round 47). The
         // lock-screen pill and the shade keep the percentage as the
-        // title with the same time text underneath. Low battery keeps
-        // its existing expanded-text chip.
-        val capsuleChipText = if (snapshot.lowBattery) {
-            expandedText
-        } else {
-            collapsedText.ifBlank { title }
+        // title with the full time sentence underneath. Low battery
+        // keeps its existing expanded-text chip.
+        val capsuleChipText = when {
+            snapshot.lowBattery -> expandedText
+            else -> snapshot.remainingMinutes?.let { minutes ->
+                chargingInfoChipRemainingText(context, minutes)
+            } ?: collapsedText.ifBlank { title }
         }
         val builder = NotificationCompat.Builder(
             context,
@@ -1713,6 +1719,38 @@ object LiveUpdateNotifier {
         }
     }
 
+    // Compact chip form of the remaining time (round 47): the full
+    // sentence is too long for the standby chip and gets cut off, so
+    // the chip shows "≈ HH:mm". A zero estimate reads as a status
+    // ("almost full", localized below) instead of "≈ 00:00".
+    private fun chargingInfoChipRemainingText(
+        context: Context,
+        remainingMinutes: Int
+    ): String {
+        if (remainingMinutes <= 0) {
+            return chargingInfoAlmostFullText(context)
+        }
+        val hours = remainingMinutes / 60
+        val minutes = remainingMinutes % 60
+        return "≈ " +
+            hours.toString().padStart(2, '0') +
+            ":" +
+            minutes.toString().padStart(2, '0')
+    }
+
+    private fun chargingInfoAlmostFullText(context: Context): String {
+        return when (appLocale(context)) {
+            AppLocale.RU -> "Почти заряжено"
+            AppLocale.TR -> "Dolmak üzere"
+            AppLocale.PT_BR -> "Quase cheio"
+            AppLocale.ZH_HANS -> "即将充满"
+            AppLocale.ZH_HANT -> "即將充滿"
+            AppLocale.KO -> "거의 완충"
+            AppLocale.VI -> "Sắp đầy"
+            AppLocale.EN -> "Almost full"
+        }
+    }
+
     private fun resolveChargingInfoSnapshot(
         context: Context,
         batteryIntent: Intent?,
@@ -1760,9 +1798,10 @@ object LiveUpdateNotifier {
         batteryIntent: Intent,
         percent: Int
     ): ChargingInfoSnapshot {
+        val remainingMinutes = remainingChargingMinutes(context, batteryIntent, percent)
         val remainingText = chargingInfoRemainingText(
             context = context,
-            remainingMinutes = remainingChargingMinutes(context, batteryIntent, percent)
+            remainingMinutes = remainingMinutes
         )
         val speed = resolveChargingInfoSpeed(batteryIntent)
         val speedLabel = chargingInfoSpeedLabel(context, speed)
@@ -1773,7 +1812,8 @@ object LiveUpdateNotifier {
             expandedText = chargingInfoExpandedText(speedLabel, remainingText),
             iconRes = speed.iconRes,
             color = speed.color,
-            lowBattery = false
+            lowBattery = false,
+            remainingMinutes = remainingMinutes?.takeIf { percent < 100 }
         )
     }
 
