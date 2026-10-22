@@ -774,3 +774,20 @@ is NOT confirmed on the owner's devices (he reports the latest
 build still duplicates on Flip5 and J7 Prime) — reopened, pending
 a torch-on dumpsys capture to compare the SystemUI record's real
 tag/channel against the identity constants. Static checks only.
+
+## Flashlight duplication root-caused and fixed (round 57, 2026-10-23)
+
+Owner's torch-on logcat settled it: every dismissal attempt logged
+"Skip flashlight source dismiss: no tracked key". The tracked key
+is written only by syncFlashlightMirror — and that function had NO
+call sites left after the 2.2.1 hand-merge (the foreground service
+is torch-callback driven, so the capsule worked; the snapshot-side
+tracking that feeds dismissal was orphaned). Identity was never
+the problem (dump: SystemUI id 4660, tag Flashlight, channel
+FLASHLIGHT_ONGOING — exact match), and the 12h snooze from round
+55 simply never ran. Fix: call syncFlashlightMirror(snapshots)
+from the periodic snapshot sync (4s cadence, alongside
+reconcileSources) and from the onListenerConnected snapshot pass.
+Each pass that sees the source re-arms the key and re-triggers
+the service sync, so dismissal now runs and self-heals. Static
+checks only; device verification pending.

@@ -160,6 +160,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
                     val snapshots = sourceSnapshots()
                         ?: throw IllegalStateException("Notification snapshot unavailable")
                     reconcileSources(snapshots)
+                    syncFlashlightMirror(snapshots)
                     refreshPolicy.retain(snapshots.mapTo(mutableSetOf()) { it.key })
                     for (sbn in snapshots) {
                         if (sbn.packageName == packageName) continue
@@ -232,6 +233,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
                 null
             } ?: return@post
             reconcileSources(snapshots)
+            syncFlashlightMirror(snapshots)
             for (sbn in snapshots) {
                 if (sbn.packageName != packageName) processSafely(sbn)
             }
