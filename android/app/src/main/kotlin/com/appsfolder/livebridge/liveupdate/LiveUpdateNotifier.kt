@@ -1541,6 +1541,7 @@ object LiveUpdateNotifier {
                 AppLocale.ZH_HANS -> "快速充电"
                 AppLocale.ZH_HANT -> "快速充電"
                 AppLocale.KO -> "고속 충전"
+                AppLocale.VI -> "Sạc nhanh"
                 AppLocale.EN -> "Fast charging"
             }
             ChargingInfoSpeed.SUPER_FAST -> when (appLocale(context)) {
@@ -1550,6 +1551,7 @@ object LiveUpdateNotifier {
                 AppLocale.ZH_HANS -> "超快速充电"
                 AppLocale.ZH_HANT -> "超快速充電"
                 AppLocale.KO -> "초고속 충전"
+                AppLocale.VI -> "Sạc siêu nhanh"
                 AppLocale.EN -> "Super fast charging"
             }
             ChargingInfoSpeed.SUPER_FAST_2 -> when (appLocale(context)) {
@@ -1559,6 +1561,7 @@ object LiveUpdateNotifier {
                 AppLocale.ZH_HANS -> "超快速充电 2.0"
                 AppLocale.ZH_HANT -> "超快速充電 2.0"
                 AppLocale.KO -> "초고속 충전 2.0"
+                AppLocale.VI -> "Sạc siêu nhanh 2.0"
                 AppLocale.EN -> "Super fast charging 2.0"
             }
         }
@@ -1572,6 +1575,7 @@ object LiveUpdateNotifier {
             AppLocale.ZH_HANS -> "正在充电"
             AppLocale.ZH_HANT -> "正在充電"
             AppLocale.KO -> "충전 중"
+            AppLocale.VI -> "Đang sạc"
             AppLocale.EN -> "Charging"
         }
     }
@@ -1584,6 +1588,7 @@ object LiveUpdateNotifier {
             AppLocale.ZH_HANS -> "已充满"
             AppLocale.ZH_HANT -> "已充滿"
             AppLocale.KO -> "완충됨"
+            AppLocale.VI -> "Đã sạc đầy"
             AppLocale.EN -> "Full"
         }
     }
@@ -1596,6 +1601,7 @@ object LiveUpdateNotifier {
             AppLocale.ZH_HANS -> "距离充满还有 $remainingMinutes 分钟"
             AppLocale.ZH_HANT -> "距離充滿還有 $remainingMinutes 分鐘"
             AppLocale.KO -> "완충까지 ${remainingMinutes}분"
+            AppLocale.VI -> "Còn $remainingMinutes phút nữa là đầy"
             AppLocale.EN -> "$remainingMinutes min until full"
         }
     }
@@ -1635,10 +1641,10 @@ object LiveUpdateNotifier {
         }
         lowBatterySystemText(activeNotifications, percent)?.let { lowBatteryText ->
             rememberRetainedLowBatterySnapshot(lowBatteryText)
-            return lowBatterySnapshot(percent, lowBatteryText)
+            return lowBatterySnapshot(context, percent, lowBatteryText)
         }
         return retainedLowBatterySnapshot()?.let { retained ->
-            lowBatterySnapshot(percent, retained)
+            lowBatterySnapshot(context, percent, retained)
         }
     }
 
@@ -1665,12 +1671,13 @@ object LiveUpdateNotifier {
     }
 
     private fun lowBatterySnapshot(
+        context: Context,
         percent: Int,
         lowBatteryText: LowBatterySystemText
     ): ChargingInfoSnapshot {
         return ChargingInfoSnapshot(
             percent = percent,
-            title = lowBatteryTitleForPercent(lowBatteryText.title, percent),
+            title = lowBatteryTitleForPercent(context, lowBatteryText.title, percent),
             collapsedText = lowBatteryText.collapsedText,
             expandedText = lowBatteryText.expandedText,
             iconRes = R.drawable.ic_charging_bolt,
@@ -1681,12 +1688,13 @@ object LiveUpdateNotifier {
     }
 
     private fun lowBatterySnapshot(
+        context: Context,
         percent: Int,
         retained: RetainedLowBatterySnapshot
     ): ChargingInfoSnapshot {
         return ChargingInfoSnapshot(
             percent = percent,
-            title = lowBatteryTitleForPercent(retained.titleTemplate, percent),
+            title = lowBatteryTitleForPercent(context, retained.titleTemplate, percent),
             collapsedText = retained.collapsedText,
             expandedText = retained.expandedText,
             iconRes = R.drawable.ic_charging_bolt,
@@ -1719,8 +1727,12 @@ object LiveUpdateNotifier {
         }
     }
 
-    private fun lowBatteryTitleForPercent(titleTemplate: String?, percent: Int): String {
-        val fallback = lowBatteryFallbackTitle(percent)
+    private fun lowBatteryTitleForPercent(
+        context: Context,
+        titleTemplate: String?,
+        percent: Int
+    ): String {
+        val fallback = lowBatteryFallbackTitle(context, percent)
         val title = titleTemplate?.trim()?.takeIf { it.isNotEmpty() } ?: return fallback
         val percentText = "$percent%"
         if (LOW_BATTERY_TITLE_PERCENT_PATTERN.containsMatchIn(title)) {
@@ -1849,8 +1861,13 @@ object LiveUpdateNotifier {
         return normalizedBody to normalizedBody
     }
 
-    private fun lowBatteryFallbackTitle(percent: Int): String {
-        return "Battery power $percent%"
+    private fun lowBatteryFallbackTitle(context: Context, percent: Int): String {
+        // Only Vietnamese is localized here for now (the fork's added
+        // locale); every other locale keeps the previous text.
+        return when (appLocale(context)) {
+            AppLocale.VI -> "Pin yếu $percent%"
+            else -> "Battery power $percent%"
+        }
     }
 
     private fun stickyBatteryIntent(context: Context): Intent? {
@@ -4339,6 +4356,7 @@ object LiveUpdateNotifier {
             AppLocale.ZH_HANS -> "$count 条通知"
             AppLocale.ZH_HANT -> "$count 則通知"
             AppLocale.KO -> "알림 ${count}개"
+            AppLocale.VI -> "$count thông báo"
             AppLocale.EN -> if (count == 1) {
                 "1 notification"
             } else {
@@ -6994,6 +7012,7 @@ object LiveUpdateNotifier {
             language.startsWith("zh") && isTraditionalChinese(locale) -> AppLocale.ZH_HANT
             language.startsWith("zh") -> AppLocale.ZH_HANS
             language.startsWith("ko") -> AppLocale.KO
+            language.startsWith("vi") -> AppLocale.VI
             else -> AppLocale.EN
         }
     }
@@ -7012,6 +7031,7 @@ object LiveUpdateNotifier {
             isTraditionalChineseLanguageTag(normalized) -> AppLocale.ZH_HANT
             normalized.startsWith("zh") -> AppLocale.ZH_HANS
             normalized.startsWith("ko") -> AppLocale.KO
+            normalized.startsWith("vi") -> AppLocale.VI
             else -> AppLocale.EN
         }
     }
@@ -7062,6 +7082,10 @@ object LiveUpdateNotifier {
                 name = "알림 캡슐",
                 description = "잠금화면 알림 개수 캡슐"
             )
+            AppLocale.VI -> MirrorChannelText(
+                name = "Viên thông báo",
+                description = "Viên đếm thông báo trên màn hình khóa"
+            )
             AppLocale.EN -> MirrorChannelText(
                 name = "Notification capsule",
                 description = "Lock screen notification counter capsule"
@@ -7095,6 +7119,10 @@ object LiveUpdateNotifier {
                 name = "충전 정보",
                 description = "잠금 화면에 배터리 잔량, 남은 시간, 충전 속도와 배터리 부족 알림 표시"
             )
+            AppLocale.VI -> MirrorChannelText(
+                name = "Thông tin sạc",
+                description = "Mức pin, tốc độ sạc và cảnh báo pin yếu trên màn hình khóa"
+            )
             AppLocale.EN -> MirrorChannelText(
                 name = "Charging information",
                 description = "Battery charge, charging speed, and low-battery warnings on the lock screen"
@@ -7109,6 +7137,7 @@ object LiveUpdateNotifier {
             AppLocale.ZH_HANS -> "清除"
             AppLocale.ZH_HANT -> "清除"
             AppLocale.KO -> "지우기"
+            AppLocale.VI -> "Xóa"
             AppLocale.RU,
             AppLocale.EN -> "Clear"
         }
@@ -7122,6 +7151,7 @@ object LiveUpdateNotifier {
             AppLocale.ZH_HANS -> "系统"
             AppLocale.ZH_HANT -> "系統"
             AppLocale.KO -> "시스템"
+            AppLocale.VI -> "Hệ thống"
             AppLocale.EN -> "System"
         }
     }
@@ -10269,7 +10299,8 @@ object LiveUpdateNotifier {
         PT_BR,
         ZH_HANS,
         ZH_HANT,
-        KO
+        KO,
+        VI
     }
 
     private enum class MirrorNotificationChannel(val id: String) {

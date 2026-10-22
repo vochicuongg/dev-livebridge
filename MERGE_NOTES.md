@@ -569,3 +569,21 @@ against the snoozed record could delete it and orphan the mirror).
 Disconnect still cleans up: the app cancelling its notification
 removes the snoozed record, the removal event fires, and the mirror
 is cancelled as before. Static checks only.
+
+## Vietnamese added to the native locale system (round 42, 2026-10-23)
+
+Owner: the charging capsule showed only English. Root cause: the
+notifier's AppLocale enum (which drives every native string table)
+covered EN/RU/TR/PT_BR/ZH/KO but had no VI at all, so a Vietnamese
+app/device setting silently fell back to EN even though the Dart UI
+is fully translated. Added AppLocale.VI end to end: enum value, both
+mappings (app language tag + device locale), and a Vietnamese branch
+in all 12 locale whens — the charging set ("Đang sạc", "Sạc nhanh",
+"Sạc siêu nhanh", "Sạc siêu nhanh 2.0", "Đã sạc đầy", "Còn X phút
+nữa là đầy", charging channel name/description) plus the capsule-
+frame set the enum forces to stay exhaustive (capsule title "X
+thông báo", capsule channel, "Xóa", "Hệ thống"). The low-battery
+fallback title got a context parameter threaded through so it can
+localize too ("Pin yếu X%"; other locales keep the old text there).
+Verified statically: every when(appLocale) block carries a VI branch
+(or an else), brace balance 0, paren baseline unchanged.
