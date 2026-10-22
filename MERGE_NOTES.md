@@ -669,3 +669,17 @@ Identity lives in LiveUpdateNotifier.isSystemChargingNotification
 so switching the feature off mid-charge restores the system's
 entry at the latest on the next plug-in; unplugging kills the
 record and its snooze as usual. Static checks only.
+
+## System charging notification restored when the capsule is off (round 49, 2026-10-23)
+
+Owner's rule, completing round 48: hiding the system's charging
+notification applies only while the charging capsule is enabled;
+switching the capsule off must bring the system's entry back.
+Android has no un-snooze API, so the disabled branch of
+syncChargingInfoMonitoring (which both MainActivity toggle paths
+reach via requestChargingInfoSync) now scans the snoozed records
+for the SystemUI charging_state one and re-snoozes it with a
+1-second duration — the system hands it back to the shade
+effectively immediately. No-op when nothing is snoozed. This
+replaces round 48's "returns at the next plug-in" limitation.
+Static checks only.

@@ -721,6 +721,30 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         }
     }
 
+    // Counterpart of the snooze above (round 49): when the charging
+    // capsule feature is switched off, the system's charging
+    // notification must come back. There is no un-snooze API, so the
+    // snoozed record is re-snoozed with a near-zero duration, which
+    // hands it back to the shade effectively immediately.
+    private fun restoreSystemChargingNotification() {
+        val snoozed = runCatching { snoozedNotifications?.toList() }
+            .getOrNull()
+            .orEmpty()
+        snoozed
+            .filter { sbn -> LiveUpdateNotifier.isSystemChargingNotification(sbn) }
+            .forEach { sbn ->
+                runCatching {
+                    snoozeNotification(sbn.key, SYSTEM_CHARGING_RESTORE_SNOOZE_MS)
+                }.onFailure { error ->
+                    Log.w(
+                        TAG,
+                        "Failed to restore system charging notification: ${sbn.key}",
+                        error
+                    )
+                }
+            }
+    }
+
     private fun syncChargingInfoMonitoring(
         snapshots: Collection<StatusBarNotification>? = null
     ) {
@@ -742,6 +766,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
                 activeNotifications = snapshots ?: activeNotificationSnapshotsForChargingInfo()
             )
         } else {
+            restoreSystemChargingNotification()
             unregisterChargingInfoReceiverIfNeeded()
             LiveUpdateNotifier.cancelChargingInfo(applicationContext)
         }
@@ -1570,6 +1595,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         private const val VPN_SOURCE_DISMISS_VERIFY_DELAY_MS = 1200L
         private const val VPN_SOURCE_SNOOZE_MS = 12 * 60 * 60 * 1000L
         private const val SYSTEM_CHARGING_SOURCE_SNOOZE_MS = 12 * 60 * 60 * 1000L
+        private const val SYSTEM_CHARGING_RESTORE_SNOOZE_MS = 1_000L
         private const val ORIGINAL_DISMISS_RETRY_DELAY_MS = 250L
         private const val ORIGINAL_DISMISS_MAX_ATTEMPTS = 6
         private const val ORIGINAL_SOURCE_SNOOZE_MS = 500L
