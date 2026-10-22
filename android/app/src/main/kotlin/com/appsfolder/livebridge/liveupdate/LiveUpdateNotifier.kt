@@ -83,6 +83,7 @@ object LiveUpdateNotifier {
     private const val BATTERY_EXTRA_MAX_CHARGING_CURRENT = "max_charging_current"
     private const val BATTERY_EXTRA_MAX_CHARGING_VOLTAGE = "max_charging_voltage"
     private const val CHARGING_INFO_APPEAR_DELAY_MS = 3_000L
+    private const val CHARGING_INFO_TICK_MS = 30_000L
     private const val LOW_BATTERY_THRESHOLD_PERCENT = 15
     private const val SYSTEMUI_PACKAGE = "com.android.systemui"
     private const val LOW_BATTERY_TAG = "low_battery"
@@ -356,6 +357,8 @@ object LiveUpdateNotifier {
     private val notificationCapsuleIds = mutableSetOf<Int>()
     private var chargingInfoDelayScheduled = false
     private var chargingInfoDelayGeneration = 0L
+    private var chargingInfoTickScheduled = false
+    private var chargingInfoTickGeneration = 0L
     private var chargingInfoVisible = false
     private var retainedLowBatterySnapshot: RetainedLowBatterySnapshot? = null
     private var callMirrorGenerationCounter = 0L
@@ -1338,7 +1341,7 @@ object LiveUpdateNotifier {
 
         ensureChannel(context)
         val notification = buildChargingInfoNotification(context, snapshot)
-        return runCatching {
+        val posted = runCatching {
             NotificationManagerCompat.from(context).notify(CHARGING_INFO_ID, notification)
             synchronized(stateLock) {
                 chargingInfoDelayScheduled = false
@@ -1348,12 +1351,24 @@ object LiveUpdateNotifier {
         }.onFailure { error ->
             Log.e(TAG, "Failed to post charging info capsule", error)
         }.isSuccess
+        // While the device is charging, re-check every 30 seconds so
+        // the remaining-time estimate tracks the system's own number
+        // instead of only moving when a battery broadcast lands
+        // (owner request, round 44).
+        if (posted && !snapshot.lowBattery) {
+            scheduleChargingInfoTick(context)
+        } else {
+            stopChargingInfoTicker()
+        }
+        return posted
     }
 
     fun cancelChargingInfo(context: Context) {
         synchronized(stateLock) {
             chargingInfoDelayScheduled = false
             chargingInfoDelayGeneration += 1
+            chargingInfoTickScheduled = false
+            chargingInfoTickGeneration += 1
             chargingInfoVisible = false
             retainedLowBatterySnapshot = null
         }
@@ -1394,6 +1409,45 @@ object LiveUpdateNotifier {
             },
             CHARGING_INFO_APPEAR_DELAY_MS
         )
+    }
+
+    private fun scheduleChargingInfoTick(context: Context) {
+        val appContext = context.applicationContext
+        val generation = synchronized(stateLock) {
+            if (chargingInfoTickScheduled) {
+                return
+            }
+            chargingInfoTickScheduled = true
+            chargingInfoTickGeneration += 1
+            chargingInfoTickGeneration
+        }
+        mainHandler.postDelayed(
+            {
+                val shouldRun = synchronized(stateLock) {
+                    chargingInfoTickScheduled && chargingInfoTickGeneration == generation
+                }
+                if (!shouldRun) {
+                    return@postDelayed
+                }
+                synchronized(stateLock) {
+                    chargingInfoTickScheduled = false
+                }
+                refreshChargingInfo(
+                    context = appContext,
+                    prefs = ConverterPrefs(appContext),
+                    batteryIntent = null,
+                    delayAppearance = false
+                )
+            },
+            CHARGING_INFO_TICK_MS
+        )
+    }
+
+    private fun stopChargingInfoTicker() {
+        synchronized(stateLock) {
+            chargingInfoTickScheduled = false
+            chargingInfoTickGeneration += 1
+        }
     }
 
     private fun isChargingInfoActive(context: Context): Boolean {
@@ -1929,28 +1983,30 @@ object LiveUpdateNotifier {
                 batteryManager?.computeChargeTimeRemaining() ?: -1L
             }.getOrDefault(-1L)
             if (millis > 0L) {
-                return ((millis + 59_999L) / 60_000L).toInt().coerceAtLeast(1)
+                // Round to the nearest minute like the system does;
+                // the old ceiling read +1 almost all the time (round 44).
+                return ((millis + 30_000L) / 60_000L).toInt().coerceAtLeast(1)
             }
         }
 
         batteryLongExtra(batteryIntent, "remain")?.let { seconds ->
             if (seconds >= 0L) {
-                return ((seconds + 59L) / 60L).toInt().coerceAtLeast(1)
+                return ((seconds + 30L) / 60L).toInt().coerceAtLeast(1)
             }
         }
         batteryLongExtra(batteryIntent, "remaining_charging_time")?.let { seconds ->
             if (seconds >= 0L) {
-                return ((seconds + 59L) / 60L).toInt().coerceAtLeast(1)
+                return ((seconds + 30L) / 60L).toInt().coerceAtLeast(1)
             }
         }
         batteryLongExtra(batteryIntent, "charge_time_remaining")?.let { seconds ->
             if (seconds >= 0L) {
-                return ((seconds + 59L) / 60L).toInt().coerceAtLeast(1)
+                return ((seconds + 30L) / 60L).toInt().coerceAtLeast(1)
             }
         }
         batteryLongExtra(batteryIntent, "charge_time_remaining_ms")?.let { millis ->
             if (millis >= 0L) {
-                return ((millis + 59_999L) / 60_000L).toInt().coerceAtLeast(1)
+                return ((millis + 30_000L) / 60_000L).toInt().coerceAtLeast(1)
             }
         }
         return null

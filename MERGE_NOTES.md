@@ -598,3 +598,17 @@ full"), with an hours-only form when minutes are 0; sub-hour values
 keep each locale's previous minutes-only phrasing verbatim. The
 low-battery side already mirrors the device's own system
 notification text, so it needed no wording work. Static checks only.
+
+## Charging estimate syncs with the system (round 44, 2026-10-23)
+
+Owner observed the capsule's remaining minutes sat +1 against the
+system's own charging estimate. Two causes, both fixed:
+(1) remainingChargingMinutes rounded UP everywhere (millis and all
+seconds fallbacks now round to the nearest minute, keeping the
+at-least-1-minute floor); (2) the capsule only recomputed on
+battery broadcasts, so between events the system's live number
+moved on while the capsule's stood still — refreshChargingInfo now
+arms a generation-guarded 30-second self-tick (same pattern as the
+appearance delay) after every successful charging post; the tick
+re-runs the refresh and re-arms, and stops on low-battery posts,
+cancellation, or unplug. Static checks only.
