@@ -1153,6 +1153,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
             }
         } else {
             unregisterDeviceConnectionReceiverIfNeeded()
+            ConnectedDeviceScanner.releaseProfileProxies(applicationContext)
             connectedDevices = emptyList()
             LiveUpdateNotifier.cancelConnectedDevicesCapsule(applicationContext)
         }

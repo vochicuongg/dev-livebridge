@@ -1077,3 +1077,21 @@ is unavailable (Bluetooth off / permission), what it found, and
 "the stack hides the watch's accessory-layer link from public
 profiles" from a defect in the collection logic before any fix
 is attempted.
+
+### Round 73 (2026-10-23): classic-profile proxies — the Watch was on HEADSET all along
+
+Root cause found from the owner's dumpsys bluetooth_manager:
+the Galaxy Watch FE links over classic BR/EDR as a Handsfree
+device (ACL BR/EDR:Y, LE:N; HEADSET profile CONNECTED), while
+BluetoothManager.getConnectedDevices/getConnectionState only
+support GATT — the HEADSET/A2DP calls threw
+IllegalArgumentException, silently swallowed by runCatching,
+so rounds 71–72 saw only the (empty) GATT list. The scan now
+reads HEADSET/A2DP through BluetoothAdapter.getProfileProxy
+(cached BluetoothHeadset/BluetoothA2dp, bound on first scan,
+released when the feature turns off) alongside the GATT list.
+The round-72 bonded-state diagnostic is replaced by per-source
+counts + proxy binding state. Side finding: no persistent
+waterplugin/watchmanager notification exists on the owner's
+phone, so tier 2's Samsung-notification source is intermittent
+for this watch.

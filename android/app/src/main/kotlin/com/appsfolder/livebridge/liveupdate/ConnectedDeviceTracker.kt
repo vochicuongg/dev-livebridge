@@ -1,8 +1,11 @@
 package com.kakao.taxi.liveupdate
 
 import android.Manifest
+import android.bluetooth.BluetoothA2dp
+import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothClass
 import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothHeadset
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
 import android.content.Context
@@ -47,11 +50,65 @@ internal object ConnectedDeviceScanner {
     // Same tag as the listener so one logcat filter catches both.
     private const val TAG = "LiveUpdateListener"
 
-    private val CONNECTION_PROFILES = intArrayOf(
-        BluetoothProfile.GATT,
-        BluetoothProfile.HEADSET,
-        BluetoothProfile.A2DP
-    )
+    // Classic-profile proxies (round 73). BluetoothManager's
+    // getConnectedDevices/getConnectionState only support GATT;
+    // HEADSET and A2DP — the profiles a Galaxy Watch (Handsfree)
+    // and earbuds actually connect on — are readable only through
+    // these asynchronously bound proxies.
+    @Volatile
+    private var headsetProxy: BluetoothHeadset? = null
+
+    @Volatile
+    private var a2dpProxy: BluetoothA2dp? = null
+
+    @Volatile
+    private var profileProxiesRequested = false
+
+    private val profileServiceListener = object : BluetoothProfile.ServiceListener {
+        override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
+            when (profile) {
+                BluetoothProfile.HEADSET -> headsetProxy = proxy as? BluetoothHeadset
+                BluetoothProfile.A2DP -> a2dpProxy = proxy as? BluetoothA2dp
+            }
+        }
+
+        override fun onServiceDisconnected(profile: Int) {
+            when (profile) {
+                BluetoothProfile.HEADSET -> headsetProxy = null
+                BluetoothProfile.A2DP -> a2dpProxy = null
+            }
+            profileProxiesRequested = false
+        }
+    }
+
+    private fun ensureProfileProxies(context: Context, adapter: BluetoothAdapter) {
+        if (profileProxiesRequested) {
+            return
+        }
+        val appContext = context.applicationContext
+        val headsetOk = runCatching {
+            adapter.getProfileProxy(appContext, profileServiceListener, BluetoothProfile.HEADSET)
+        }.getOrDefault(false)
+        val a2dpOk = runCatching {
+            adapter.getProfileProxy(appContext, profileServiceListener, BluetoothProfile.A2DP)
+        }.getOrDefault(false)
+        profileProxiesRequested = headsetOk || a2dpOk
+    }
+
+    fun releaseProfileProxies(context: Context) {
+        val adapter = (context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)
+            ?.adapter
+            ?: return
+        headsetProxy?.let { proxy ->
+            runCatching { adapter.closeProfileProxy(BluetoothProfile.HEADSET, proxy) }
+        }
+        a2dpProxy?.let { proxy ->
+            runCatching { adapter.closeProfileProxy(BluetoothProfile.A2DP, proxy) }
+        }
+        headsetProxy = null
+        a2dpProxy = null
+        profileProxiesRequested = false
+    }
 
     fun hasBluetoothConnectPermission(context: Context): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
@@ -77,31 +134,20 @@ internal object ConnectedDeviceScanner {
             )
             return emptyList()
         }
+        ensureProfileProxies(context, adapter)
+        val gattDevices = runCatching {
+            manager.getConnectedDevices(BluetoothProfile.GATT)
+        }.getOrDefault(emptyList())
+        val headsetDevices = headsetProxy?.let { proxy ->
+            runCatching { proxy.connectedDevices }.getOrDefault(emptyList())
+        }.orEmpty()
+        val a2dpDevices = a2dpProxy?.let { proxy ->
+            runCatching { proxy.connectedDevices }.getOrDefault(emptyList())
+        }.orEmpty()
         val byAddress = linkedMapOf<String, BluetoothDevice>()
-        for (profile in CONNECTION_PROFILES) {
-            runCatching { manager.getConnectedDevices(profile) }
-                .getOrDefault(emptyList())
-                .forEach { device -> byAddress[device.address] = device }
+        for (device in gattDevices + headsetDevices + a2dpDevices) {
+            byAddress[device.address] = device
         }
-        // Bonded sweep for anything the profile queries missed.
-        // BluetoothDevice.isConnected() is a hidden API, so the
-        // state check goes through BluetoothManager instead.
-        runCatching { adapter.bondedDevices }
-            .getOrNull()
-            .orEmpty()
-            .forEach { device ->
-                if (device.address in byAddress) {
-                    return@forEach
-                }
-                val connected = CONNECTION_PROFILES.any { profile ->
-                    runCatching { manager.getConnectionState(device, profile) }
-                        .getOrDefault(BluetoothProfile.STATE_DISCONNECTED) ==
-                        BluetoothProfile.STATE_CONNECTED
-                }
-                if (connected) {
-                    byAddress[device.address] = device
-                }
-            }
         val result = byAddress.values
             .map { device ->
                 val name = runCatching { device.name }
@@ -121,13 +167,9 @@ internal object ConnectedDeviceScanner {
                 compareBy<ConnectedDeviceInfo> { it.kind.ordinal }
                     .thenBy { it.name.orEmpty() }
             )
-        // Diagnostics (round 72): the owner's Galaxy Watch FE stays
-        // connected through Galaxy Wearable yet never appeared in
-        // the scan. Log what the stack actually reports so the
-        // blind spot is identified from evidence, not guesswork: a found
-        // set on change, and — when the result is empty — the
-        // per-profile connection state of every bonded device
-        // (2 = STATE_CONNECTED for gatt/headset/a2dp).
+        // Diagnostics: a found set on change; when empty, the
+        // per-source counts and proxy binding state, so a blind
+        // source is visible at a glance.
         if (result.isNotEmpty()) {
             Log.i(
                 TAG,
@@ -136,30 +178,16 @@ internal object ConnectedDeviceScanner {
                 }
             )
         } else {
-            logBondedDeviceStates(manager, adapter)
+            Log.i(
+                TAG,
+                "Device scan empty; sources: gatt=${gattDevices.size} " +
+                    "headset=${headsetDevices.size} " +
+                    "(proxy ${if (headsetProxy != null) "bound" else "pending"}) " +
+                    "a2dp=${a2dpDevices.size} " +
+                    "(proxy ${if (a2dpProxy != null) "bound" else "pending"})"
+            )
         }
         return result
-    }
-
-    private fun logBondedDeviceStates(
-        manager: BluetoothManager,
-        adapter: android.bluetooth.BluetoothAdapter
-    ) {
-        val bonded = runCatching { adapter.bondedDevices }.getOrNull().orEmpty()
-        if (bonded.isEmpty()) {
-            Log.i(TAG, "Device scan empty; no bonded devices visible")
-            return
-        }
-        val lines = bonded.map { device ->
-            val name = runCatching { device.name }.getOrNull() ?: "?"
-            val states = CONNECTION_PROFILES.joinToString("/") { profile ->
-                runCatching { manager.getConnectionState(device, profile) }
-                    .getOrDefault(-1)
-                    .toString()
-            }
-            "$name [gatt/headset/a2dp=$states]"
-        }
-        Log.i(TAG, "Device scan empty; bonded states: " + lines.joinToString("; "))
     }
 
     fun classify(
