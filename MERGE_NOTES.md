@@ -1240,3 +1240,14 @@ it. Once per process from refreshConnectedDevicesCapsule,
 logs the raw level (or the reflection failure) per device
 under LiveUpdateListener so the winning source can be wired
 into the capsule.
+
+Round 85 (tier 2, battery display): the round 83-84 probe
+proved the Bluetooth stack's hidden getBatteryLevel() carries
+real values for some devices (K20i earbuds: 80) and none for
+the BR/EDR-only Watch FE (-1). DeviceBatteryReader wraps that
+reflective read (cached Method, 0..100 only); the scanner
+stores the level on ConnectedDeviceInfo, whose data-class
+equality makes a battery-only change re-push the capsule.
+Collapsed and expanded texts append a localized battery
+segment ("Pin 80%") only for devices that have one. The
+one-shot probe is removed.

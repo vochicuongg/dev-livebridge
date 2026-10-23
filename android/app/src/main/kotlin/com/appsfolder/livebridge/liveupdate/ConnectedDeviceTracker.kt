@@ -31,7 +31,14 @@ internal enum class ConnectedDeviceKind {
 internal data class ConnectedDeviceInfo(
     val address: String,
     val name: String?,
-    val kind: ConnectedDeviceKind
+    val kind: ConnectedDeviceKind,
+    // Tier 2 (round 85): the Bluetooth stack's own battery value
+    // for this device when it has one (0..100); null when the
+    // stack reports nothing (e.g. the owner's BR/EDR Watch FE).
+    // Part of the data class on purpose: the listener re-pushes
+    // the capsule when the scanned list changes, so a battery
+    // change alone refreshes the capsule.
+    val batteryLevel: Int? = null
 )
 
 /**
@@ -174,7 +181,8 @@ internal object ConnectedDeviceScanner {
                     kind = classify(
                         name = rawName,
                         bluetoothClass = runCatching { device.bluetoothClass }.getOrNull()
-                    )
+                    ),
+                    batteryLevel = DeviceBatteryReader.read(device)
                 )
             }
             .sortedWith(
@@ -188,7 +196,8 @@ internal object ConnectedDeviceScanner {
             Log.i(
                 TAG,
                 "Device scan found: " + result.joinToString { info ->
-                    "${info.name ?: "?"}(${info.kind})"
+                    "${info.name ?: "?"}(${info.kind}" +
+                        (info.batteryLevel?.let { ", $it%" } ?: "") + ")"
                 }
             )
         } else {

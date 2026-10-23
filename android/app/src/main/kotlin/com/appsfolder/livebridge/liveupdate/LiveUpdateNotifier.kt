@@ -1425,9 +1425,6 @@ object LiveUpdateNotifier {
         prefs: ConverterPrefs,
         devices: List<ConnectedDeviceInfo>
     ): Boolean {
-        // Round 83 (tier-2 discovery): probe the Bluetooth
-        // stack's own per-device battery values once per process.
-        DeviceBatteryProbe.runOnce(context, devices)
         if (
             !prefs.getSmartExternalDevicesEnabled() ||
             !prefs.getConverterEnabled() ||
@@ -1470,7 +1467,10 @@ object LiveUpdateNotifier {
             connectedDevicesCountText(context, devices.size)
         }
         val collapsedText = if (single) {
-            "${connectedDevicesKindLabel(context, first.kind)} · ${connectedDevicesConnectedText(context)}"
+            "${connectedDevicesKindLabel(context, first.kind)} · ${connectedDevicesConnectedText(context)}" +
+                (first.batteryLevel?.let { level ->
+                    " · ${connectedDevicesBatteryText(context, level)}"
+                } ?: "")
         } else {
             devices.joinToString(", ") { device ->
                 device.name ?: connectedDevicesKindLabel(context, device.kind)
@@ -1479,7 +1479,10 @@ object LiveUpdateNotifier {
         val expandedText = devices.joinToString("\n") { device ->
             "${device.name ?: connectedDevicesKindLabel(context, device.kind)}" +
                 " · ${connectedDevicesKindLabel(context, device.kind)}" +
-                " · ${connectedDevicesConnectedText(context)}"
+                " · ${connectedDevicesConnectedText(context)}" +
+                (device.batteryLevel?.let { level ->
+                    " · ${connectedDevicesBatteryText(context, level)}"
+                } ?: "")
         }
         val chipText = if (single) {
             first.name ?: connectedDevicesKindLabel(context, first.kind)
@@ -1642,6 +1645,22 @@ object LiveUpdateNotifier {
                 name = "Connected devices",
                 description = "Connected Bluetooth watches, earbuds and other accessories on the Now Bar"
             )
+        }
+    }
+
+    // Tier 2 (round 85): battery segment for devices whose level
+    // the Bluetooth stack knows; devices without one (the Watch
+    // FE) simply omit it.
+    private fun connectedDevicesBatteryText(context: Context, level: Int): String {
+        return when (appLocale(context)) {
+            AppLocale.RU -> "Батарея $level%"
+            AppLocale.TR -> "Pil %$level"
+            AppLocale.PT_BR -> "Bateria $level%"
+            AppLocale.ZH_HANS -> "电量 $level%"
+            AppLocale.ZH_HANT -> "電量 $level%"
+            AppLocale.KO -> "배터리 $level%"
+            AppLocale.VI -> "Pin $level%"
+            AppLocale.EN -> "Battery $level%"
         }
     }
 
