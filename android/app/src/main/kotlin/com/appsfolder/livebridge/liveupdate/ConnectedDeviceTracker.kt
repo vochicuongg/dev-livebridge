@@ -34,13 +34,20 @@ internal data class ConnectedDeviceInfo(
  * comes from the Bluetooth stack itself, not from notifications —
  * several Galaxy accessories (the owner's Watch on One UI 9 among
  * them) never post a notification at all, so the upstream
- * notification-text rule can never see them. Only BONDED devices
- * are considered, so transient BLE encounters nearby cannot
+ * notification-text rule can never see them. Only devices the
+ * Bluetooth stack reports as connected are considered, so
+ * transient BLE encounters nearby cannot
  * flicker the capsule. Name/class reads need BLUETOOTH_CONNECT on
  * Android 12+; without it the scan degrades to an empty list
  * instead of throwing.
  */
 internal object ConnectedDeviceScanner {
+
+    private val CONNECTION_PROFILES = intArrayOf(
+        BluetoothProfile.GATT,
+        BluetoothProfile.HEADSET,
+        BluetoothProfile.A2DP
+    )
 
     fun hasBluetoothConnectPermission(context: Context): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
@@ -64,20 +71,27 @@ internal object ConnectedDeviceScanner {
             return emptyList()
         }
         val byAddress = linkedMapOf<String, BluetoothDevice>()
-        for (profile in intArrayOf(
-            BluetoothProfile.GATT,
-            BluetoothProfile.HEADSET,
-            BluetoothProfile.A2DP
-        )) {
+        for (profile in CONNECTION_PROFILES) {
             runCatching { manager.getConnectedDevices(profile) }
                 .getOrDefault(emptyList())
                 .forEach { device -> byAddress[device.address] = device }
         }
+        // Bonded sweep for anything the profile queries missed.
+        // BluetoothDevice.isConnected() is a hidden API, so the
+        // state check goes through BluetoothManager instead.
         runCatching { adapter.bondedDevices }
             .getOrNull()
             .orEmpty()
             .forEach { device ->
-                if (runCatching { device.isConnected }.getOrDefault(false)) {
+                if (device.address in byAddress) {
+                    return@forEach
+                }
+                val connected = CONNECTION_PROFILES.any { profile ->
+                    runCatching { manager.getConnectionState(device, profile) }
+                        .getOrDefault(BluetoothProfile.STATE_DISCONNECTED) ==
+                        BluetoothProfile.STATE_CONNECTED
+                }
+                if (connected) {
                     byAddress[device.address] = device
                 }
             }
@@ -116,7 +130,6 @@ internal object ConnectedDeviceScanner {
         }
         val deviceClass = bluetoothClass?.deviceClass ?: return ConnectedDeviceKind.GENERIC
         return when (deviceClass) {
-            BluetoothClass.Device.WEARABLE_WRIST_WORN -> ConnectedDeviceKind.WATCH
             BluetoothClass.Device.AUDIO_VIDEO_HEADPHONES,
             BluetoothClass.Device.AUDIO_VIDEO_HANDSFREE,
             BluetoothClass.Device.AUDIO_VIDEO_PORTABLE_AUDIO -> ConnectedDeviceKind.HEADPHONES

@@ -1053,3 +1053,14 @@ are deliberately NOT in this round: they arrive with the BLE
 Battery Service reader (tier 1 follow-up) and tier 2's Samsung
 notification parsing. Static checks only (brace/paren baselines
 held, flutter analyze clean); device verification pending.
+
+### Round 71 fix (same day): first Windows build errors
+
+BluetoothDevice.isConnected() is a hidden API (unresolved for
+third-party apps) — the bonded sweep now checks state through
+BluetoothManager.getConnectionState. The
+BluetoothClass.Device.WEARABLE_WRIST_WORN constant does not
+exist in this SDK; the major-class WEARABLE fallback already
+classifies those as watches, so the arm was dropped. The
+notifier's refresh entry point is now internal so it can take
+the internal ConnectedDeviceInfo type.

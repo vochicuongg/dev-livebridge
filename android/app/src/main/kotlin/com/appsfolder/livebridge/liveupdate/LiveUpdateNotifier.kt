@@ -1410,7 +1410,7 @@ object LiveUpdateNotifier {
     // as the charging capsule: fixed id, own channel, Samsung
     // bridge with lockscreenOnly = false so it also lives on the
     // standby/AOD Now Bar.
-    fun refreshConnectedDevicesCapsule(
+    internal fun refreshConnectedDevicesCapsule(
         context: Context,
         prefs: ConverterPrefs,
         devices: List<ConnectedDeviceInfo>
