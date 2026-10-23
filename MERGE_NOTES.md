@@ -1132,3 +1132,18 @@ entry name under the listener tag, once per process, from the
 devices-monitoring sync. No behavior changes; the follow-up
 round wires the discovered resources into the capsule with the
 built-in icons as fallback.
+
+### Round 77 (2026-10-24): Samsung's real glyphs, loaded at runtime
+
+The round-76 probe hit the full set in Galaxy Wearable's own
+drawable table (device-related=50): ic_watch, ic_buds, ic_fit,
+ic_ring, ic_galaxy_wearable_for_connected_devices,
+ic_perm_group_phone. SamsungDeviceIcons replaces the probe: it
+resolves those names in com.samsung.android.app.watchmanager
+at runtime, renders the drawable, and reduces it to a white
+alpha silhouette for the capsule's chip/Now Bar/large icon,
+cached per kind. The status-bar small icon stays the built-in
+resource (androidx only accepts a resource id there). Any
+failure falls back to the built-in per-kind vectors; glasses,
+headphones and speaker have no Samsung glyph and always use
+the built-ins.

@@ -1475,8 +1475,13 @@ object LiveUpdateNotifier {
         }
         // Per-kind icon (round 74): the first device in the sorted
         // list (watches sort first) lends the capsule its icon.
+        // Round 77: Samsung's own glyph for the kind, loaded at
+        // runtime from the Galaxy Wearable app, wins over the
+        // built-in vector whenever it can be produced.
         val iconRes = connectedDevicesIconRes(first.kind)
-        val icon = IconCompat.createWithResource(context, iconRes)
+        val samsungBitmap = SamsungDeviceIcons.iconBitmap(context, first.kind)
+        val icon = samsungBitmap?.let { bitmap -> IconCompat.createWithBitmap(bitmap) }
+            ?: IconCompat.createWithResource(context, iconRes)
         val builder = NotificationCompat.Builder(
             context,
             MirrorNotificationChannel.CONNECTED_DEVICES.id
@@ -1499,6 +1504,7 @@ object LiveUpdateNotifier {
             .setRequestPromotedOngoing(true)
             .setShortCriticalText(chipText)
 
+        samsungBitmap?.let(builder::setLargeIcon)
         connectedDevicesContentIntent(context)?.let(builder::setContentIntent)
 
         @Suppress("DEPRECATION")
