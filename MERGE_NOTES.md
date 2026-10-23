@@ -896,3 +896,18 @@ moving while the original stays hidden. On completion the
 store cancels its record (snooze dies with it) and the mirror
 resolves through the usual reconcile. Static checks only;
 device verification pending.
+
+## Progress mirror dies with its source (round 64, 2026-10-23)
+
+Owner: pressing Cancel on the progress capsule must cancel the
+download AND remove the capsule at once. The action side already
+worked (mirror actions carry the store's own intent, so the
+download really cancels and the store removes its record), but
+the removal handler only refreshed counters and left the mirror
+to the <=4s snapshot reconcile. Fast path in
+handleNotificationRemoved: a progress source whose record is no
+longer in the snoozed list (the store truly cancelled it) now
+cancels its mirror immediately. The echo of our own round-63
+snooze still finds the record snoozed and falls through to the
+existing self-dismissed guard, so hiding the source never kills
+the mirror. Static checks only; device verification pending.

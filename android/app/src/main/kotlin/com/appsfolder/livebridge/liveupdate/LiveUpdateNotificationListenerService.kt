@@ -322,6 +322,24 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
                 return
             }
             refreshChargingInfoFromActiveNotifications()
+            if (LiveUpdateNotifier.isProgressSourceNotification(sbn)) {
+                // Round 64: the store cancelled its own record —
+                // e.g. the user pressed Cancel on the progress
+                // mirror, whose action fires the store's intent.
+                // Drop the mirror at once instead of waiting for the
+                // snapshot reconcile. The echo of our own snooze
+                // (round 63) still finds the record in the snoozed
+                // list and falls through to the guarded path below,
+                // so the mirror survives its source being hidden.
+                val stillSnoozed = runCatching {
+                    snoozedNotifications?.any { it.key == sbn.key } == true
+                }.getOrDefault(false)
+                if (!stillSnoozed) {
+                    LiveUpdateNotifier.cancelMirrored(applicationContext, sbn)
+                    refreshNotificationCapsuleFromActiveNotifications()
+                    return
+                }
+            }
             if (consumeSelfDismissedSource(sbn)) {
                 refreshNotificationCapsuleFromActiveNotifications()
                 return
