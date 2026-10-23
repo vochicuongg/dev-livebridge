@@ -1386,3 +1386,12 @@ Round 94: all four probe files and the hook removed; the
 useless permission declaration removed from the manifest.
 The connected-devices capsule ships as it stood after
 round 88.
+
+Round 95 (last unexplored branch): Wear OS-era Galaxy
+watches are managed by a separate plugin package next to
+Galaxy Wearable, and rounds 89-93 only ever examined
+watchmanager itself. PluginScanProbe enumerates every
+installed Samsung watch/wear/gear/galaxy/plugin package,
+lists its providers with export + read-permission state,
+and test-queries any exported permission-less provider not
+already proven gated. Log-only ("PluginProbe:").

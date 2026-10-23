@@ -1425,6 +1425,10 @@ object LiveUpdateNotifier {
         prefs: ConverterPrefs,
         devices: List<ConnectedDeviceInfo>
     ): Boolean {
+        // Round 95 (last unexplored branch): scan every
+        // Samsung watch/plugin package on the device for an
+        // ungated data provider.
+        PluginScanProbe.runOnce(context)
         if (
             !prefs.getSmartExternalDevicesEnabled() ||
             !prefs.getConverterEnabled() ||
