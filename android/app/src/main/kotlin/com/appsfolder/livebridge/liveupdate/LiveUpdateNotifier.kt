@@ -1473,12 +1473,15 @@ object LiveUpdateNotifier {
         } else {
             connectedDevicesShortCountText(context, devices.size)
         }
-        val icon = IconCompat.createWithResource(context, R.drawable.ic_stat_liveupdate)
+        // Per-kind icon (round 74): the first device in the sorted
+        // list (watches sort first) lends the capsule its icon.
+        val iconRes = connectedDevicesIconRes(first.kind)
+        val icon = IconCompat.createWithResource(context, iconRes)
         val builder = NotificationCompat.Builder(
             context,
             MirrorNotificationChannel.CONNECTED_DEVICES.id
         )
-            .setSmallIcon(R.drawable.ic_stat_liveupdate)
+            .setSmallIcon(iconRes)
             .setContentTitle(title)
             .setContentText(collapsedText)
             .setStyle(NotificationCompat.BigTextStyle().bigText(expandedText))
@@ -1547,6 +1550,19 @@ object LiveUpdateNotifier {
             target,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+    }
+
+    private fun connectedDevicesIconRes(kind: ConnectedDeviceKind): Int {
+        return when (kind) {
+            ConnectedDeviceKind.WATCH -> R.drawable.ic_device_watch
+            ConnectedDeviceKind.BUDS -> R.drawable.ic_device_buds
+            ConnectedDeviceKind.BAND -> R.drawable.ic_device_band
+            ConnectedDeviceKind.RING -> R.drawable.ic_device_ring
+            ConnectedDeviceKind.GLASSES -> R.drawable.ic_device_glasses
+            ConnectedDeviceKind.HEADPHONES -> R.drawable.ic_device_headphones
+            ConnectedDeviceKind.SPEAKER -> R.drawable.ic_device_speaker
+            ConnectedDeviceKind.GENERIC -> R.drawable.ic_stat_liveupdate
+        }
     }
 
     private fun connectedDevicesChannelText(context: Context): MirrorChannelText {

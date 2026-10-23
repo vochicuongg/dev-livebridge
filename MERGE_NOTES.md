@@ -1095,3 +1095,14 @@ counts + proxy binding state. Side finding: no persistent
 waterplugin/watchmanager notification exists on the owner's
 phone, so tier 2's Samsung-notification source is intermittent
 for this watch.
+
+### Round 74 (2026-10-24): alias names + per-kind icons
+
+Owner's pick after tier 1 landed. Display names now prefer the
+Bluetooth alias the user set (BluetoothDevice.getAlias, API
+30+) — the watch shows as "Watch FE của Chí Cường" instead of
+the raw "Galaxy Watch FE (G0RV)"; classification still keys on
+the raw name. The capsule icon follows the first (sorted)
+device's kind, with seven new vector drawables: watch, buds,
+band, ring, glasses, headphones, speaker; generic devices keep
+the existing live-update icon.

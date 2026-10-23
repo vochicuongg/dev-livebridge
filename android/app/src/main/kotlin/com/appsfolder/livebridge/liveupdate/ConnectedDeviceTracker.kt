@@ -150,15 +150,28 @@ internal object ConnectedDeviceScanner {
         }
         val result = byAddress.values
             .map { device ->
-                val name = runCatching { device.name }
+                val rawName = runCatching { device.name }
                     .getOrNull()
                     ?.trim()
                     ?.takeIf { it.isNotEmpty() }
+                // Display prefers the user-set alias ("Watch FE
+                // của Chí Cường") over the raw Bluetooth name
+                // ("Galaxy Watch FE (G0RV)"); classification keeps
+                // using the raw name, whose keywords are the
+                // reliable signal (round 74).
+                val alias = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    runCatching { device.alias }
+                        .getOrNull()
+                        ?.trim()
+                        ?.takeIf { it.isNotEmpty() }
+                } else {
+                    null
+                }
                 ConnectedDeviceInfo(
                     address = device.address,
-                    name = name,
+                    name = alias ?: rawName,
                     kind = classify(
-                        name = name,
+                        name = rawName,
                         bluetoothClass = runCatching { device.bluetoothClass }.getOrNull()
                     )
                 )
