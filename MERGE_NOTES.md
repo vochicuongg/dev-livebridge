@@ -1229,3 +1229,14 @@ Notification) constructor — the adopting path is the static
 Notification.Builder.recoverBuilder(Context, Notification),
 which is what the swap now uses (the first cut failed to
 compile against the (Context, String) constructor).
+
+Round 83 (tier-2 discovery): DeviceBatteryProbe asks the
+Bluetooth stack for each connected device's battery via the
+hidden BluetoothDevice.getBatteryLevel() — the stack unifies
+HFP indicators (the Watch FE's BR/EDR link) and the BLE
+Battery Service, and Samsung's own battery widget showed the
+watch at 59% from that channel while no public API exposes
+it. Once per process from refreshConnectedDevicesCapsule,
+logs the raw level (or the reflection failure) per device
+under LiveUpdateListener so the winning source can be wired
+into the capsule.
