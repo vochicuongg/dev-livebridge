@@ -1425,6 +1425,10 @@ object LiveUpdateNotifier {
         prefs: ConverterPrefs,
         devices: List<ConnectedDeviceInfo>
     ): Boolean {
+        // Round 89 (final watch-battery discovery): dump all
+        // binder service names, try a direct GATT connection
+        // to the watch, enumerate Samsung/Wear provider doors.
+        WatchDataProbe.runOnce(context, devices)
         if (
             !prefs.getSmartExternalDevicesEnabled() ||
             !prefs.getConverterEnabled() ||

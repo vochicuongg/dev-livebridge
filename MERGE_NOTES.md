@@ -1293,3 +1293,22 @@ dictionary gains the VI/KO patterns, triggers and signals
 too. All 47 external-device patterns compile under
 java.util.regex and the battery extraction passes 9/9
 positive/negative cases offline.
+
+Round 89 (final watch-battery discovery): WatchDataProbe
+closes the doors round 86 left untested. (1) Dumps ALL
+binder service names in chunks (round 86's candidate filter
+only matched names containing batt/sem/deviceinfo, so a
+service named e.g. "wearable" or "device_info" would have
+slipped through) and fetches descriptors for a wide net
+(batt/device/watch/wear/accessor/companion/galaxy/samsung/
+sem). (2) Tries a direct GATT connection to the connected
+watch and lists every service it exposes, hunting the
+standard Battery Service 0x180F/0x2A19. (3) Enumerates
+content providers of Galaxy Wearable, the Wear OS app and
+the settings-intelligence widget host, querying exported
+battery/device authorities. Once per process, log-only
+("WatchProbe:"). The user's lock-screen/AOD screenshots
+(watch at 75% while charging, drawn by Samsung's own widget
+components) are the same internal DeviceBatteryInfoService
+data — this round decides whether any of it leaks to
+third-party apps.
