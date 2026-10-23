@@ -1355,3 +1355,15 @@ Round 90's all-NULL matrix simply never tried this path.
 Round 92: DashboardQueryProbe queries /dashboard_table
 (and /dashboard_table/1), logging getType plus columns and
 up to 10 full rows.
+
+Round 92 verdict (device log 24/10): even the provider's
+own declared path /dashboard_table returns a NULL cursor
+(and getType null) from our app — no exception. The class
+names a gate: DEVICE_DASHBOARD_PERMISSION (com.samsung.
+android.wearable.permission.*). Samsung's soft enforcement
+(semEnforceReadPermission family) plausibly returns null
+instead of throwing for unentitled callers. Round 93: the
+manifest now declares that permission, and the probe logs
+its protectionLevel (normal would mean any declaring app
+is granted it at install; signature closes the door for
+good) plus our own grant state, then repeats the query.

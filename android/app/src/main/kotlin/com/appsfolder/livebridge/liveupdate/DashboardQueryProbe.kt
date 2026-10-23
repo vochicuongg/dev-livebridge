@@ -33,6 +33,35 @@ internal object DashboardQueryProbe {
         done = true
         val appContext = context.applicationContext
         Thread {
+            // Round 93: what is this permission, and did the
+            // manifest declaration get us granted?
+            val dashboardPermission =
+                "com.samsung.android.wearable.permission.DEVICE_DASHBOARD_PERMISSION"
+            val pm = appContext.packageManager
+            val permissionInfo = runCatching {
+                @Suppress("DEPRECATION")
+                pm.getPermissionInfo(dashboardPermission, 0)
+            }.getOrNull()
+            if (permissionInfo == null) {
+                Log.i(TAG, "DashProbe: permission info not found")
+            } else {
+                val level = permissionInfo.protectionLevel
+                val base = level and 0xf
+                Log.i(
+                    TAG,
+                    "DashProbe: permission level raw=$level base=$base " +
+                        "(0=normal,1=dangerous,2=signature) " +
+                        "package=${permissionInfo.packageName}"
+                )
+            }
+            val selfCheck = pm.checkPermission(
+                dashboardPermission,
+                appContext.packageName
+            )
+            Log.i(
+                TAG,
+                "DashProbe: self permission check=$selfCheck (0=granted)"
+            )
             val resolver = appContext.contentResolver
             for (uriText in uris) {
                 val uri = Uri.parse(uriText)
