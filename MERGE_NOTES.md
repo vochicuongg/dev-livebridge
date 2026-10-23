@@ -954,3 +954,21 @@ which clears the tap and the stale mark). Accepted trade: a
 download paused inside the store app also retires after 60s of
 silence and re-mirrors when it resumes. Static checks only;
 device verification pending.
+
+## Progress retirement: content-based tap suspicion + diagnostics (round 67, 2026-10-23)
+
+Round 66 did not retire the capsule on device (Cancel still
+worked). Two suspects: the store posts a final update as the
+cancel lands, whose postTime bump counted as a "change" and
+cleared the recorded tap; or the Now Bar card's buttons never
+reached the proxy receiver. Fix for the first: fingerprints
+split into a full variant (postTime + content, for the 60s
+staleness rule) and a content-only variant — a mirror action
+tap is now cleared only when the record's CONTENT changes
+after it (a Pause answer changes state; a cancel never does),
+with the baseline taken at the first reconcile after the tap.
+Diagnostics for the second: the receiver logs every recorded
+tap, dismissal logs every tracked progress source, and the
+retire branch logs its decision with both flags, so one more
+device log identifies the failing branch by name. Static
+checks only; device verification pending.

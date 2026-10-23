@@ -25,6 +25,7 @@ class ProgressActionReceiver : BroadcastReceiver() {
             intent.getParcelableExtra(EXTRA_ORIGINAL_PENDING_INTENT)
         }
         LiveUpdateNotifier.noteProgressActionTap(sourceKey)
+        Log.i(TAG, "Progress action tap recorded: $sourceKey")
         try {
             originalIntent?.send()
         } catch (error: Throwable) {

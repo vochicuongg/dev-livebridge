@@ -41,6 +41,8 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
     private val progressDismissedSourceKeys = mutableSetOf<String>()
     private val progressAbsentStreaks = mutableMapOf<String, Int>()
     private val progressFingerprints = mutableMapOf<String, Pair<String, Long>>()
+    private val progressContentFingerprints = mutableMapOf<String, String>()
+    private val progressTapContentBaselines = mutableMapOf<String, String>()
     private val staleProgressFingerprints = mutableMapOf<String, String>()
     private var isTorchCallbackRegistered = false
     private var rebindAttempts = 0
@@ -645,9 +647,16 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
     }
 
     private fun progressFingerprint(sbn: StatusBarNotification): String {
+        return sbn.postTime.toString() + "|" + progressContentFingerprint(sbn)
+    }
+
+    // What the user would see: a pure repost of identical content
+    // changes only the postTime, while a real state change (the
+    // store reacting to a Pause tap with a "paused" state, progress
+    // advancing) changes this fingerprint.
+    private fun progressContentFingerprint(sbn: StatusBarNotification): String {
         val extras = sbn.notification.extras
         return listOf(
-            sbn.postTime.toString(),
             extras.getInt(Notification.EXTRA_PROGRESS, -1).toString(),
             extras.getInt(Notification.EXTRA_PROGRESS_MAX, -1).toString(),
             extras.getBoolean(Notification.EXTRA_PROGRESS_INDETERMINATE, false).toString(),
@@ -669,15 +678,16 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
             if (snapshot.packageName == packageName) continue
             if (!LiveUpdateNotifier.isProgressSourceNotification(snapshot)) continue
             presentProgressKeys.add(snapshot.key)
+            progressContentFingerprints[snapshot.key] = progressContentFingerprint(snapshot)
             val fingerprint = progressFingerprint(snapshot)
             val previous = progressFingerprints[snapshot.key]
             if (previous == null || previous.first != fingerprint) {
                 progressFingerprints[snapshot.key] = fingerprint to nowElapsed
-                LiveUpdateNotifier.clearProgressActionTap(snapshot.key)
                 staleProgressFingerprints.remove(snapshot.key)
             }
         }
         progressFingerprints.keys.retainAll(presentProgressKeys)
+        progressContentFingerprints.keys.retainAll(presentProgressKeys)
         // Progress mirrors have no driver besides their source record
         // (round 65). The retention taken out when the source was
         // hidden (round 63) must lapse once the record is gone from
@@ -694,23 +704,43 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
                 progressAbsentStreaks.remove(key)
                 // The record is still listed, but it may be a frozen
                 // leftover (round 66): retire the mirror when an
-                // action tap on it was never followed by a record
-                // change (the store silently killed the download),
-                // or when the record has been frozen for a minute
+                // action tap on it was never followed by a CONTENT
+                // change (the store silently killed the download; a
+                // mere repost of identical content — e.g. a final
+                // post as the cancel lands — must not clear the
+                // suspicion, while a Pause tap survives because the
+                // store answers it with a changed state), or when
+                // the record has been frozen for a minute
                 // (cancelled inside the store app instead — no tap,
                 // no record change, no removal event either way).
                 val lastChange = progressFingerprints[key]?.second
                 val tapAt = LiveUpdateNotifier.progressActionTapAt(key)
-                val tapDead = tapAt != null && lastChange != null &&
-                    lastChange <= tapAt && nowElapsed - tapAt >= PROGRESS_TAP_DEAD_MS
+                if (tapAt != null) {
+                    val baseline = progressTapContentBaselines[key]
+                        ?: progressContentFingerprints[key]?.also { content ->
+                            progressTapContentBaselines[key] = content
+                        }
+                    if (baseline != null && progressContentFingerprints[key] != baseline) {
+                        LiveUpdateNotifier.clearProgressActionTap(key)
+                        progressTapContentBaselines.remove(key)
+                    }
+                }
+                val effectiveTapAt = LiveUpdateNotifier.progressActionTapAt(key)
+                val tapDead = effectiveTapAt != null &&
+                    nowElapsed - effectiveTapAt >= PROGRESS_TAP_DEAD_MS
                 val staleDead = lastChange != null &&
                     nowElapsed - lastChange >= PROGRESS_STALE_MS
                 if (tapDead || staleDead) {
+                    Log.i(
+                        TAG,
+                        "Retire progress mirror: $key tapDead=$tapDead staleDead=$staleDead"
+                    )
                     sourceLifecycle.cancelRetention(key)
                     progressFingerprints[key]?.let { (fingerprint, _) ->
                         staleProgressFingerprints[key] = fingerprint
                     }
                     LiveUpdateNotifier.clearProgressActionTap(key)
+                    progressTapContentBaselines.remove(key)
                     progressIterator.remove()
                 }
                 continue
@@ -1320,6 +1350,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         sourceLifecycle.retainMirrorAfterRemoval(sbn.key)
         if (result.removeSource && LiveUpdateNotifier.isProgressSourceNotification(sbn)) {
             progressDismissedSourceKeys.add(sbn.key)
+            Log.i(TAG, "Progress source tracked for retirement: ${sbn.key}")
         }
         try {
             cancelNotification(sbn.key)
