@@ -911,3 +911,22 @@ cancels its mirror immediately. The echo of our own round-63
 snooze still finds the record snoozed and falls through to the
 existing self-dismissed guard, so hiding the source never kills
 the mirror. Static checks only; device verification pending.
+
+## Progress capsule can no longer outlive its download (round 65, 2026-10-23)
+
+Owner: after pressing Cancel (the download really cancels in
+the Play Store) the progress capsule stayed, and tapping it did
+nothing. Root cause: round 63's dismissal parks the source key
+in the lifecycle's intentionally-removed set with no expiry,
+and the store deleting its SNOOZED record delivers no removal
+event to this listener — so neither the round 64 fast path nor
+the snapshot reconcile could ever retire the mirror (and the
+system cancels the dead record's pending intents, which is why
+the zombie's tap was inert too). Progress mirrors have no
+driver besides their source record, so their retention now
+lapses: reconcileSources releases it after the key is absent
+from both the active and snoozed snapshot lists for two
+consecutive cycles (~8s), letting the existing missing-key path
+cancel the mirror. Round 64's instant path still applies when
+a removal event does arrive. Static checks only; device
+verification pending.

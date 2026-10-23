@@ -38,6 +38,8 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
     private val protectedMirrorDismissalsById = mutableMapOf<Int, ProtectedSourceDismissal>()
     private val selfDismissedFlashlightSourceKeys = mutableSetOf<String>()
     private var trackedFlashlightSourceKey: String? = null
+    private val progressDismissedSourceKeys = mutableSetOf<String>()
+    private val progressAbsentStreaks = mutableMapOf<String, Int>()
     private var isTorchCallbackRegistered = false
     private var rebindAttempts = 0
     private var rebindScheduled = false
@@ -642,6 +644,31 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
 
     private fun reconcileSources(snapshots: List<StatusBarNotification>) {
         val activeKeys = snapshots.asSequence().filter { it.packageName != packageName }.map { it.key }.toSet()
+        // Progress mirrors have no driver besides their source record
+        // (round 65). The retention taken out when the source was
+        // hidden (round 63) must lapse once the record is gone from
+        // BOTH the active and the snoozed lists — both feed these
+        // snapshots — because the store deleting its snoozed record
+        // is not guaranteed to deliver a removal event (the owner's
+        // cancelled download left a zombie capsule whose tap intent
+        // the system had already cancelled with the record). Two
+        // consecutive absent cycles guard against a transient gap.
+        val progressIterator = progressDismissedSourceKeys.iterator()
+        while (progressIterator.hasNext()) {
+            val key = progressIterator.next()
+            if (key in activeKeys) {
+                progressAbsentStreaks.remove(key)
+                continue
+            }
+            val streak = (progressAbsentStreaks[key] ?: 0) + 1
+            if (streak >= 2) {
+                sourceLifecycle.cancelRetention(key)
+                progressAbsentStreaks.remove(key)
+                progressIterator.remove()
+            } else {
+                progressAbsentStreaks[key] = streak
+            }
+        }
         val missing = sourceLifecycle.reconcile(activeKeys, LiveUpdateNotifier.trackedSourceKeys())
         if (missing.isNotEmpty()) refreshPolicy.invalidate()
         for (key in missing) {
@@ -1228,6 +1255,9 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         ) return
         rememberSelfDismissedSourceKey(sbn.key)
         sourceLifecycle.retainMirrorAfterRemoval(sbn.key)
+        if (result.removeSource && LiveUpdateNotifier.isProgressSourceNotification(sbn)) {
+            progressDismissedSourceKeys.add(sbn.key)
+        }
         try {
             cancelNotification(sbn.key)
         } catch (error: Throwable) {
