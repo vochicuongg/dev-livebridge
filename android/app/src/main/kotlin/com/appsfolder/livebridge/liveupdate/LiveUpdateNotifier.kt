@@ -1545,26 +1545,26 @@ object LiveUpdateNotifier {
             lockscreenOnly = false
         )
         val notification = SamsungOneUi7NowBarCompat.markEligible(builder.build())
-        // Round 81: every One UI surface that draws this capsule's
-        // card — the shade header badge, the Now Bar expansion —
-        // renders the SMALL icon, never the large one, and
-        // NotificationCompat only accepts a packaged resource as
-        // the small icon. The built notification's smallIcon is a
-        // platform Icon, so swap the Samsung bitmap in after the
-        // build (the round-80 log proved the bitmap loads; the
-        // cards simply never read it). The status bar draws the
-        // bitmap's alpha shape, the badges draw the glyph itself.
+        // Rounds 81–82: every One UI surface that draws this
+        // capsule's card — the shade header badge, the Now Bar
+        // expansion — renders the SMALL icon, never the large
+        // one, and NotificationCompat only accepts a packaged
+        // resource as the small icon. Swapping after the build
+        // is the only route, and it has to go through the
+        // platform's adopting builder: the field itself is
+        // private on current Android (round 81's reflective
+        // assignment failed with NoSuchFieldException, logged
+        // on the owner's device), while Notification.Builder
+        // (context, notification) adopts the built notification
+        // — bridge extras and all — and its setSmallIcon(Icon)
+        // is public API. The resulting icon type is logged so
+        // the swap is verifiable (1 = bitmap, 2 = resource).
         if (samsungBitmap != null) {
-            // The SDK stub exposes smallIcon as a Kotlin val even
-            // though the framework field is a plain public field;
-            // assign it reflectively. A failure here only costs
-            // the glyph — the notification stays valid.
-            runCatching {
-                Notification::class.java.getField("smallIcon")
-                    .set(notification, Icon.createWithBitmap(samsungBitmap))
-            }.onFailure { error ->
-                Log.i(TAG, "Devices capsule: small icon swap failed: $error")
-            }
+            val rebuilt = Notification.Builder(context, notification)
+                .setSmallIcon(Icon.createWithBitmap(samsungBitmap))
+                .build()
+            Log.i(TAG, "Devices capsule: small icon type after swap: ${rebuilt.smallIcon?.type}")
+            return rebuilt
         }
         return notification
     }

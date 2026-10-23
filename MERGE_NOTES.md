@@ -1214,3 +1214,13 @@ a Kotlin val, so the direct assignment did not compile. The
 swap now goes through reflection on the public framework
 field, guarded so a failure leaves the resource icon in
 place.
+
+### Round 82 (2026-10-24): small icon swap via the adopting builder
+
+Round 81's reflective assignment failed on the owner's device
+(NoSuchFieldException: smallIcon — the field is private-named
+on current Android). The swap now rebuilds through
+Notification.Builder(context, notification), the public
+adopting constructor, and setSmallIcon(Icon) on it; the
+resulting small icon type is logged for verification
+(1 = bitmap, 2 = resource).
