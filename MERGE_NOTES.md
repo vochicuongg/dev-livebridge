@@ -1318,3 +1318,18 @@ variable — the GATT watchdog flag is an AtomicBoolean now.
 The first round-89 build failed on exactly this, so the
 install that followed silently re-installed the round-88
 APK and no probe ran.
+
+Round 89 verdict (device log 24/10): service door closed
+for good (all 461 binder names dumped — no per-device
+battery service under any name; device_info is Knox, the
+two battery services are the phone's own). GATT door
+closed for good (status=147, the watch refuses third-party
+GATT connections). Provider door OPENED: Galaxy Wearable
+exports com.samsung.android.wearable.deviceinfocontent
+provider.provider with exported=true and readPermission=
+null; the round-89 root query returned null, which for a
+path-routed provider just means the path was wrong.
+Round 90: DeviceInfoProviderProbe walks a 25-path matrix
+against that authority (logging exception class vs null
+cursor vs columns+rows per path) and tries four call()
+methods.
