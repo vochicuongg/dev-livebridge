@@ -1333,3 +1333,13 @@ Round 90: DeviceInfoProviderProbe walks a 25-path matrix
 against that authority (logging exception class vs null
 cursor vs columns+rows per path) and tries four call()
 methods.
+
+Round 90 verdict (device log 24/10): all 25 paths and all
+four call() methods returned NULL with no exception — the
+provider's query() is not URI-routed for outside callers
+(silent caller gate or stub). Round 91: ProviderClassProbe
+loads the provider class itself through Galaxy Wearable's
+package context (CONTEXT_INCLUDE_CODE, the SamsungDevice
+Icons technique) and dumps its static constants + declared
+methods (+ superclass) — providers normally declare their
+authority, URI paths and call method names as statics.

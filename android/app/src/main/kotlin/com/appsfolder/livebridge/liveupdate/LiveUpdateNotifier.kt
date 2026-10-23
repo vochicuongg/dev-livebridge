@@ -1425,10 +1425,9 @@ object LiveUpdateNotifier {
         prefs: ConverterPrefs,
         devices: List<ConnectedDeviceInfo>
     ): Boolean {
-        // Round 90: Galaxy Wearable's exported, permission-less
-        // device-info provider found in round 89 gets a path
-        // matrix interrogation.
-        DeviceInfoProviderProbe.runOnce(context)
+        // Round 91: read the device-info provider's own
+        // interface constants out of Galaxy Wearable's code.
+        ProviderClassProbe.runOnce(context)
         if (
             !prefs.getSmartExternalDevicesEnabled() ||
             !prefs.getConverterEnabled() ||
