@@ -1194,3 +1194,18 @@ createPackageContext(Samsung package).resources — the exact
 path the round-78 probe rendered 46 PNGs with — and logs one
 line per kind (loaded / not found / failed with the error) so
 a silent fallback can never masquerade as success again.
+
+### Round 81 (2026-10-24): Samsung bitmap becomes the small icon
+
+Round 80's log proved the glyph loads ("WATCH loaded
+ic_watch"), and the owner's two screenshots proved where the
+remaining wrong icon comes from: the standby pill already
+shows Samsung's ring, but the shade card and the Now Bar
+expansion both render the notification's SMALL icon in their
+header badge — the large icon is never drawn on those
+surfaces. NotificationCompat restricts the small icon to a
+packaged resource, so after building, the notification's
+platform smallIcon field is swapped for an Icon created from
+the Samsung bitmap. The badge color question (promotion
+extras blue vs the shade setColor) is deliberately untouched
+this round; the glyph was the complaint.

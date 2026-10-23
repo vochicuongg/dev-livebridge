@@ -17,6 +17,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Matrix
+import android.graphics.drawable.Icon
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PorterDuff
@@ -1543,7 +1544,20 @@ object LiveUpdateNotifier {
             reuseNotificationRemoteViews = false,
             lockscreenOnly = false
         )
-        return SamsungOneUi7NowBarCompat.markEligible(builder.build())
+        val notification = SamsungOneUi7NowBarCompat.markEligible(builder.build())
+        // Round 81: every One UI surface that draws this capsule's
+        // card — the shade header badge, the Now Bar expansion —
+        // renders the SMALL icon, never the large one, and
+        // NotificationCompat only accepts a packaged resource as
+        // the small icon. The built notification's smallIcon is a
+        // platform Icon, so swap the Samsung bitmap in after the
+        // build (the round-80 log proved the bitmap loads; the
+        // cards simply never read it). The status bar draws the
+        // bitmap's alpha shape, the badges draw the glyph itself.
+        if (samsungBitmap != null) {
+            notification.smallIcon = Icon.createWithBitmap(samsungBitmap)
+        }
+        return notification
     }
 
     // Tap opens Galaxy Wearable when it is installed (the Galaxy
