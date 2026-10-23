@@ -1561,7 +1561,8 @@ object LiveUpdateNotifier {
             ConnectedDeviceKind.GLASSES -> R.drawable.ic_device_glasses
             ConnectedDeviceKind.HEADPHONES -> R.drawable.ic_device_headphones
             ConnectedDeviceKind.SPEAKER -> R.drawable.ic_device_speaker
-            ConnectedDeviceKind.GENERIC -> R.drawable.ic_stat_liveupdate
+            ConnectedDeviceKind.PHONE -> R.drawable.ic_device_phone
+            ConnectedDeviceKind.GENERIC -> R.drawable.ic_device_generic
         }
     }
 
@@ -1715,6 +1716,16 @@ object LiveUpdateNotifier {
                 AppLocale.KO -> "스피커"
                 AppLocale.VI -> "Loa"
                 AppLocale.EN -> "Speaker"
+            }
+            ConnectedDeviceKind.PHONE -> when (appLocale(context)) {
+                AppLocale.RU -> "Телефон"
+                AppLocale.TR -> "Telefon"
+                AppLocale.PT_BR -> "Telefone"
+                AppLocale.ZH_HANS -> "手机"
+                AppLocale.ZH_HANT -> "手機"
+                AppLocale.KO -> "휴대전화"
+                AppLocale.VI -> "Điện thoại"
+                AppLocale.EN -> "Phone"
             }
             ConnectedDeviceKind.GENERIC -> when (appLocale(context)) {
                 AppLocale.RU -> "Устройство"

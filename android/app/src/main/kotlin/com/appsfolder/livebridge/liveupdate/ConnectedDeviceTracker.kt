@@ -24,6 +24,7 @@ internal enum class ConnectedDeviceKind {
     GLASSES,
     HEADPHONES,
     SPEAKER,
+    PHONE,
     GENERIC
 }
 
@@ -226,6 +227,7 @@ internal object ConnectedDeviceScanner {
                 BluetoothClass.Device.Major.WEARABLE -> ConnectedDeviceKind.WATCH
                 BluetoothClass.Device.Major.HEALTH -> ConnectedDeviceKind.BAND
                 BluetoothClass.Device.Major.AUDIO_VIDEO -> ConnectedDeviceKind.HEADPHONES
+                BluetoothClass.Device.Major.PHONE -> ConnectedDeviceKind.PHONE
                 else -> ConnectedDeviceKind.GENERIC
             }
         }

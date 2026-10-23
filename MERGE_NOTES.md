@@ -1106,3 +1106,16 @@ the raw name. The capsule icon follows the first (sorted)
 device's kind, with seven new vector drawables: watch, buds,
 band, ring, glasses, headphones, speaker; generic devices keep
 the existing live-update icon.
+
+### Round 75 (2026-10-24): One UI-style icon redraw + phone kind
+
+Owner confirmed round 74, then asked for Samsung's icon set.
+The glyphs are REDRAWN in the One UI style (rounded, filled,
+minimal) — not extracted Samsung assets, keeping the fork's
+clean-room stance. Watch gains its side crown, the band gains
+a screen cutout, the ring becomes a tilted ellipse like
+Samsung's, buds/glasses are reshaped to match, and two icons
+complete the set from the owner's reference screenshot: a phone
+(new PHONE kind, classified by the Bluetooth PHONE major
+class) and an assorted-devices glyph that replaces the generic
+wave icon for GENERIC.
