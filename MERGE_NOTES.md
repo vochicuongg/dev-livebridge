@@ -1367,3 +1367,22 @@ manifest now declares that permission, and the probe logs
 its protectionLevel (normal would mean any declaring app
 is granted it at install; signature closes the door for
 good) plus our own grant state, then repeats the query.
+
+Round 93 verdict (device log 24/10) — the provider door
+closes for good: DEVICE_DASHBOARD_PERMISSION is signature
+level (protectionLevel base=2, defined by watchmanager);
+our manifest declaration was not granted (check=-1) and
+/dashboard_table still returns null. The watch's battery
+provably lives in that table (the provider class has
+updateColumnBatteryInfo), behind a Samsung-signature gate
+no third-party app can pass. Every phone-side route is now
+exhausted with on-device evidence: Bluetooth stack level
+(-1, round 83), all 461 binder services (rounds 86+89),
+direct GATT (refused, status 147, round 89), the Wearable
+dashboard provider (signature-gated, rounds 91-93). The
+values in Samsung's battery widget / lock-screen arcs are
+drawn by Samsung components holding that signature.
+Round 94: all four probe files and the hook removed; the
+useless permission declaration removed from the manifest.
+The connected-devices capsule ships as it stood after
+round 88.
