@@ -742,6 +742,13 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
                     LiveUpdateNotifier.clearProgressActionTap(key)
                     progressTapContentBaselines.remove(key)
                     progressIterator.remove()
+                    // The reconcile below can never report this key
+                    // missing — the frozen record still sits in the
+                    // snapshot list — so cancel the mirror directly
+                    // (round 68; the retention-only version was a
+                    // no-op and the capsule survived every retire).
+                    refreshPolicy.remove(key)
+                    LiveUpdateNotifier.cancelMirroredSourceKey(applicationContext, key)
                 }
                 continue
             }
@@ -1286,6 +1293,17 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         if (result.retainOriginal) {
             return
         }
+        // Progress retirement tracking must register BEFORE the
+        // already-snoozed early return below (round 68): a record
+        // snoozed by an earlier build/process arrives pre-snoozed,
+        // and skipping registration there left its mirror with no
+        // retirement path at all (device-log verified — taps were
+        // recorded but the key was never tracked).
+        if (result.removeSource && LiveUpdateNotifier.isProgressSourceNotification(sbn)) {
+            progressDismissedSourceKeys.add(sbn.key)
+            sourceLifecycle.retainMirrorAfterRemoval(sbn.key)
+            Log.i(TAG, "Progress source tracked for retirement: ${sbn.key}")
+        }
         // A source that is already snoozed (round 41) is already
         // hidden; attempting to cancel it could delete the snoozed
         // record and orphan the mirror that replaced it.
@@ -1348,10 +1366,6 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         ) return
         rememberSelfDismissedSourceKey(sbn.key)
         sourceLifecycle.retainMirrorAfterRemoval(sbn.key)
-        if (result.removeSource && LiveUpdateNotifier.isProgressSourceNotification(sbn)) {
-            progressDismissedSourceKeys.add(sbn.key)
-            Log.i(TAG, "Progress source tracked for retirement: ${sbn.key}")
-        }
         try {
             cancelNotification(sbn.key)
         } catch (error: Throwable) {

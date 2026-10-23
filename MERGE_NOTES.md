@@ -972,3 +972,20 @@ tap, dismissal logs every tracked progress source, and the
 retire branch logs its decision with both flags, so one more
 device log identifies the failing branch by name. Static
 checks only; device verification pending.
+
+## Progress retirement: registration order + direct cancel (round 68, 2026-10-23)
+
+Round 67's device log was decisive: action taps WERE recorded
+(receiver works), but "tracked for retirement" never logged.
+Two stacked bugs: (1) the tracking registration sat below the
+already-snoozed early return in maybeDismissOriginalSource,
+so any record snoozed by an earlier build/process (the owner's
+repeat downloads of the same app reuse the record) never
+registered; (2) the retire branch only released the lifecycle
+retention and relied on reconcile's missing-key path, which by
+construction never reports a key that is still present in the
+snapshots — the retire was a no-op. Fixes: registration (with
+retention) now happens before the snoozed return, and the
+retire branch cancels the mirror directly via
+cancelMirroredSourceKey. The round 67 diagnostics stay (rare,
+I-level). Static checks only; device verification pending.
