@@ -54,6 +54,7 @@ import java.util.concurrent.Executors
 
 class MainActivity : FlutterActivity() {
     private var notificationPermissionResult: MethodChannel.Result? = null
+    private var bluetoothConnectPermissionResult: MethodChannel.Result? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -108,6 +109,11 @@ class MainActivity : FlutterActivity() {
             notificationPermissionResult?.success(granted)
             notificationPermissionResult = null
         }
+        if (requestCode == REQUEST_BLUETOOTH_CONNECT) {
+            val granted = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
+            bluetoothConnectPermissionResult?.success(granted)
+            bluetoothConnectPermissionResult = null
+        }
     }
 
     private fun handleMethodCall(call: MethodCall, res: MethodChannel.Result) {
@@ -123,6 +129,7 @@ class MainActivity : FlutterActivity() {
             "openNotificationListenerSettings" -> res.success(openNotificationListenerSettings())
             "isNotificationPermissionGranted" -> res.success(isNotificationPermissionGranted())
             "requestNotificationPermission" -> requestNotificationPermission(res)
+            "requestBluetoothConnectPermission" -> requestBluetoothConnectPermission(res)
             "canPostPromotedNotifications" -> res.success(canPostPromotedNotifications())
             "getPromotedNotificationAccess" -> res.success(getPromotedNotificationAccess())
             "openPromotedNotificationSettings" -> res.success(openPromotedNotificationSettings())
@@ -1328,6 +1335,42 @@ class MainActivity : FlutterActivity() {
         )
     }
 
+    private fun isBluetoothConnectPermissionGranted(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            return true
+        }
+        return ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.BLUETOOTH_CONNECT
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    // The connected-devices capsule (tier 1) reads device names and
+    // connection state from the Bluetooth stack, which Android 12+
+    // gates behind this runtime permission. Requested from the
+    // Network & connections screen when the external-devices
+    // toggle is switched on.
+    private fun requestBluetoothConnectPermission(res: MethodChannel.Result) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || isBluetoothConnectPermissionGranted()) {
+            res.success(true)
+            return
+        }
+        if (bluetoothConnectPermissionResult != null) {
+            res.error(
+                "permission_in_progress",
+                "Bluetooth connect permission request is already in progress",
+                null
+            )
+            return
+        }
+        bluetoothConnectPermissionResult = res
+        ActivityCompat.requestPermissions(
+            this,
+            arrayOf(Manifest.permission.BLUETOOTH_CONNECT),
+            REQUEST_BLUETOOTH_CONNECT
+        )
+    }
+
     private fun promotionSettingsIntent() =
         Intent("android.settings.APP_NOTIFICATION_PROMOTION_SETTINGS").apply {
             putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
@@ -1490,6 +1533,7 @@ class MainActivity : FlutterActivity() {
     companion object {
         private const val METHOD_CHANNEL = "livebridge/platform"
         private const val REQUEST_POST_NOTIFICATIONS = 2406
+        private const val REQUEST_BLUETOOTH_CONNECT = 2407
         private const val TAG = "MainActivity"
         private const val UPDATE_CHANNEL_ID = "livebridge_update_checks"
         private const val UPDATE_NOTIFICATION_ID = 32001

@@ -1,6 +1,8 @@
 package com.kakao.taxi.liveupdate
 
 import android.app.Notification
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothDevice
 import android.content.BroadcastReceiver
 import android.app.NotificationManager
 import android.content.ComponentName
@@ -70,6 +72,18 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
     private val chargingInfoReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             handleChargingInfoBatteryChanged(intent)
+        }
+    }
+
+    private var deviceConnectionReceiverRegistered = false
+    private var connectedDevices: List<ConnectedDeviceInfo> = emptyList()
+
+    private val deviceConnectionReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            // The broadcast is only a trigger: the scan re-reads the
+            // stack's own state, which also settles profile-specific
+            // events this receiver does not subscribe to.
+            syncConnectedDevicesMonitoring()
         }
     }
 
@@ -169,6 +183,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
                         ?: throw IllegalStateException("Notification snapshot unavailable")
                     reconcileSources(snapshots)
                     syncFlashlightMirror(snapshots)
+                    syncConnectedDevicesMonitoring()
                     refreshPolicy.retain(snapshots.mapTo(mutableSetOf()) { it.key })
                     for (sbn in snapshots) {
                         if (sbn.packageName == packageName) continue
@@ -207,6 +222,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         registerLockscreenStateReceiver()
         syncTorchMonitoring()
         syncChargingInfoMonitoring()
+        syncConnectedDevicesMonitoring()
         LiveUpdateNotifier.ensureChannel(applicationContext)
         syncNetworkSpeedService()
         drainPendingReplySourceCancels()
@@ -602,6 +618,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         unregisterLockscreenStateReceiver()
         unregisterTorchCallbackIfNeeded()
         unregisterChargingInfoReceiverIfNeeded()
+        unregisterDeviceConnectionReceiverIfNeeded()
         destroyed = true
         listenerConnected = false
         mainHandler.removeCallbacksAndMessages(null)
@@ -1110,6 +1127,73 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
                 Log.w(TAG, "Failed to unregister charging info receiver", error)
             }
         chargingInfoReceiverRegistered = false
+    }
+
+    // Connected-devices capsule monitoring (tier 1, round 71):
+    // gated by the same "external devices" toggle as the
+    // notification-text rule, so one switch runs the whole feature.
+    // The capsule is re-pushed only when the scanned set changes;
+    // the 4s snapshot sync calls this as a backstop for any
+    // broadcast the receiver missed.
+    private fun syncConnectedDevicesMonitoring() {
+        if (
+            prefs.getSmartExternalDevicesEnabled() &&
+            prefs.getConverterEnabled() &&
+            !isUnsupportedDevice()
+        ) {
+            ensureDeviceConnectionReceiverRegistered()
+            val scanned = ConnectedDeviceScanner.scan(applicationContext)
+            if (scanned != connectedDevices) {
+                connectedDevices = scanned
+                LiveUpdateNotifier.refreshConnectedDevicesCapsule(
+                    applicationContext,
+                    prefs,
+                    scanned
+                )
+            }
+        } else {
+            unregisterDeviceConnectionReceiverIfNeeded()
+            connectedDevices = emptyList()
+            LiveUpdateNotifier.cancelConnectedDevicesCapsule(applicationContext)
+        }
+    }
+
+    private fun ensureDeviceConnectionReceiverRegistered() {
+        if (deviceConnectionReceiverRegistered) {
+            return
+        }
+        val filter = IntentFilter().apply {
+            addAction(BluetoothDevice.ACTION_ACL_CONNECTED)
+            addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED)
+            addAction(BluetoothAdapter.ACTION_STATE_CHANGED)
+        }
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(
+                    deviceConnectionReceiver,
+                    filter,
+                    Context.RECEIVER_NOT_EXPORTED
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                registerReceiver(deviceConnectionReceiver, filter)
+            }
+        }.onSuccess {
+            deviceConnectionReceiverRegistered = true
+        }.onFailure { error ->
+            Log.w(TAG, "Failed to register device connection receiver", error)
+        }
+    }
+
+    private fun unregisterDeviceConnectionReceiverIfNeeded() {
+        if (!deviceConnectionReceiverRegistered) {
+            return
+        }
+        runCatching { unregisterReceiver(deviceConnectionReceiver) }
+            .onFailure { error ->
+                Log.w(TAG, "Failed to unregister device connection receiver", error)
+            }
+        deviceConnectionReceiverRegistered = false
     }
 
     private fun handleChargingInfoBatteryChanged(intent: Intent?) {

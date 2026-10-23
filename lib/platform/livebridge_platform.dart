@@ -44,6 +44,8 @@ class LiveBridgePlatform {
       _askBool('isNotificationPermissionGranted');
   static Future<bool> requestNotificationPermission() =>
       _askBool('requestNotificationPermission');
+  static Future<bool> requestBluetoothConnectPermission() =>
+      _askBool('requestBluetoothConnectPermission');
   static Future<PromotedNotificationAccess>
   getPromotedNotificationAccess() async {
     final value = await _channel.invokeMapMethod<Object?, Object?>(

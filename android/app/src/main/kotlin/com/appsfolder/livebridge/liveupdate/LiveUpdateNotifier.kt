@@ -75,6 +75,8 @@ object LiveUpdateNotifier {
     private const val CALL_DURATION_REFRESH_MS = 1_000L
     private const val NOTIFICATION_CAPSULE_ID = 41242
     private const val CHARGING_INFO_ID = 41243
+    private const val DEVICES_CAPSULE_ID = 41244
+    private const val DEVICES_CAPSULE_COLOR = 0xFF2E7CF6.toInt()
     private const val NOTIFICATION_CAPSULE_KEY_PREFIX = "notification_capsule:"
     private const val NOTIFICATION_CAPSULE_CHIP_COLOR = 0xFF5E5867.toInt()
     private const val CHARGING_INFO_FAST_COLOR = 0xFF65DE6B.toInt()
@@ -92,6 +94,7 @@ object LiveUpdateNotifier {
     private const val CHARGING_RATE_MEMORY_MS = 1_800_000L
     private const val LOW_BATTERY_THRESHOLD_PERCENT = 15
     private const val SYSTEMUI_PACKAGE = "com.android.systemui"
+    private const val GALAXY_WEARABLE_PACKAGE = "com.samsung.android.app.watchmanager"
     private const val LOW_BATTERY_TAG = "low_battery"
     private const val CHARGING_STATE_TAG = "charging_state"
     private const val SAMSUNG_DEVICE_CARE_PACKAGE = "com.samsung.android.lool"
@@ -1397,6 +1400,316 @@ object LiveUpdateNotifier {
             NotificationManagerCompat.from(context).cancel(CHARGING_INFO_ID)
         }.onFailure { error ->
             Log.e(TAG, "Failed to cancel charging info capsule", error)
+        }
+    }
+
+    // Connected-devices capsule (tier 1, round 71): driven by the
+    // Bluetooth stack via the listener's device monitoring, NOT by
+    // notifications, so accessories that never post one (a Galaxy
+    // Watch on One UI 9) still appear. Same self-operating shape
+    // as the charging capsule: fixed id, own channel, Samsung
+    // bridge with lockscreenOnly = false so it also lives on the
+    // standby/AOD Now Bar.
+    fun refreshConnectedDevicesCapsule(
+        context: Context,
+        prefs: ConverterPrefs,
+        devices: List<ConnectedDeviceInfo>
+    ): Boolean {
+        if (
+            !prefs.getSmartExternalDevicesEnabled() ||
+            !prefs.getConverterEnabled() ||
+            DeviceBlocker.isBlockedDevice()
+        ) {
+            cancelConnectedDevicesCapsule(context)
+            return false
+        }
+        if (devices.isEmpty()) {
+            cancelConnectedDevicesCapsule(context)
+            return false
+        }
+        ensureChannel(context)
+        val notification = buildConnectedDevicesNotification(context, devices)
+        return runCatching {
+            NotificationManagerCompat.from(context).notify(DEVICES_CAPSULE_ID, notification)
+            true
+        }.onFailure { error ->
+            Log.e(TAG, "Failed to post connected devices capsule", error)
+        }.getOrDefault(false)
+    }
+
+    fun cancelConnectedDevicesCapsule(context: Context) {
+        runCatching {
+            NotificationManagerCompat.from(context).cancel(DEVICES_CAPSULE_ID)
+        }.onFailure { error ->
+            Log.e(TAG, "Failed to cancel connected devices capsule", error)
+        }
+    }
+
+    private fun buildConnectedDevicesNotification(
+        context: Context,
+        devices: List<ConnectedDeviceInfo>
+    ): Notification {
+        val first = devices.first()
+        val single = devices.size == 1
+        val title = if (single) {
+            first.name ?: connectedDevicesKindLabel(context, first.kind)
+        } else {
+            connectedDevicesCountText(context, devices.size)
+        }
+        val collapsedText = if (single) {
+            "${connectedDevicesKindLabel(context, first.kind)} · ${connectedDevicesConnectedText(context)}"
+        } else {
+            devices.joinToString(", ") { device ->
+                device.name ?: connectedDevicesKindLabel(context, device.kind)
+            }
+        }
+        val expandedText = devices.joinToString("\n") { device ->
+            "${device.name ?: connectedDevicesKindLabel(context, device.kind)}" +
+                " · ${connectedDevicesKindLabel(context, device.kind)}" +
+                " · ${connectedDevicesConnectedText(context)}"
+        }
+        val chipText = if (single) {
+            first.name ?: connectedDevicesKindLabel(context, first.kind)
+        } else {
+            connectedDevicesShortCountText(context, devices.size)
+        }
+        val icon = IconCompat.createWithResource(context, R.drawable.ic_stat_liveupdate)
+        val builder = NotificationCompat.Builder(
+            context,
+            MirrorNotificationChannel.CONNECTED_DEVICES.id
+        )
+            .setSmallIcon(R.drawable.ic_stat_liveupdate)
+            .setContentTitle(title)
+            .setContentText(collapsedText)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(expandedText))
+            .setColor(DEVICES_CAPSULE_COLOR)
+            .setOngoing(true)
+            .setAutoCancel(false)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .setDefaults(0)
+            .setWhen(System.currentTimeMillis())
+            .setShowWhen(false)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setCategory(Notification.CATEGORY_STATUS)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setRequestPromotedOngoing(true)
+            .setShortCriticalText(chipText)
+
+        connectedDevicesContentIntent(context)?.let(builder::setContentIntent)
+
+        @Suppress("DEPRECATION")
+        val bridgeSource = Notification().apply {
+            color = DEVICES_CAPSULE_COLOR
+            extras = Bundle()
+        }
+        SamsungLiveUpdateReparser(context).applyNowBarBridge(
+            builder = builder,
+            source = bridgeSource,
+            sourcePackageName = context.packageName,
+            primaryText = title,
+            secondaryText = expandedText,
+            nowBarPrimaryText = title,
+            nowBarSecondaryText = collapsedText,
+            chipText = chipText,
+            chipIcon = icon,
+            nowBarIcon = icon,
+            rightIcon = null,
+            suppressSourceRemoteViews = true,
+            suppressSourceNowBarRemoteView = true,
+            hasProgress = false,
+            progressValue = 0,
+            progressMax = 0,
+            showSecondaryInNowBar = collapsedText.isNotBlank(),
+            disableNowBarRemoteView = true,
+            reuseNotificationRemoteViews = false,
+            lockscreenOnly = false
+        )
+        return SamsungOneUi7NowBarCompat.markEligible(builder.build())
+    }
+
+    // Tap opens Galaxy Wearable when it is installed (the Galaxy
+    // accessories' home), else the system Bluetooth settings, so
+    // the tap never dead-ends on non-Samsung setups.
+    private fun connectedDevicesContentIntent(context: Context): PendingIntent? {
+        val wearableIntent = context.packageManager
+            .getLaunchIntentForPackage(GALAXY_WEARABLE_PACKAGE)
+            ?.apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+        val bluetoothIntent = Intent(Settings.ACTION_BLUETOOTH_SETTINGS).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        val target = wearableIntent
+            ?: bluetoothIntent.takeIf { it.resolveActivity(context.packageManager) != null }
+            ?: return null
+        return PendingIntent.getActivity(
+            context,
+            DEVICES_CAPSULE_ID,
+            target,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
+    private fun connectedDevicesChannelText(context: Context): MirrorChannelText {
+        return when (appLocale(context)) {
+            AppLocale.RU -> MirrorChannelText(
+                name = "Подключённые устройства",
+                description = "Подключённые по Bluetooth часы, наушники и другие аксессуары на панели Now Bar"
+            )
+            AppLocale.TR -> MirrorChannelText(
+                name = "Bağlı cihazlar",
+                description = "Now Bar'da bağlı Bluetooth saatler, kulaklıklar ve diğer aksesuarlar"
+            )
+            AppLocale.PT_BR -> MirrorChannelText(
+                name = "Dispositivos conectados",
+                description = "Relógios, fones e outros acessórios Bluetooth conectados na Now Bar"
+            )
+            AppLocale.ZH_HANS -> MirrorChannelText(
+                name = "已连接设备",
+                description = "Now Bar 上已连接的蓝牙手表、耳机和其他配件"
+            )
+            AppLocale.ZH_HANT -> MirrorChannelText(
+                name = "已連接裝置",
+                description = "Now Bar 上已連接的藍牙手錶、耳機和其他配件"
+            )
+            AppLocale.KO -> MirrorChannelText(
+                name = "연결된 기기",
+                description = "Now Bar에 표시되는 연결된 블루투스 워치, 버즈 및 기타 액세서리"
+            )
+            AppLocale.VI -> MirrorChannelText(
+                name = "Thiết bị đã kết nối",
+                description = "Đồng hồ, tai nghe và phụ kiện Bluetooth đang kết nối, hiển thị trên Now Bar"
+            )
+            AppLocale.EN -> MirrorChannelText(
+                name = "Connected devices",
+                description = "Connected Bluetooth watches, earbuds and other accessories on the Now Bar"
+            )
+        }
+    }
+
+    private fun connectedDevicesConnectedText(context: Context): String {
+        return when (appLocale(context)) {
+            AppLocale.RU -> "Подключено"
+            AppLocale.TR -> "Bağlı"
+            AppLocale.PT_BR -> "Conectado"
+            AppLocale.ZH_HANS -> "已连接"
+            AppLocale.ZH_HANT -> "已連接"
+            AppLocale.KO -> "연결됨"
+            AppLocale.VI -> "Đã kết nối"
+            AppLocale.EN -> "Connected"
+        }
+    }
+
+    private fun connectedDevicesCountText(context: Context, count: Int): String {
+        return when (appLocale(context)) {
+            AppLocale.RU -> "Подключено устройств: $count"
+            AppLocale.TR -> "$count cihaz bağlı"
+            AppLocale.PT_BR -> if (count == 1) "1 dispositivo conectado" else "$count dispositivos conectados"
+            AppLocale.ZH_HANS -> "$count 台设备已连接"
+            AppLocale.ZH_HANT -> "$count 台裝置已連接"
+            AppLocale.KO -> "기기 ${count}대 연결됨"
+            AppLocale.VI -> "$count thiết bị đã kết nối"
+            AppLocale.EN -> if (count == 1) "1 device connected" else "$count devices connected"
+        }
+    }
+
+    private fun connectedDevicesShortCountText(context: Context, count: Int): String {
+        return when (appLocale(context)) {
+            AppLocale.RU -> "$count устр."
+            AppLocale.TR -> "$count cihaz"
+            AppLocale.PT_BR -> "$count dispositivos"
+            AppLocale.ZH_HANS -> "$count 台设备"
+            AppLocale.ZH_HANT -> "$count 台裝置"
+            AppLocale.KO -> "${count}대"
+            AppLocale.VI -> "$count thiết bị"
+            AppLocale.EN -> "$count devices"
+        }
+    }
+
+    private fun connectedDevicesKindLabel(
+        context: Context,
+        kind: ConnectedDeviceKind
+    ): String {
+        return when (kind) {
+            ConnectedDeviceKind.WATCH -> when (appLocale(context)) {
+                AppLocale.RU -> "Часы"
+                AppLocale.TR -> "Saat"
+                AppLocale.PT_BR -> "Relógio"
+                AppLocale.ZH_HANS -> "手表"
+                AppLocale.ZH_HANT -> "手錶"
+                AppLocale.KO -> "워치"
+                AppLocale.VI -> "Đồng hồ"
+                AppLocale.EN -> "Watch"
+            }
+            ConnectedDeviceKind.BUDS -> when (appLocale(context)) {
+                AppLocale.RU -> "Наушники"
+                AppLocale.TR -> "Kulaklık"
+                AppLocale.PT_BR -> "Fones"
+                AppLocale.ZH_HANS -> "耳机"
+                AppLocale.ZH_HANT -> "耳機"
+                AppLocale.KO -> "버즈"
+                AppLocale.VI -> "Tai nghe"
+                AppLocale.EN -> "Earbuds"
+            }
+            ConnectedDeviceKind.BAND -> when (appLocale(context)) {
+                AppLocale.RU -> "Браслет"
+                AppLocale.TR -> "Bileklik"
+                AppLocale.PT_BR -> "Pulseira"
+                AppLocale.ZH_HANS -> "手环"
+                AppLocale.ZH_HANT -> "手環"
+                AppLocale.KO -> "밴드"
+                AppLocale.VI -> "Vòng đeo tay"
+                AppLocale.EN -> "Band"
+            }
+            ConnectedDeviceKind.RING -> when (appLocale(context)) {
+                AppLocale.RU -> "Кольцо"
+                AppLocale.TR -> "Yüzük"
+                AppLocale.PT_BR -> "Anel"
+                AppLocale.ZH_HANS -> "戒指"
+                AppLocale.ZH_HANT -> "戒指"
+                AppLocale.KO -> "링"
+                AppLocale.VI -> "Nhẫn"
+                AppLocale.EN -> "Ring"
+            }
+            ConnectedDeviceKind.GLASSES -> when (appLocale(context)) {
+                AppLocale.RU -> "Очки"
+                AppLocale.TR -> "Gözlük"
+                AppLocale.PT_BR -> "Óculos"
+                AppLocale.ZH_HANS -> "眼镜"
+                AppLocale.ZH_HANT -> "眼鏡"
+                AppLocale.KO -> "안경"
+                AppLocale.VI -> "Kính"
+                AppLocale.EN -> "Glasses"
+            }
+            ConnectedDeviceKind.HEADPHONES -> when (appLocale(context)) {
+                AppLocale.RU -> "Наушники"
+                AppLocale.TR -> "Kulaklık"
+                AppLocale.PT_BR -> "Fones de ouvido"
+                AppLocale.ZH_HANS -> "耳机"
+                AppLocale.ZH_HANT -> "耳機"
+                AppLocale.KO -> "헤드폰"
+                AppLocale.VI -> "Tai nghe"
+                AppLocale.EN -> "Headphones"
+            }
+            ConnectedDeviceKind.SPEAKER -> when (appLocale(context)) {
+                AppLocale.RU -> "Колонка"
+                AppLocale.TR -> "Hoparlör"
+                AppLocale.PT_BR -> "Caixa de som"
+                AppLocale.ZH_HANS -> "音箱"
+                AppLocale.ZH_HANT -> "音箱"
+                AppLocale.KO -> "스피커"
+                AppLocale.VI -> "Loa"
+                AppLocale.EN -> "Speaker"
+            }
+            ConnectedDeviceKind.GENERIC -> when (appLocale(context)) {
+                AppLocale.RU -> "Устройство"
+                AppLocale.TR -> "Cihaz"
+                AppLocale.PT_BR -> "Dispositivo"
+                AppLocale.ZH_HANS -> "设备"
+                AppLocale.ZH_HANT -> "設備"
+                AppLocale.KO -> "기기"
+                AppLocale.VI -> "Thiết bị"
+                AppLocale.EN -> "Device"
+            }
         }
     }
 
@@ -3894,6 +4207,9 @@ object LiveUpdateNotifier {
             MirrorNotificationChannel.CHARGING_INFO ->
                 chargingInfoChannelText(context)
 
+            MirrorNotificationChannel.CONNECTED_DEVICES ->
+                connectedDevicesChannelText(context)
+
             MirrorNotificationChannel.BYPASS -> {
                 if (isRussian) {
                     MirrorChannelText(
@@ -3934,6 +4250,7 @@ object LiveUpdateNotifier {
             MirrorNotificationChannel.BYPASS -> MirrorChannelText(NativeAppStrings.text(context, base.name, base.name, "Aplicaciones que siempre se convierten", "Apps mit erzwungener Umwandlung"), NativeAppStrings.text(context, base.description, base.description, "Notificaciones de aplicaciones que omiten los filtros", "Benachrichtigungen von Apps ohne Regelfilter"))
             MirrorNotificationChannel.NOTIFICATION_CAPSULE -> notificationCapsuleChannelText(context)
             MirrorNotificationChannel.CHARGING_INFO -> chargingInfoChannelText(context)
+            MirrorNotificationChannel.CONNECTED_DEVICES -> connectedDevicesChannelText(context)
             MirrorNotificationChannel.ALERTS -> MirrorChannelText(NativeAppStrings.text(context, base.name, base.name, "Alertas", "Warnungen"), NativeAppStrings.text(context, base.description, base.description, "Notificaciones de chat que siempre alertan", "Chat-Benachrichtigungen, die immer alarmieren"))
         }
         val effects = buildList {
@@ -10813,6 +11130,7 @@ object LiveUpdateNotifier {
         MISCELLANEOUS("livebridge_miscellaneous_conversions"),
         NOTIFICATION_CAPSULE("livebridge_notification_capsule"),
         CHARGING_INFO("livebridge_charging_info"),
+        CONNECTED_DEVICES("livebridge_connected_devices"),
         ALERTS("livebridge_alerts_v3"),
         BYPASS("livebridge_bypass_applications");
 

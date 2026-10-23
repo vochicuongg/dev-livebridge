@@ -1021,3 +1021,35 @@ live new download) lifts the retirement; if the record freezes
 again, reconcile re-hardens against the final content. The
 hard mark clears when the record leaves the system's lists.
 Static checks only; device verification pending.
+
+## Connected-devices capsule, tier 1 core (round 71, 2026-10-23)
+
+Owner picked the full three-tier plan for a Galaxy-devices
+connection capsule (Watch, Buds, Fit, Ring, Glasses, others):
+(1) a self-operating Bluetooth-tracking capsule, (2) Samsung
+notification enrichment (pretty names, detailed battery),
+(3) upgrades to the upstream external_device text rule (VI/KO
+patterns, battery extraction). This round is tier 1's core.
+
+New ConnectedDeviceScanner: bonded devices only (transient
+BLE encounters cannot flicker the capsule), seeded from
+GATT/HEADSET/A2DP connected devices plus bonded devices
+reporting isConnected; classification by name heuristics
+(Buds/Ring/Glass/Fit/Watch) then BluetoothClass (wrist-worn,
+audio-video minors, major WEARABLE/HEALTH/AUDIO_VIDEO).
+The listener registers an ACL connect/disconnect + adapter
+state receiver and rescans on the 4s snapshot cadence, pushing
+only on set changes. Gated by the EXISTING external-devices
+toggle — one switch runs the whole feature, per the owner's
+toggle philosophy. Capsule: own channel
+(livebridge_connected_devices, localized names), fixed id
+41244, charging-capsule shape (Samsung bridge,
+lockscreenOnly=false), tap opens Galaxy Wearable else
+Bluetooth settings. BLUETOOTH_CONNECT is declared and
+requested at runtime from the Network & connections screen
+when the toggle turns on (MainActivity method channel,
+mirroring the notification-permission flow). Battery levels
+are deliberately NOT in this round: they arrive with the BLE
+Battery Service reader (tier 1 follow-up) and tier 2's Samsung
+notification parsing. Static checks only (brace/paren baselines
+held, flutter analyze clean); device verification pending.

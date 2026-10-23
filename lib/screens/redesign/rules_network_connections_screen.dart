@@ -167,6 +167,12 @@ class _RulesNetworkConnectionsScreenState
     }
     setState(() => _externalDevicesEnabled = value);
     await LiveBridgePlatform.setSmartExternalDevicesEnabled(value);
+    if (value) {
+      // The connected-devices capsule reads names and connection
+      // state from the Bluetooth stack (Android 12+ runtime
+      // permission); ask for it right where the feature is enabled.
+      await LiveBridgePlatform.requestBluetoothConnectPermission();
+    }
   }
 
   Future<void> _setIgnoreDebuggingDevices(bool value) async {
