@@ -616,7 +616,8 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         val activeKeys = active.mapTo(HashSet()) { it.key }
         val snoozedSources = snoozed.filter { snoozedSbn ->
             snoozedSbn.key !in activeKeys &&
-                LiveUpdateNotifier.isSmartStatusSource(applicationContext, prefs, snoozedSbn)
+                (LiveUpdateNotifier.isSmartStatusSource(applicationContext, prefs, snoozedSbn) ||
+                    LiveUpdateNotifier.isProgressSourceNotification(snoozedSbn))
         }
         return if (snoozedSources.isEmpty()) active else active + snoozedSources
     }

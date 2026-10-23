@@ -3135,7 +3135,8 @@ object LiveUpdateNotifier {
                     )
                     mirroredResult(
                         notificationId = mirrorIdForKey(sbn.key),
-                        mirrorKey = sbn.key
+                        mirrorKey = sbn.key,
+                        removeSource = true
                     )
                 }
 
@@ -7040,6 +7041,16 @@ object LiveUpdateNotifier {
     ): Boolean {
         val parserDictionary = LiveParserDictionaryLoader.get(context, prefs)
         return isOngoingSmartStatusCandidate(prefs, sbn, parserDictionary)
+    }
+
+    /**
+     * Whether a (possibly snoozed) notification is a download-style
+     * progress source whose mirror must keep tracking it — the
+     * listener folds such records into its snapshot sync (round 63),
+     * the same treatment smart status sources get.
+     */
+    fun isProgressSourceNotification(sbn: StatusBarNotification): Boolean {
+        return isOngoingProgressCandidate(sbn)
     }
 
     /**

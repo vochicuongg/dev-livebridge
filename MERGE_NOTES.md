@@ -879,3 +879,20 @@ the summary notification itself stays rejected — the per-app
 children carry the progress. Static checks only; device
 verification pending (download an app from Play Store and watch
 the Now Bar).
+
+## Progress mirror replaces its source (round 63, 2026-10-23)
+
+Owner verified round 62 (Play Store download capsule appears)
+but the original Play Store download notification stayed in the
+shade next to it. The progress branch now returns
+removeSource = true, reusing the VPN-proven dismissal: cancel,
+verify after 1.2s, snooze 12h if One UI keeps the record. A
+snoozed source stops emitting posted events, so — the round 41
+lesson — snoozed progress records are folded into the listener's
+snapshot sync via the new LiveUpdateNotifier
+.isProgressSourceNotification check; their changed postTimes
+re-drive the mirror at the sync cadence, so the percentage keeps
+moving while the original stays hidden. On completion the
+store cancels its record (snooze dies with it) and the mirror
+resolves through the usual reconcile. Static checks only;
+device verification pending.
