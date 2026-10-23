@@ -1555,7 +1555,16 @@ object LiveUpdateNotifier {
         // cards simply never read it). The status bar draws the
         // bitmap's alpha shape, the badges draw the glyph itself.
         if (samsungBitmap != null) {
-            notification.smallIcon = Icon.createWithBitmap(samsungBitmap)
+            // The SDK stub exposes smallIcon as a Kotlin val even
+            // though the framework field is a plain public field;
+            // assign it reflectively. A failure here only costs
+            // the glyph — the notification stays valid.
+            runCatching {
+                Notification::class.java.getField("smallIcon")
+                    .set(notification, Icon.createWithBitmap(samsungBitmap))
+            }.onFailure { error ->
+                Log.i(TAG, "Devices capsule: small icon swap failed: $error")
+            }
         }
         return notification
     }

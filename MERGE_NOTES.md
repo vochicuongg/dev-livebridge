@@ -1209,3 +1209,8 @@ platform smallIcon field is swapped for an Icon created from
 the Samsung bitmap. The badge color question (promotion
 extras blue vs the shade setColor) is deliberately untouched
 this round; the glyph was the complaint.
+Round 81 fix: the SDK stub exposes Notification.smallIcon as
+a Kotlin val, so the direct assignment did not compile. The
+swap now goes through reflection on the public framework
+field, guarded so a failure leaves the resource icon in
+place.
