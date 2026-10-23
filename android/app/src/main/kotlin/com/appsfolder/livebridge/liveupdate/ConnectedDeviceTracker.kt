@@ -8,6 +8,7 @@ import android.bluetooth.BluetoothProfile
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.util.Log
 import androidx.core.content.ContextCompat
 import java.util.Locale
 
@@ -43,6 +44,9 @@ internal data class ConnectedDeviceInfo(
  */
 internal object ConnectedDeviceScanner {
 
+    // Same tag as the listener so one logcat filter catches both.
+    private const val TAG = "LiveUpdateListener"
+
     private val CONNECTION_PROFILES = intArrayOf(
         BluetoothProfile.GATT,
         BluetoothProfile.HEADSET,
@@ -64,10 +68,13 @@ internal object ConnectedDeviceScanner {
             context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
                 ?: return emptyList()
         val adapter = manager.adapter ?: return emptyList()
-        if (!adapter.isEnabled) {
-            return emptyList()
-        }
-        if (!hasBluetoothConnectPermission(context)) {
+        val bluetoothOn = runCatching { adapter.isEnabled }.getOrDefault(false)
+        val permission = hasBluetoothConnectPermission(context)
+        if (!bluetoothOn || !permission) {
+            Log.i(
+                TAG,
+                "Device scan unavailable: btOn=$bluetoothOn bluetoothConnectPermission=$permission"
+            )
             return emptyList()
         }
         val byAddress = linkedMapOf<String, BluetoothDevice>()
@@ -95,7 +102,7 @@ internal object ConnectedDeviceScanner {
                     byAddress[device.address] = device
                 }
             }
-        return byAddress.values
+        val result = byAddress.values
             .map { device ->
                 val name = runCatching { device.name }
                     .getOrNull()
@@ -114,6 +121,45 @@ internal object ConnectedDeviceScanner {
                 compareBy<ConnectedDeviceInfo> { it.kind.ordinal }
                     .thenBy { it.name.orEmpty() }
             )
+        // Diagnostics (round 72): the owner's Galaxy Watch FE stays
+        // connected through Galaxy Wearable yet never appeared in
+        // the scan. Log what the stack actually reports so the
+        // blind spot is identified from evidence, not guesswork: a found
+        // set on change, and — when the result is empty — the
+        // per-profile connection state of every bonded device
+        // (2 = STATE_CONNECTED for gatt/headset/a2dp).
+        if (result.isNotEmpty()) {
+            Log.i(
+                TAG,
+                "Device scan found: " + result.joinToString { info ->
+                    "${info.name ?: "?"}(${info.kind})"
+                }
+            )
+        } else {
+            logBondedDeviceStates(manager, adapter)
+        }
+        return result
+    }
+
+    private fun logBondedDeviceStates(
+        manager: BluetoothManager,
+        adapter: android.bluetooth.BluetoothAdapter
+    ) {
+        val bonded = runCatching { adapter.bondedDevices }.getOrNull().orEmpty()
+        if (bonded.isEmpty()) {
+            Log.i(TAG, "Device scan empty; no bonded devices visible")
+            return
+        }
+        val lines = bonded.map { device ->
+            val name = runCatching { device.name }.getOrNull() ?: "?"
+            val states = CONNECTION_PROFILES.joinToString("/") { profile ->
+                runCatching { manager.getConnectionState(device, profile) }
+                    .getOrDefault(-1)
+                    .toString()
+            }
+            "$name [gatt/headset/a2dp=$states]"
+        }
+        Log.i(TAG, "Device scan empty; bonded states: " + lines.joinToString("; "))
     }
 
     fun classify(

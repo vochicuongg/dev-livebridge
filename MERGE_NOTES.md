@@ -1064,3 +1064,16 @@ exist in this SDK; the major-class WEARABLE fallback already
 classifies those as watches, so the arm was dropped. The
 notifier's refresh entry point is now internal so it can take
 the internal ConnectedDeviceInfo type.
+
+### Round 72 (2026-10-23): device-scan diagnostics
+
+Round 71 built and installed cleanly and the BLUETOOTH_CONNECT
+permission was granted, but no capsule appeared while the
+owner's Galaxy Watch FE was connected through Galaxy Wearable.
+The scan now logs at I level under the listener's tag: when it
+is unavailable (Bluetooth off / permission), what it found, and
+— when it finds nothing — the per-profile connection state
+(gatt/headset/a2dp) of every bonded device. That distinguishes
+"the stack hides the watch's accessory-layer link from public
+profiles" from a defect in the collection logic before any fix
+is attempted.
