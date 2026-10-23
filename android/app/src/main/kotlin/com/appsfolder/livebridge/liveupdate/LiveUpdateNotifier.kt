@@ -1425,9 +1425,10 @@ object LiveUpdateNotifier {
         prefs: ConverterPrefs,
         devices: List<ConnectedDeviceInfo>
     ): Boolean {
-        // Round 91: read the device-info provider's own
-        // interface constants out of Galaxy Wearable's code.
-        ProviderClassProbe.runOnce(context)
+        // Round 92: query Wearable's dashboard_table — the
+        // table its provider class names as the home of
+        // per-device battery info.
+        DashboardQueryProbe.runOnce(context)
         if (
             !prefs.getSmartExternalDevicesEnabled() ||
             !prefs.getConverterEnabled() ||

@@ -1343,3 +1343,15 @@ package context (CONTEXT_INCLUDE_CODE, the SamsungDevice
 Icons technique) and dumps its static constants + declared
 methods (+ superclass) — providers normally declare their
 authority, URI paths and call method names as statics.
+
+Round 91 verdict (device log 24/10): the class is com.
+samsung.android.app.twatchmanager.contentprovider.Dash
+boardContentProvider and it names its own contract:
+TABLE_NAME="dashboard_table" (matcher codes 1=table,
+2=table/#), a DEVICE_DASHBOARD_PERMISSION constant, and —
+decisively — an updateColumnBatteryInfo method: the table
+stores per-device battery info for the Wearable dashboard.
+Round 90's all-NULL matrix simply never tried this path.
+Round 92: DashboardQueryProbe queries /dashboard_table
+(and /dashboard_table/1), logging getType plus columns and
+up to 10 full rows.
