@@ -3718,6 +3718,25 @@ object LiveUpdateNotifier {
         }
     }
 
+    // Progress-mirror action taps (round 66): the Play Store keeps
+    // its snoozed record after a download is cancelled, so no
+    // removal event ever retires the mirror. The mirror's actions
+    // are therefore proxied (ProgressActionReceiver) and every tap
+    // is time-stamped here; the listener retires the mirror when a
+    // tap is not followed by any change to the source record.
+    private val progressActionTaps =
+        java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    fun noteProgressActionTap(sourceKey: String) {
+        progressActionTaps[sourceKey] = SystemClock.elapsedRealtime()
+    }
+
+    fun progressActionTapAt(sourceKey: String): Long? = progressActionTaps[sourceKey]
+
+    fun clearProgressActionTap(sourceKey: String) {
+        progressActionTaps.remove(sourceKey)
+    }
+
     private fun notMirroredResult(retryNeeded: Boolean = false): MirrorResult {
         return MirrorResult(mirrored = false, retryNeeded = retryNeeded)
     }
@@ -5420,7 +5439,8 @@ object LiveUpdateNotifier {
             },
             preferMediaControls = preferMediaControls,
             mediaPlaybackIsPlaying = mediaPlaybackIsPlaying,
-            useMediaActionSymbols = useMediaActionSymbols
+            useMediaActionSymbols = useMediaActionSymbols,
+            progressSourceKey = if (hasProgress) sbn.key else null
         )
 
         if (hasProgress) {
@@ -9237,7 +9257,8 @@ object LiveUpdateNotifier {
         maxActions: Int,
         preferMediaControls: Boolean = false,
         mediaPlaybackIsPlaying: Boolean? = null,
-        useMediaActionSymbols: Boolean = false
+        useMediaActionSymbols: Boolean = false,
+        progressSourceKey: String? = null
     ) {
         val actions = source.actions
             ?.filter { action -> action.remoteInputs.isNullOrEmpty() }
@@ -9282,7 +9303,7 @@ object LiveUpdateNotifier {
             )
             .take(safeMaxActions)
             .forEach { (_, frameworkAction) ->
-            val compatAction = toCompatAction(frameworkAction = frameworkAction, context = context) ?: return@forEach
+            val compatAction = toCompatAction(frameworkAction = frameworkAction, context = context, progressSourceKey = progressSourceKey) ?: return@forEach
             builder.addAction(compatAction)
         }
     }
@@ -9396,7 +9417,8 @@ object LiveUpdateNotifier {
         mirrorKey: String? = null,
         context: Context? = null,
         showsUserInterface: Boolean = true,
-        useWearProxy: Boolean = false
+        useWearProxy: Boolean = false,
+        progressSourceKey: String? = null
     ): NotificationCompat.Action? {
         if (frameworkAction.actionIntent == null) {
             return null
@@ -9423,6 +9445,17 @@ object LiveUpdateNotifier {
                     actionTitle,
                     frameworkAction.remoteInputs!!.first().label?.toString(),
                     useWearProxy
+                ) ?: actionIntent
+            } else if (!hasRemoteInputs && progressSourceKey != null && context != null) {
+                // Progress mirrors proxy their plain actions too
+                // (round 66): the tap must be observable, because a
+                // cancelled download leaves its snoozed source record
+                // behind and nothing else reports that it ended.
+                createProgressActionPendingIntent(
+                    context,
+                    actionIntent,
+                    progressSourceKey,
+                    actionTitle
                 ) ?: actionIntent
             } else {
                 actionIntent
@@ -10096,6 +10129,30 @@ object LiveUpdateNotifier {
             )
         } catch (e: Exception) {
             Log.w(TAG, "Failed to create proxy reply PendingIntent for mirrorKey=$mirrorKey", e)
+            null
+        }
+    }
+
+    private fun createProgressActionPendingIntent(
+        context: Context,
+        originalIntent: PendingIntent,
+        sourceKey: String,
+        actionTitle: String
+    ): PendingIntent? {
+        return try {
+            val intent = Intent(context, ProgressActionReceiver::class.java).apply {
+                action = ProgressActionReceiver.ACTION_PROGRESS_ACTION
+                putExtra(ProgressActionReceiver.EXTRA_ORIGINAL_PENDING_INTENT, originalIntent)
+                putExtra(ProgressActionReceiver.EXTRA_SOURCE_KEY, sourceKey)
+            }
+            PendingIntent.getBroadcast(
+                context,
+                (sourceKey + "|progress|" + actionTitle).hashCode(),
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to create progress action proxy for $sourceKey", e)
             null
         }
     }

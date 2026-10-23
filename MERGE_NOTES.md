@@ -930,3 +930,27 @@ consecutive cycles (~8s), letting the existing missing-key path
 cancel the mirror. Round 64's instant path still applies when
 a removal event does arrive. Static checks only; device
 verification pending.
+
+## Progress capsule retires on frozen source records (round 66, 2026-10-23)
+
+Device dumpsys after a store-side cancel proved the Play Store
+NEVER deletes its notification record: it sat in the snoozed
+list indefinitely after the download was cancelled, so rounds
+64 (removal event) and 65 (absence lapse) could never fire —
+the record was present but frozen forever. Three layers now:
+(1) progress mirrors proxy their plain actions through the new
+ProgressActionReceiver, which forwards the intent and
+time-stamps the tap in LiveUpdateNotifier; (2) the listener
+fingerprints every progress record per snapshot cycle
+(postTime + progress extras + title/text) — a dismissed
+progress source whose record shows no change for 8s after a
+mirror action tap, or 60s with no tap, loses its lifecycle
+retention and the mirror is cancelled by the existing
+missing-key path; (3) a retired source's fingerprint is
+remembered and processIncomingNotification refuses to rebuild
+the mirror from the frozen record until its content actually
+changes (a pause tap survives: the store updates the record,
+which clears the tap and the stale mark). Accepted trade: a
+download paused inside the store app also retires after 60s of
+silence and re-mirrors when it resumes. Static checks only;
+device verification pending.

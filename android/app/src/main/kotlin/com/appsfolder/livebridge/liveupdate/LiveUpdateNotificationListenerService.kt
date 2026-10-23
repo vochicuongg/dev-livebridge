@@ -40,6 +40,8 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
     private var trackedFlashlightSourceKey: String? = null
     private val progressDismissedSourceKeys = mutableSetOf<String>()
     private val progressAbsentStreaks = mutableMapOf<String, Int>()
+    private val progressFingerprints = mutableMapOf<String, Pair<String, Long>>()
+    private val staleProgressFingerprints = mutableMapOf<String, String>()
     private var isTorchCallbackRegistered = false
     private var rebindAttempts = 0
     private var rebindScheduled = false
@@ -642,8 +644,40 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         return if (snoozedSources.isEmpty()) active else active + snoozedSources
     }
 
+    private fun progressFingerprint(sbn: StatusBarNotification): String {
+        val extras = sbn.notification.extras
+        return listOf(
+            sbn.postTime.toString(),
+            extras.getInt(Notification.EXTRA_PROGRESS, -1).toString(),
+            extras.getInt(Notification.EXTRA_PROGRESS_MAX, -1).toString(),
+            extras.getBoolean(Notification.EXTRA_PROGRESS_INDETERMINATE, false).toString(),
+            extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty(),
+            extras.getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty()
+        ).joinToString("|")
+    }
+
     private fun reconcileSources(snapshots: List<StatusBarNotification>) {
         val activeKeys = snapshots.asSequence().filter { it.packageName != packageName }.map { it.key }.toSet()
+        // Fingerprint every present progress record (round 66): a
+        // record whose content stops changing is a download the
+        // owning app ended without deleting its (snoozed) record —
+        // device-verified for the Play Store, whose record stays in
+        // the snoozed list after the download itself is cancelled.
+        val nowElapsed = SystemClock.elapsedRealtime()
+        val presentProgressKeys = mutableSetOf<String>()
+        for (snapshot in snapshots) {
+            if (snapshot.packageName == packageName) continue
+            if (!LiveUpdateNotifier.isProgressSourceNotification(snapshot)) continue
+            presentProgressKeys.add(snapshot.key)
+            val fingerprint = progressFingerprint(snapshot)
+            val previous = progressFingerprints[snapshot.key]
+            if (previous == null || previous.first != fingerprint) {
+                progressFingerprints[snapshot.key] = fingerprint to nowElapsed
+                LiveUpdateNotifier.clearProgressActionTap(snapshot.key)
+                staleProgressFingerprints.remove(snapshot.key)
+            }
+        }
+        progressFingerprints.keys.retainAll(presentProgressKeys)
         // Progress mirrors have no driver besides their source record
         // (round 65). The retention taken out when the source was
         // hidden (round 63) must lapse once the record is gone from
@@ -658,6 +692,27 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
             val key = progressIterator.next()
             if (key in activeKeys) {
                 progressAbsentStreaks.remove(key)
+                // The record is still listed, but it may be a frozen
+                // leftover (round 66): retire the mirror when an
+                // action tap on it was never followed by a record
+                // change (the store silently killed the download),
+                // or when the record has been frozen for a minute
+                // (cancelled inside the store app instead — no tap,
+                // no record change, no removal event either way).
+                val lastChange = progressFingerprints[key]?.second
+                val tapAt = LiveUpdateNotifier.progressActionTapAt(key)
+                val tapDead = tapAt != null && lastChange != null &&
+                    lastChange <= tapAt && nowElapsed - tapAt >= PROGRESS_TAP_DEAD_MS
+                val staleDead = lastChange != null &&
+                    nowElapsed - lastChange >= PROGRESS_STALE_MS
+                if (tapDead || staleDead) {
+                    sourceLifecycle.cancelRetention(key)
+                    progressFingerprints[key]?.let { (fingerprint, _) ->
+                        staleProgressFingerprints[key] = fingerprint
+                    }
+                    LiveUpdateNotifier.clearProgressActionTap(key)
+                    progressIterator.remove()
+                }
                 continue
             }
             val streak = (progressAbsentStreaks[key] ?: 0) + 1
@@ -690,6 +745,14 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
     }
 
     private fun processIncomingNotification(sbn: StatusBarNotification): Boolean {
+        // A retired progress source (round 66) must not rebuild its
+        // mirror from the frozen record the store left snoozed; it
+        // may mirror again only when that record actually changes.
+        val staleFingerprint = staleProgressFingerprints[sbn.key]
+        if (staleFingerprint != null) {
+            if (staleFingerprint == progressFingerprint(sbn)) return false
+            staleProgressFingerprints.remove(sbn.key)
+        }
         val ranking = Ranking()
         val channelName = try {
             if (currentRanking.getRanking(sbn.key, ranking)) ranking.channel?.name?.toString() else null
@@ -1700,6 +1763,8 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         private const val MAX_REBIND_DELAY_MS = 30_000L
         private const val MAX_REBIND_ATTEMPTS = 6
         private const val SNAPSHOT_SYNC_INTERVAL_MS = 4_000L
+        private const val PROGRESS_TAP_DEAD_MS = 8_000L
+        private const val PROGRESS_STALE_MS = 60_000L
         private const val ORIGINAL_DISMISS_INITIAL_GRACE_MS = 750L
         private const val VPN_SOURCE_DISMISS_VERIFY_DELAY_MS = 1200L
         private const val VPN_SOURCE_SNOOZE_MS = 12 * 60 * 60 * 1000L
