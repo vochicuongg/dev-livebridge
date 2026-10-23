@@ -1159,3 +1159,9 @@ badge. IconSheetProbe renders every keyword-matching drawable
 from the candidate Samsung packages to PNGs in the app's
 external files dir so the exact outline resources can be
 picked by eye before the next wiring round.
+Fix: the sheet probe loaded each package's R class with this
+app's class loader, which cannot see other apps' classes —
+the enumeration silently returned zero candidates everywhere.
+It now loads through the target package context's class loader
+(CONTEXT_INCLUDE_CODE) and logs the raw field count per
+package so an empty table can never hide again.

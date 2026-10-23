@@ -69,17 +69,26 @@ internal object IconSheetProbe {
 
     private fun renderPackage(context: Context, outDir: File, packageName: String): Int {
         val packageContext = runCatching {
-            context.createPackageContext(packageName, Context.CONTEXT_IGNORE_SECURITY)
+            context.createPackageContext(
+                packageName,
+                Context.CONTEXT_IGNORE_SECURITY or Context.CONTEXT_INCLUDE_CODE
+            )
         }.getOrNull()
         if (packageContext == null) {
             Log.i(TAG, "IconSheet: $packageName not installed")
             return 0
         }
         val resources = packageContext.resources
+        // The R class belongs to the other package: it can only be
+        // loaded through that package's own class loader. Loading
+        // it with this app's class loader (round 78's first cut)
+        // throws ClassNotFoundException for every package and the
+        // enumeration silently came back empty.
         val names = runCatching {
-            val drawableClass = Class.forName("$packageName.R\$drawable")
+            val drawableClass = packageContext.classLoader.loadClass("$packageName.R\$drawable")
             drawableClass.fields.map { field -> field.name }
         }.getOrDefault(emptyList())
+        Log.i(TAG, "IconSheet: $packageName fields=${names.size}")
         val candidates = names.filter { name ->
             val lower = name.lowercase(Locale.ROOT)
             KEYWORDS.any { keyword -> lower.contains(keyword) }
