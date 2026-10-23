@@ -10144,6 +10144,7 @@ object LiveUpdateNotifier {
                 action = ProgressActionReceiver.ACTION_PROGRESS_ACTION
                 putExtra(ProgressActionReceiver.EXTRA_ORIGINAL_PENDING_INTENT, originalIntent)
                 putExtra(ProgressActionReceiver.EXTRA_SOURCE_KEY, sourceKey)
+                putExtra(ProgressActionReceiver.EXTRA_ACTION_TITLE, actionTitle)
             }
             PendingIntent.getBroadcast(
                 context,

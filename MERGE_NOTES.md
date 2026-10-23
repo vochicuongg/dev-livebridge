@@ -989,3 +989,19 @@ retention) now happens before the snoozed return, and the
 retire branch cancels the mirror directly via
 cancelMirroredSourceKey. The round 67 diagnostics stay (rare,
 I-level). Static checks only; device verification pending.
+
+## Progress capsule: instant retire on Cancel tap (round 69, 2026-10-23)
+
+Round 68 device-confirmed: Cancel on the capsule cancels the
+download and the capsule retires after ~8s. Owner asked for
+immediate removal. The proxy intent now also carries the
+action title; ProgressActionReceiver recognises Cancel titles
+across the app's locales (cancel / hủy / отмен / iptal /
+cancelar / abbrechen / annuler / annulla / 取消 / キャンセル /
+취소 / batal / annuleren / avbryt / anuluj) and, after
+forwarding the intent, asks the listener to retire the source
+at once (stale-mark + retention release + direct mirror
+cancel). Pause/Resume never match, so paused downloads keep
+their capsule; the 8s/60s frozen-record backstops stay for
+cancels made inside the store app. Static checks only; device
+verification pending.

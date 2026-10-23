@@ -24,12 +24,24 @@ class ProgressActionReceiver : BroadcastReceiver() {
             @Suppress("DEPRECATION")
             intent.getParcelableExtra(EXTRA_ORIGINAL_PENDING_INTENT)
         }
-        LiveUpdateNotifier.noteProgressActionTap(sourceKey)
-        Log.i(TAG, "Progress action tap recorded: $sourceKey")
+        val actionTitle = intent.getStringExtra(EXTRA_ACTION_TITLE).orEmpty()
         try {
             originalIntent?.send()
         } catch (error: Throwable) {
             Log.w(TAG, "Progress action intent failed for $sourceKey", error)
+        }
+        LiveUpdateNotifier.noteProgressActionTap(sourceKey)
+        Log.i(TAG, "Progress action tap recorded: $sourceKey")
+        // A Cancel tap ends the download by the user's own hand:
+        // retire the mirror immediately instead of waiting out the
+        // frozen-record suspicion window (round 69, owner request).
+        // Pause/Resume titles never match, so a paused download
+        // keeps its capsule and the record's state change clears
+        // the tap suspicion as before.
+        if (isCancelActionTitle(actionTitle)) {
+            Log.i(TAG, "Progress cancel tap: retire mirror now: $sourceKey")
+            LiveUpdateNotificationListenerService.activeInstance
+                ?.retireProgressSourceNow(sourceKey)
         }
     }
 
@@ -37,6 +49,19 @@ class ProgressActionReceiver : BroadcastReceiver() {
         const val ACTION_PROGRESS_ACTION = "com.kakao.taxi.action.PROGRESS_ACTION"
         const val EXTRA_ORIGINAL_PENDING_INTENT = "original_pending_intent"
         const val EXTRA_SOURCE_KEY = "source_key"
+        const val EXTRA_ACTION_TITLE = "action_title"
         private const val TAG = "ProgressActionReceiver"
+
+        private val CANCEL_TITLE_MARKERS = listOf(
+            "cancel", "hủy", "huỷ", "отмен", "iptal", "cancelar",
+            "abbrechen", "annuler", "annulla", "取消", "キャンセル",
+            "취소", "batal", "annuleren", "avbryt", "anuluj"
+        )
+
+        fun isCancelActionTitle(title: String): Boolean {
+            val normalized = title.trim().lowercase()
+            if (normalized.isEmpty()) return false
+            return CANCEL_TITLE_MARKERS.any { marker -> normalized.contains(marker) }
+        }
     }
 }

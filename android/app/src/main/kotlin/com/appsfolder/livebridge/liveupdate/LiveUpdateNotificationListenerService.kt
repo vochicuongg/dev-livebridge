@@ -1193,6 +1193,27 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         mainHandler.post(snapshotSyncRunnable)
     }
 
+    // Instant retirement for a Cancel tap on the progress mirror
+    // itself (round 69): the frozen-record suspicion window stays
+    // as the backstop for cancels that happen inside the source
+    // app, but the user's own tap needs no waiting — the download
+    // is ending by their hand and the record will never change
+    // again. Mirrors the reconcile retire branch; kept separate
+    // because that loop must remove through its own iterator.
+    fun retireProgressSourceNow(sourceKey: String) {
+        processingHandler.post {
+            progressFingerprints[sourceKey]?.let { (fingerprint, _) ->
+                staleProgressFingerprints[sourceKey] = fingerprint
+            }
+            sourceLifecycle.cancelRetention(sourceKey)
+            progressDismissedSourceKeys.remove(sourceKey)
+            progressTapContentBaselines.remove(sourceKey)
+            LiveUpdateNotifier.clearProgressActionTap(sourceKey)
+            refreshPolicy.remove(sourceKey)
+            LiveUpdateNotifier.cancelMirroredSourceKey(applicationContext, sourceKey)
+        }
+    }
+
     private fun requestTrackedFlashlightSourceDismissal() {
         if (!prefs.getSmartFlashlightEnabled()) {
             resetFlashlightSourceDismissState()
