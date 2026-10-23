@@ -1554,13 +1554,14 @@ object LiveUpdateNotifier {
         // platform's adopting builder: the field itself is
         // private on current Android (round 81's reflective
         // assignment failed with NoSuchFieldException, logged
-        // on the owner's device), while Notification.Builder
-        // (context, notification) adopts the built notification
-        // — bridge extras and all — and its setSmallIcon(Icon)
-        // is public API. The resulting icon type is logged so
-        // the swap is verifiable (1 = bitmap, 2 = resource).
+        // on the owner's device), while the static
+        // Notification.Builder.recoverBuilder(context,
+        // notification) adopts the built notification — bridge
+        // extras and all — and its setSmallIcon(Icon) is public
+        // API. The resulting icon type is logged so the swap is
+        // verifiable (1 = bitmap, 2 = resource).
         if (samsungBitmap != null) {
-            val rebuilt = Notification.Builder(context, notification)
+            val rebuilt = Notification.Builder.recoverBuilder(context, notification)
                 .setSmallIcon(Icon.createWithBitmap(samsungBitmap))
                 .build()
             Log.i(TAG, "Devices capsule: small icon type after swap: ${rebuilt.smallIcon?.type}")

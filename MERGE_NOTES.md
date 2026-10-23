@@ -1224,3 +1224,8 @@ Notification.Builder(context, notification), the public
 adopting constructor, and setSmallIcon(Icon) on it; the
 resulting small icon type is logged for verification
 (1 = bitmap, 2 = resource).
+Round 82 fix: there is no Notification.Builder(Context,
+Notification) constructor — the adopting path is the static
+Notification.Builder.recoverBuilder(Context, Notification),
+which is what the swap now uses (the first cut failed to
+compile against the (Context, String) constructor).
