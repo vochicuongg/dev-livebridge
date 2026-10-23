@@ -1165,3 +1165,18 @@ the enumeration silently returned zero candidates everywhere.
 It now loads through the target package context's class loader
 (CONTEXT_INCLUDE_CODE) and logs the raw field count per
 package so an empty table can never hide again.
+
+### Round 79 (2026-10-24): true-color Samsung glyphs, dark shade badge
+
+The round-78 sheets settled it: Wearable's ic_watch/ic_buds/
+ic_fit/ic_ring are two-tone glyphs (white ring, gray straps) —
+round 77's white-silhouette pass flattened them into the solid
+blob the owner rejected. SamsungDeviceIcons now renders the
+drawable true-color at 192px. Two probe also-rans were dropped
+after eyeballing: ic_perm_group_phone is a black handset and
+ic_galaxy_wearable_for_connected_devices is the word "Wear" —
+phone/generic keep the built-in icons. The expanded card's
+blue badge was the notification color framing the large icon;
+the devices notification now uses a dark slate shade color
+while the Now Bar promotion extras keep the capsule blue.
+IconSheetProbe removed (diagnostics complete).

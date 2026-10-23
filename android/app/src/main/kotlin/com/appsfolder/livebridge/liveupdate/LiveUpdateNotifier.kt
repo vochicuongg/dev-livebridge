@@ -77,6 +77,15 @@ object LiveUpdateNotifier {
     private const val CHARGING_INFO_ID = 41243
     private const val DEVICES_CAPSULE_ID = 41244
     private const val DEVICES_CAPSULE_COLOR = 0xFF2E7CF6.toInt()
+
+    // Shade-side color for the devices capsule (round 79): One UI
+    // frames the expanded card's large icon in a badge filled with
+    // the notification color, and the capsule blue read as a loud
+    // app badge behind Samsung's glyph. A dark slate keeps the
+    // badge in Samsung's own card family; the Now Bar promotion
+    // extras keep DEVICES_CAPSULE_COLOR, so the standby pill —
+    // which the owner approved — does not change.
+    private const val DEVICES_SHADE_BADGE_COLOR = 0xFF26282D.toInt()
     private const val NOTIFICATION_CAPSULE_KEY_PREFIX = "notification_capsule:"
     private const val NOTIFICATION_CAPSULE_CHIP_COLOR = 0xFF5E5867.toInt()
     private const val CHARGING_INFO_FAST_COLOR = 0xFF65DE6B.toInt()
@@ -1490,7 +1499,7 @@ object LiveUpdateNotifier {
             .setContentTitle(title)
             .setContentText(collapsedText)
             .setStyle(NotificationCompat.BigTextStyle().bigText(expandedText))
-            .setColor(DEVICES_CAPSULE_COLOR)
+            .setColor(DEVICES_SHADE_BADGE_COLOR)
             .setOngoing(true)
             .setAutoCancel(false)
             .setOnlyAlertOnce(true)

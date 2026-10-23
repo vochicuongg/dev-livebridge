@@ -1142,7 +1142,6 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
             !isUnsupportedDevice()
         ) {
             ensureDeviceConnectionReceiverRegistered()
-            IconSheetProbe.runOnce(applicationContext)
             val scanned = ConnectedDeviceScanner.scan(applicationContext)
             if (scanned != connectedDevices) {
                 connectedDevices = scanned

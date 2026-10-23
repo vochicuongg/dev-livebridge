@@ -3,10 +3,6 @@ package com.kakao.taxi.liveupdate
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -14,29 +10,36 @@ import java.util.concurrent.ConcurrentHashMap
  * owner's choice): the connected-devices capsule borrows its
  * icons from the Galaxy Wearable app installed on the phone
  * (com.samsung.android.app.watchmanager), whose drawable table
- * the round-76 probe enumerated on the owner's device — ic_watch,
- * ic_buds, ic_fit, ic_ring and friends are the exact glyphs
- * Samsung's own device screens use. Nothing is copied into this
- * app: the glyph is loaded from Samsung's package at runtime,
- * rendered, and reduced to a white silhouette of its alpha shape
- * (the form notification icons take). Any failure — package
- * absent, resource renamed, render error — returns null and the
- * capsule falls back to its built-in per-kind icons. Kinds with
- * no Samsung glyph (glasses, headphones, speaker) always use
- * the built-in icons.
+ * the round-76 probe enumerated on the owner's device. Nothing
+ * is copied into this app: the glyph is loaded from Samsung's
+ * package at runtime and rendered AS Samsung drew it — the
+ * round-78 icon sheets proved these are two-tone glyphs (a
+ * white ring over gray straps for the watch, and siblings for
+ * buds, fit and ring), and round 77's white-silhouette pass
+ * flattened that design into a single solid blob, which is
+ * exactly what the owner rejected in the expanded card. The
+ * true-color render is used for the capsule's chip/Now Bar
+ * icon and its large icon.
+ *
+ * Only four kinds have a genuine Samsung glyph: the names the
+ * probe also surfaced for phone ("ic_perm_group_phone" is a
+ * black telephone handset) and generic devices
+ * ("ic_galaxy_wearable_for_connected_devices" is the word
+ * "Wear") are wordmarks/permission icons, so phone, generic,
+ * glasses, headphones and speaker keep the built-in icons.
+ * Any failure — package absent, resource renamed, render
+ * error — returns null and the caller falls back as well.
  */
 internal object SamsungDeviceIcons {
 
     private const val SOURCE_PACKAGE = "com.samsung.android.app.watchmanager"
-    private const val RENDER_SIZE_PX = 96
+    private const val RENDER_SIZE_PX = 192
 
     private val RESOURCE_NAMES = mapOf(
         ConnectedDeviceKind.WATCH to "ic_watch",
         ConnectedDeviceKind.BUDS to "ic_buds",
         ConnectedDeviceKind.BAND to "ic_fit",
-        ConnectedDeviceKind.RING to "ic_ring",
-        ConnectedDeviceKind.PHONE to "ic_perm_group_phone",
-        ConnectedDeviceKind.GENERIC to "ic_galaxy_wearable_for_connected_devices"
+        ConnectedDeviceKind.RING to "ic_ring"
     )
 
     private val bitmapCache = ConcurrentHashMap<ConnectedDeviceKind, Bitmap>()
@@ -66,24 +69,15 @@ internal object SamsungDeviceIcons {
             }
             @Suppress("DEPRECATION")
             val drawable = resources.getDrawable(resourceId, null) ?: return null
-            val rendered = Bitmap.createBitmap(
+            val bitmap = Bitmap.createBitmap(
                 RENDER_SIZE_PX,
                 RENDER_SIZE_PX,
                 Bitmap.Config.ARGB_8888
             )
-            val renderCanvas = Canvas(rendered)
+            val canvas = Canvas(bitmap)
             drawable.setBounds(0, 0, RENDER_SIZE_PX, RENDER_SIZE_PX)
-            drawable.draw(renderCanvas)
-            val silhouette = Bitmap.createBitmap(
-                RENDER_SIZE_PX,
-                RENDER_SIZE_PX,
-                Bitmap.Config.ARGB_8888
-            )
-            val paint = Paint().apply {
-                colorFilter = PorterDuffColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN)
-            }
-            Canvas(silhouette).drawBitmap(rendered, 0f, 0f, paint)
-            silhouette
+            drawable.draw(canvas)
+            bitmap
         }.getOrNull()
     }
 }
