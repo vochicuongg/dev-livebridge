@@ -1251,3 +1251,12 @@ equality makes a battery-only change re-push the capsule.
 Collapsed and expanded texts append a localized battery
 segment ("Pin 80%") only for devices that have one. The
 one-shot probe is removed.
+
+Round 87: the built-in device glyphs were measured by sampling
+their path data — several were visibly off-center in the
+24x24 viewport (headphones +2.35 low, glasses +2.50 low,
+buds -1.50 high, speaker -3.50 left, generic -0.45 left;
+band/phone/ring already exact; the watch's +1.00 X is its
+crown nub, body centered, left alone). Each off-center icon
+is recentred with a vector group translate; re-measurement
+puts every glyph at (12,12).
