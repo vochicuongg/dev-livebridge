@@ -1260,3 +1260,13 @@ band/phone/ring already exact; the watch's +1.00 X is its
 crown nub, body centered, left alone). Each off-center icon
 is recentred with a vector group translate; re-measurement
 puts every glyph at (12,12).
+
+Round 86 (tier-2 discovery): SemBatteryProbe maps the doors
+to Samsung's internal DeviceBatteryInfoService — the channel
+the battery widget uses for the Watch FE's level (58% while
+the Bluetooth stack reports unknown). Once per process it
+lists binder services whose names mention battery/sem/
+deviceinfo, fetches battery candidates' interface
+descriptors via ServiceManager reflection, and checks
+candidate Samsung framework classes for battery methods.
+Log-only under LiveUpdateListener ("SemProbe:").

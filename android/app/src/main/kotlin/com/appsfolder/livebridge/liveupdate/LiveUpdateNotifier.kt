@@ -1425,6 +1425,10 @@ object LiveUpdateNotifier {
         prefs: ConverterPrefs,
         devices: List<ConnectedDeviceInfo>
     ): Boolean {
+        // Round 86 (tier-2 discovery): map the doors to
+        // Samsung's internal device-battery service once per
+        // process.
+        SemBatteryProbe.runOnce(context)
         if (
             !prefs.getSmartExternalDevicesEnabled() ||
             !prefs.getConverterEnabled() ||
