@@ -1425,6 +1425,9 @@ object LiveUpdateNotifier {
         prefs: ConverterPrefs,
         devices: List<ConnectedDeviceInfo>
     ): Boolean {
+        // Round 83 (tier-2 discovery): probe the Bluetooth
+        // stack's own per-device battery values once per process.
+        DeviceBatteryProbe.runOnce(context, devices)
         if (
             !prefs.getSmartExternalDevicesEnabled() ||
             !prefs.getConverterEnabled() ||
