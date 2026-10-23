@@ -1410,3 +1410,21 @@ levels + our grant state, dumps the provider class's
 static constants through the plugin's package context,
 then queries the authority root and a harvested path
 matrix with full row dumps.
+
+Rounds 95-96 verdict (device logs 24/10) — the plugin
+branch closes too, with the hardest evidence in the file:
+the watch plugin (com.samsung.android.waterplugin) ships
+a BatteryInfoProvider whose own constants describe a
+Device Care battery-sync protocol (methods sync_request /
+refresh_info, columns Level / Status / _btAddress / Time),
+and BOTH its gate permission (companionservice.BATTERY_
+INFO_PROVIDER) and the SmartThings-Find helper's (stfinder
+.READ_BATTERY) are signature level (base=2, selfCheck=-1);
+every query throws SecurityException: Permission Denial.
+Samsung gates every watch-battery channel behind its own
+signature — stack (-1), binder services (none), GATT
+(refused 147), Wearable dashboard (signature), plugin
+battery provider (signature). No legitimate third-party
+route exists on the phone. Round 97 removes the last two
+probes and both dead manifest declarations. The capsule
+ships as it stood after round 88.

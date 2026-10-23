@@ -7,12 +7,6 @@
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.EXPAND_STATUS_BAR" />
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
-    <!-- Round 96: the watch companion plugin (waterplugin)
-         gates its BatteryInfoProvider behind these two
-         permissions. Declaring them tests whether either is
-         granted to third-party apps (normal level). -->
-    <uses-permission android:name="com.samsung.android.companionservice.BATTERY_INFO_PROVIDER" />
-    <uses-permission android:name="com.samsung.android.companionapps.stfinder.READ_BATTERY" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission
