@@ -1425,10 +1425,9 @@ object LiveUpdateNotifier {
         prefs: ConverterPrefs,
         devices: List<ConnectedDeviceInfo>
     ): Boolean {
-        // Round 95 (last unexplored branch): scan every
-        // Samsung watch/plugin package on the device for an
-        // ungated data provider.
-        PluginScanProbe.runOnce(context)
+        // Round 96: the watch plugin's BatteryInfoProvider —
+        // permission level, class constants, real queries.
+        BatteryInfoProbe.runOnce(context)
         if (
             !prefs.getSmartExternalDevicesEnabled() ||
             !prefs.getConverterEnabled() ||

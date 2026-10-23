@@ -1395,3 +1395,18 @@ installed Samsung watch/wear/gear/galaxy/plugin package,
 lists its providers with export + read-permission state,
 and test-queries any exported permission-less provider not
 already proven gated. Log-only ("PluginProbe:").
+
+Round 95 verdict (device log 24/10): seven Samsung watch-
+related packages scanned. The payload is in the watch
+companion plugin itself, com.samsung.android.waterplugin:
+an exported BatteryInfoProvider (class ...companion
+service.watchstatus.devicecare.battery.BatteryInfo
+Provider) gated by com.samsung.android.companionservice.
+BATTERY_INFO_PROVIDER, plus a SmartThings-Find battery
+helper (STFBatteryDBProvider) behind companionapps.
+stfinder.READ_BATTERY. Round 96: the manifest declares
+both permissions; BatteryInfoProbe logs their protection
+levels + our grant state, dumps the provider class's
+static constants through the plugin's package context,
+then queries the authority root and a harvested path
+matrix with full row dumps.
