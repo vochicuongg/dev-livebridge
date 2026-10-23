@@ -44,6 +44,8 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
     private val progressContentFingerprints = mutableMapOf<String, String>()
     private val progressTapContentBaselines = mutableMapOf<String, String>()
     private val staleProgressFingerprints = mutableMapOf<String, String>()
+    private val hardRetiredProgressContents = mutableMapOf<String, String>()
+    private val progressProbation = mutableMapOf<String, Pair<String, Long>>()
     private var isTorchCallbackRegistered = false
     private var rebindAttempts = 0
     private var rebindScheduled = false
@@ -678,16 +680,48 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
             if (snapshot.packageName == packageName) continue
             if (!LiveUpdateNotifier.isProgressSourceNotification(snapshot)) continue
             presentProgressKeys.add(snapshot.key)
-            progressContentFingerprints[snapshot.key] = progressContentFingerprint(snapshot)
+            val contentFingerprint = progressContentFingerprint(snapshot)
+            val previousContent = progressContentFingerprints[snapshot.key]
+            if (previousContent != contentFingerprint) {
+                if (previousContent != null &&
+                    (staleProgressFingerprints.containsKey(snapshot.key) ||
+                        hardRetiredProgressContents.containsKey(snapshot.key))
+                ) {
+                    Log.i(TAG, "Retired progress record content changed: ${snapshot.key}")
+                }
+                // A pure repost (postTime only) must not lift the
+                // stale mark (round 70): only a content change can.
+                if (staleProgressFingerprints[snapshot.key] != null &&
+                    staleProgressFingerprints[snapshot.key] != contentFingerprint
+                ) {
+                    staleProgressFingerprints.remove(snapshot.key)
+                }
+                progressContentFingerprints[snapshot.key] = contentFingerprint
+            }
             val fingerprint = progressFingerprint(snapshot)
             val previous = progressFingerprints[snapshot.key]
             if (previous == null || previous.first != fingerprint) {
                 progressFingerprints[snapshot.key] = fingerprint to nowElapsed
-                staleProgressFingerprints.remove(snapshot.key)
             }
         }
         progressFingerprints.keys.retainAll(presentProgressKeys)
         progressContentFingerprints.keys.retainAll(presentProgressKeys)
+        hardRetiredProgressContents.keys.retainAll(presentProgressKeys)
+        val probationIterator = progressProbation.entries.iterator()
+        while (probationIterator.hasNext()) {
+            val (probationKey, probation) = probationIterator.next()
+            if (probationKey !in presentProgressKeys) {
+                probationIterator.remove()
+                continue
+            }
+            if (nowElapsed >= probation.second) {
+                // The record moved once and froze again — the dying
+                // store's final post, not a new download: re-harden
+                // the retirement against the final content.
+                hardRetiredProgressContents[probationKey] = probation.first
+                probationIterator.remove()
+            }
+        }
         // Progress mirrors have no driver besides their source record
         // (round 65). The retention taken out when the source was
         // hidden (round 63) must lapse once the record is gone from
@@ -736,8 +770,8 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
                         "Retire progress mirror: $key tapDead=$tapDead staleDead=$staleDead"
                     )
                     sourceLifecycle.cancelRetention(key)
-                    progressFingerprints[key]?.let { (fingerprint, _) ->
-                        staleProgressFingerprints[key] = fingerprint
+                    progressContentFingerprints[key]?.let { content ->
+                        staleProgressFingerprints[key] = content
                     }
                     LiveUpdateNotifier.clearProgressActionTap(key)
                     progressTapContentBaselines.remove(key)
@@ -782,12 +816,34 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
     }
 
     private fun processIncomingNotification(sbn: StatusBarNotification): Boolean {
+        // Hard retirement (round 70): a source the user cancelled
+        // from the capsule stays dead even if the store posts one
+        // last update while dying — it may mirror again only as a
+        // demonstrably live download (its content moves twice in
+        // quick succession; a final post never moves twice) or
+        // after the record itself has left the system's lists.
+        val hardDeadContent = hardRetiredProgressContents[sbn.key]
+        if (hardDeadContent != null) {
+            val content = progressContentFingerprint(sbn)
+            if (content == hardDeadContent) return false
+            val probation = progressProbation[sbn.key]
+            if (probation != null && probation.first != content) {
+                hardRetiredProgressContents.remove(sbn.key)
+                progressProbation.remove(sbn.key)
+            } else {
+                if (probation == null) {
+                    progressProbation[sbn.key] =
+                        content to SystemClock.elapsedRealtime() + PROGRESS_PROBATION_MS
+                }
+                return false
+            }
+        }
         // A retired progress source (round 66) must not rebuild its
         // mirror from the frozen record the store left snoozed; it
-        // may mirror again only when that record actually changes.
+        // may mirror again only when that record's content changes.
         val staleFingerprint = staleProgressFingerprints[sbn.key]
         if (staleFingerprint != null) {
-            if (staleFingerprint == progressFingerprint(sbn)) return false
+            if (staleFingerprint == progressContentFingerprint(sbn)) return false
             staleProgressFingerprints.remove(sbn.key)
         }
         val ranking = Ranking()
@@ -1202,8 +1258,9 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
     // because that loop must remove through its own iterator.
     fun retireProgressSourceNow(sourceKey: String) {
         processingHandler.post {
-            progressFingerprints[sourceKey]?.let { (fingerprint, _) ->
-                staleProgressFingerprints[sourceKey] = fingerprint
+            progressContentFingerprints[sourceKey]?.let { content ->
+                staleProgressFingerprints[sourceKey] = content
+                hardRetiredProgressContents[sourceKey] = content
             }
             sourceLifecycle.cancelRetention(sourceKey)
             progressDismissedSourceKeys.remove(sourceKey)
@@ -1831,6 +1888,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         private const val SNAPSHOT_SYNC_INTERVAL_MS = 4_000L
         private const val PROGRESS_TAP_DEAD_MS = 8_000L
         private const val PROGRESS_STALE_MS = 60_000L
+        private const val PROGRESS_PROBATION_MS = 10_000L
         private const val ORIGINAL_DISMISS_INITIAL_GRACE_MS = 750L
         private const val VPN_SOURCE_DISMISS_VERIFY_DELAY_MS = 1200L
         private const val VPN_SOURCE_SNOOZE_MS = 12 * 60 * 60 * 1000L

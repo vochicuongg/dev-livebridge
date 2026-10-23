@@ -1005,3 +1005,19 @@ cancel). Pause/Resume never match, so paused downloads keep
 their capsule; the 8s/60s frozen-record backstops stay for
 cancels made inside the store app. Static checks only; device
 verification pending.
+
+## Progress capsule: hard retirement survives the store's final post (round 70, 2026-10-23)
+
+Round 69 device result: Cancel retires instantly, but the
+capsule reappeared once — the store posts a final update as
+it dies, whose postTime bump lifted the stale mark; a second
+Cancel (nothing left to post) killed it for good. Stale marks
+now store CONTENT fingerprints and lift only on content
+changes, and an instant Cancel additionally hard-retires the
+source: processIncomingNotification refuses it while its
+content matches, a first differing content starts a 10s
+probation, and only a second move inside the window (a truly
+live new download) lifts the retirement; if the record freezes
+again, reconcile re-hardens against the final content. The
+hard mark clears when the record leaves the system's lists.
+Static checks only; device verification pending.
