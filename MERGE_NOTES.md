@@ -1147,3 +1147,15 @@ resource (androidx only accepts a resource id there). Any
 failure falls back to the built-in per-kind vectors; glasses,
 headphones and speaker have no Samsung glyph and always use
 the built-ins.
+
+### Round 78 (2026-10-24): icon sheet probe for the outline glyphs
+
+Device verdict on round 77: the standby chip icon is Samsung's
+real glyph (correct), but the expanded card is wrong twice over
+— the ic_watch glyph is the filled variant, not the thin
+outline watch Samsung's device-category screen uses, and
+One UI frames the large icon in a solid notification-color
+badge. IconSheetProbe renders every keyword-matching drawable
+from the candidate Samsung packages to PNGs in the app's
+external files dir so the exact outline resources can be
+picked by eye before the next wiring round.
