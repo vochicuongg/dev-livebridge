@@ -1142,6 +1142,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
             !isUnsupportedDevice()
         ) {
             ensureDeviceConnectionReceiverRegistered()
+            SamsungIconProbe.runOnce(applicationContext)
             val scanned = ConnectedDeviceScanner.scan(applicationContext)
             if (scanned != connectedDevices) {
                 connectedDevices = scanned

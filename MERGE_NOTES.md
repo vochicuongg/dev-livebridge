@@ -1119,3 +1119,16 @@ complete the set from the owner's reference screenshot: a phone
 (new PHONE kind, classified by the Bluetooth PHONE major
 class) and an assorted-devices glyph that replaces the generic
 wave icon for GENERIC.
+
+### Round 76 (2026-10-24): Samsung icon probe (runtime loading, step 1)
+
+Owner chose runtime loading of Samsung's own device icons over
+another redraw. The battery widget's glyphs live inside Samsung
+system apps with unpublished resource names, so this round is a
+discovery probe only: SamsungIconProbe enumerates the R.drawable
+tables of lool / devicecare / watchmanager / waterplugin /
+aodservice via a package context, logs every device-related
+entry name under the listener tag, once per process, from the
+devices-monitoring sync. No behavior changes; the follow-up
+round wires the discovered resources into the capsule with the
+built-in icons as fallback.
