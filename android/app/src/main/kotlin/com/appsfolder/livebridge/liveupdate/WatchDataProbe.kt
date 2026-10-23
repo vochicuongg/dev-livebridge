@@ -163,7 +163,7 @@ internal object WatchDataProbe {
             return
         }
         Log.i(TAG, "WatchProbe: GATT connecting to $address")
-        @Volatile var finished = false
+        val finished = java.util.concurrent.atomic.AtomicBoolean(false)
         val gattRef = arrayOfNulls<BluetoothGatt>(1)
         val callback = object : BluetoothGattCallback() {
             override fun onConnectionStateChange(
@@ -178,7 +178,7 @@ internal object WatchDataProbe {
                 if (newState == BluetoothProfile.STATE_CONNECTED) {
                     gatt.discoverServices()
                 } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                    finished = true
+                    finished.set(true)
                     gatt.close()
                 }
             }
@@ -193,7 +193,7 @@ internal object WatchDataProbe {
                 val level = battery?.getCharacteristic(batteryLevelUuid)
                 if (level == null) {
                     Log.i(TAG, "WatchProbe: no Battery Service/level char")
-                    finished = true
+                    finished.set(true)
                     gatt.disconnect()
                     gatt.close()
                     return
@@ -215,7 +215,7 @@ internal object WatchDataProbe {
                     "WatchProbe: battery level read status=$status " +
                         "value=${value?.firstOrNull()}"
                 )
-                finished = true
+                finished.set(true)
                 gatt.disconnect()
                 gatt.close()
             }
@@ -234,7 +234,7 @@ internal object WatchDataProbe {
         // Watchdog: never leave a dangling GATT client behind.
         Thread {
             Thread.sleep(12_000)
-            if (!finished) {
+            if (!finished.get()) {
                 Log.i(TAG, "WatchProbe: GATT timeout, closing")
                 runCatching {
                     gatt.disconnect()

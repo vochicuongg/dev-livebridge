@@ -1312,3 +1312,9 @@ battery/device authorities. Once per process, log-only
 components) are the same internal DeviceBatteryInfoService
 data — this round decides whether any of it leaks to
 third-party apps.
+
+Round 89 fix: @Volatile is not applicable to a local
+variable — the GATT watchdog flag is an AtomicBoolean now.
+The first round-89 build failed on exactly this, so the
+install that followed silently re-installed the round-88
+APK and no probe ran.
