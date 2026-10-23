@@ -1180,3 +1180,17 @@ blue badge was the notification color framing the large icon;
 the devices notification now uses a dark slate shade color
 while the Now Bar promotion extras keep the capsule blue.
 IconSheetProbe removed (diagnostics complete).
+
+### Round 80 (2026-10-24): load Samsung glyphs via the package context
+
+Device verdict on round 79: the expanded card was unchanged —
+still the built-in watch vector enlarged inside a blue badge.
+That means the Samsung bitmap never arrived in rounds 77–79:
+the loader used PackageManager.getResourcesForApplication,
+whose theme-less resources cannot inflate Samsung's
+theme-referencing glyphs, and the failure was swallowed into
+the fallback. The loader now goes through
+createPackageContext(Samsung package).resources — the exact
+path the round-78 probe rendered 46 PNGs with — and logs one
+line per kind (loaded / not found / failed with the error) so
+a silent fallback can never masquerade as success again.

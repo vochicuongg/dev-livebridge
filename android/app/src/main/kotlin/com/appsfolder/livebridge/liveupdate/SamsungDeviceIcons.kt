@@ -3,6 +3,7 @@ package com.kakao.taxi.liveupdate
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.util.Log
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -32,6 +33,7 @@ import java.util.concurrent.ConcurrentHashMap
  */
 internal object SamsungDeviceIcons {
 
+    private const val TAG = "LiveUpdateListener"
     private const val SOURCE_PACKAGE = "com.samsung.android.app.watchmanager"
     private const val RENDER_SIZE_PX = 192
 
@@ -61,14 +63,31 @@ internal object SamsungDeviceIcons {
 
     private fun loadBitmap(context: Context, kind: ConnectedDeviceKind): Bitmap? {
         val resourceName = RESOURCE_NAMES[kind] ?: return null
-        return runCatching {
-            val resources = context.packageManager.getResourcesForApplication(SOURCE_PACKAGE)
+        // Round 80: rounds 77–79 loaded through
+        // PackageManager.getResourcesForApplication and silently
+        // got nothing — Samsung's glyphs carry theme references
+        // that only resolve under the owning package's own
+        // context, which is the path the round-78 probe proved
+        // (46 PNGs rendered). Every outcome is logged once per
+        // kind so a silent fallback can never pass as success
+        // again.
+        return try {
+            val packageContext = context.createPackageContext(
+                SOURCE_PACKAGE,
+                Context.CONTEXT_IGNORE_SECURITY
+            )
+            val resources = packageContext.resources
             val resourceId = resources.getIdentifier(resourceName, "drawable", SOURCE_PACKAGE)
             if (resourceId == 0) {
+                Log.i(TAG, "SamsungIcons: $kind resource $resourceName not found")
                 return null
             }
             @Suppress("DEPRECATION")
-            val drawable = resources.getDrawable(resourceId, null) ?: return null
+            val drawable = resources.getDrawable(resourceId, null)
+            if (drawable == null) {
+                Log.i(TAG, "SamsungIcons: $kind drawable $resourceName is null")
+                return null
+            }
             val bitmap = Bitmap.createBitmap(
                 RENDER_SIZE_PX,
                 RENDER_SIZE_PX,
@@ -77,7 +96,11 @@ internal object SamsungDeviceIcons {
             val canvas = Canvas(bitmap)
             drawable.setBounds(0, 0, RENDER_SIZE_PX, RENDER_SIZE_PX)
             drawable.draw(canvas)
+            Log.i(TAG, "SamsungIcons: $kind loaded $resourceName")
             bitmap
-        }.getOrNull()
+        } catch (error: Exception) {
+            Log.i(TAG, "SamsungIcons: $kind failed for $resourceName: $error")
+            null
+        }
     }
 }
