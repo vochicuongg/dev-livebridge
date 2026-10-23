@@ -3997,6 +3997,16 @@ object LiveUpdateNotifier {
         return false
     }
 
+    private fun isOngoingProgressCandidate(sbn: StatusBarNotification): Boolean {
+        if (!sbn.isOngoing) {
+            return false
+        }
+        if (sbn.notification.flags and Notification.FLAG_GROUP_SUMMARY != 0) {
+            return false
+        }
+        return hasProgress(sbn.notification)
+    }
+
     private fun passesCoreFilters(
         appPackageName: String,
         sbn: StatusBarNotification,
@@ -4038,12 +4048,21 @@ object LiveUpdateNotifier {
             return false
         }
         
+        // Download-style progress notifications (Play Store and
+        // friends) are ongoing and non-clearable for their whole
+        // lifetime, so the two checks below would reject every one
+        // of them and the dedicated progress mirror branch could
+        // never fire (round 62). A notification carrying real
+        // progress extras earns the ongoing exemption too; it still
+        // has to pass the package allowlist further down.
+        val allowOngoingProgress = isOngoingProgressCandidate(sbn)
+
         // Zalo VIP Bypass: Bypass Ongoing Event flag check
         // Chat bubbles mark notifications as ongoing foreground services.
         // Allow Zalo notifications even if they have the ongoing event flag.
         val hasOngoingEventFlag = source.flags and Notification.FLAG_ONGOING_EVENT != 0
         if (!isZaloPackage && hasOngoingEventFlag && sbn.isOngoing &&
-            !allowOngoingSmartCandidate
+            !allowOngoingSmartCandidate && !allowOngoingProgress
         ) {
             return false
         }
@@ -4052,7 +4071,7 @@ object LiveUpdateNotifier {
         // Chat bubbles prevent notifications from being swiped away.
         // Allow Zalo notifications even if they cannot be cleared by the user.
         if (!isZaloPackage && !sbn.isClearable && sbn.isOngoing &&
-            !allowOngoingSmartCandidate
+            !allowOngoingSmartCandidate && !allowOngoingProgress
         ) {
             return false
         }

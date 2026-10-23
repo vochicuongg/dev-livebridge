@@ -860,3 +860,22 @@ unchanged: with the preferences on, chat alerting behaves
 exactly as before and the ALERTS channel's system settings
 still govern it. Static checks only; device verification
 pending.
+
+## Download progress notifications can mirror now (round 62, 2026-10-23)
+
+Owner asked for Play Store-style download progress bars. Audit:
+the whole downstream pipeline already existed — a dedicated
+hasNativeProgress branch building PROGRESS_NOTIFICATIONS mirrors
+with Samsung progress — but passesCoreFilters rejected every
+ongoing and every non-clearable+ongoing notification, and
+download notifications (Play Store above all) are both for their
+whole lifetime, so none ever reached the branch (same root as
+the unclosed Galaxy A15 "Play Store aren't pushed" report).
+Fix: isOngoingProgressCandidate (ongoing + real progress extras
++ not a group summary) earns the same ongoing exemption the
+smart status candidates use, in both the ongoing-event and the
+non-clearable checks. The package allowlist still applies, and
+the summary notification itself stays rejected — the per-app
+children carry the progress. Static checks only; device
+verification pending (download an app from Play Store and watch
+the Now Bar).
