@@ -176,7 +176,10 @@
         "bluetooth",
         "phụ kiện",
         "đã kết nối",
-        "đang kết nối"
+        "đang kết nối",
+        "ghép nối",
+        "tai nghe",
+        "đồng hồ"
       ],
       "exclude_patterns": [
         "(sinh nhật)",
@@ -186,11 +189,11 @@
       "signals": [
         {
           "stage": 2,
-          "pattern": "(đã kết nối\\b|pair(?:ed)?\\b)"
+          "pattern": "(đã kết nối|đã ghép nối\\b|pair(?:ed)?\\b)"
         },
         {
           "stage": 1,
-          "pattern": "(đang kết nối\\b|pair(?:ing)?\\b)"
+          "pattern": "(đang kết nối|đang ghép nối\\b|pair(?:ing)?\\b)"
         }
       ]
     },
@@ -293,9 +296,10 @@
   "weather_condition_wind_pattern": "(gió|gió mạnh)",
   "weather_condition_sun_pattern": "(nắng|trời quang)",
   "weather_condition_cloud_pattern": "(mây|u ám|nhiều mây)",
+  "external_device_battery_pattern": "(?:battery|pin|bateria|батарея|배터리|电量|電量)\\s*(?:còn|remaining|level|left)?\\s*[:：]?\\s*(\\d{1,3})\\s*%|(\\d{1,3})\\s*%\\s*(?:battery|bateria|батарея|배터리|电量|電量)",
   "external_device_name_patterns": [
-    "(?:connected|connecting|pair(?:ed|ing)|đã kết nối|đang kết nối)\\s*(?:to|với)?\\s*[\"«]?([\\p{L}\\p{N}][\\p{L}\\p{N} ._#\\-]{1,40})[\"»]?(?=\\s|$|[,.!])",
-    "[\"«]?([\\p{L}\\p{N}][\\p{L}\\p{N} ._#\\-]{1,40})[\"»]?\\s*(?:is\\s+)?(?:đã kết nối|đang kết nối)\\b"
+    "(?:connected|connecting|pair(?:ed|ing)|đã kết nối|đang kết nối|đã ghép nối|đang ghép nối)\\s*(?:to|với)?\\s*[\"«]?([\\p{L}\\p{N}][\\p{L}\\p{N} ._#\\-]{1,40})[\"»]?(?=\\s|$|[,.!])",
+    "[\"«]?([\\p{L}\\p{N}][\\p{L}\\p{N} ._#\\-]{1,40})[\"»]?\\s*(?:is\\s+)?(?:đã kết nối|đang kết nối|đã ghép nối)\\b"
   ],
   "external_device_generic_names": [
     "thiết bị",
@@ -304,7 +308,9 @@
     "bluetooth",
     "usb",
     "wifi",
-    "điểm phát sóng"
+    "điểm phát sóng",
+    "tai nghe",
+    "đồng hồ"
   ],
   "vpn_speed_pattern": "(?<!\\d)\\d{1,4}(?:[.,]\\d{1,2})?\\s*(?:[kmg]?i?b)\\s*(?:(?:/\\s*s)|(?:/\\s*sec)|ps)\\b",
   "vpn_context_pattern": "(\\bvpn\\b|proxy|máy chủ proxy)",

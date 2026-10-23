@@ -410,6 +410,7 @@
   "weather_condition_wind_pattern": "(风|風)",
   "weather_condition_sun_pattern": "(晴|阳光|陽光)",
   "weather_condition_cloud_pattern": "(阴|陰|云|雲)",
+  "external_device_battery_pattern": "(?:battery|pin|bateria|батарея|배터리|电量|電量)\\s*(?:còn|remaining|level|left)?\\s*[:：]?\\s*(\\d{1,3})\\s*%|(\\d{1,3})\\s*%\\s*(?:battery|bateria|батарея|배터리|电量|電量)",
   "external_device_name_patterns": [
     "[\"«]?([\\p{L}\\p{N}][\\p{L}\\p{N} ._#\\-]{1,40})[\"»]?\\s*(?:已连接|已連接|配对成功|配對成功|已连线|已連線|正在连接|正在連接)"
   ],

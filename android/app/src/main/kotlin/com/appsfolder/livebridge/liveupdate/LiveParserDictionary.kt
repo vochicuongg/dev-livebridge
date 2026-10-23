@@ -8,6 +8,15 @@ import java.util.Locale
 
 private const val EMPTY_REGEX_PATTERN = "(?!)"
 
+// Tier 3 (round 88): battery level inside a device notification's
+// text ("Pin 80%", "Battery: 80%", "배터리 80%", "80% battery").
+// Two alternatives, one capture group each: keyword-first and
+// percent-first.
+private const val DEFAULT_EXTERNAL_DEVICE_BATTERY_PATTERN =
+    "(?:battery|pin|bateria|батарея|배터리|电量|電量)\\s*" +
+        "(?:còn|remaining|level|left)?\\s*[:：]?\\s*(\\d{1,3})\\s*%|" +
+        "(\\d{1,3})\\s*%\\s*(?:battery|bateria|батарея|배터리|电量|電量)"
+
 internal data class LiveParserDictionary(
     val smartRules: List<SmartRuleEntry>,
     val blockedSourcePackages: Set<String>,
@@ -41,6 +50,7 @@ internal data class LiveParserDictionary(
     val vpnUploadMarkers: Set<String>,
     val externalDeviceNamePatterns: List<Regex>,
     val externalDeviceGenericNames: Set<String>,
+    val externalDeviceBatteryPattern: Regex,
     val navigationInstructionPattern: Regex,
     val otpCodePatterns: List<Regex>,
     val orderContextHints: Set<String>,
@@ -135,6 +145,10 @@ internal data class LiveParserDictionary(
                 other.externalDeviceNamePatterns
             ),
             externalDeviceGenericNames = externalDeviceGenericNames + other.externalDeviceGenericNames,
+            externalDeviceBatteryPattern = mergeRegex(
+                externalDeviceBatteryPattern,
+                other.externalDeviceBatteryPattern
+            ),
             navigationInstructionPattern = mergeRegex(
                 navigationInstructionPattern,
                 other.navigationInstructionPattern
@@ -182,6 +196,7 @@ internal data class LiveParserDictionary(
                 vpnUploadMarkers = emptySet(),
                 externalDeviceNamePatterns = emptyList(),
                 externalDeviceGenericNames = emptySet(),
+                externalDeviceBatteryPattern = Regex(DEFAULT_EXTERNAL_DEVICE_BATTERY_PATTERN),
                 navigationInstructionPattern = emptyRegex,
                 otpCodePatterns = emptyList(),
                 orderContextHints = emptySet(),
@@ -322,6 +337,10 @@ internal data class LiveParserDictionary(
                 parseStringSet(root.optJSONArray("external_device_generic_names")).ifEmpty {
                     defaults.externalDeviceGenericNames
                 }
+            val externalDeviceBatteryPattern = parseRegex(
+                root.optString("external_device_battery_pattern"),
+                ignoreCase = true
+            ) ?: defaults.externalDeviceBatteryPattern
             val navigationInstructionPattern = parseRegex(
                 root.optString("navigation_instruction_pattern"),
                 ignoreCase = true
@@ -375,6 +394,7 @@ internal data class LiveParserDictionary(
                 vpnUploadMarkers = vpnUploadMarkers,
                 externalDeviceNamePatterns = externalDeviceNamePatterns,
                 externalDeviceGenericNames = externalDeviceGenericNames,
+                externalDeviceBatteryPattern = externalDeviceBatteryPattern,
                 navigationInstructionPattern = navigationInstructionPattern,
                 otpCodePatterns = otpCodePatterns,
                 orderContextHints = orderContextHints,

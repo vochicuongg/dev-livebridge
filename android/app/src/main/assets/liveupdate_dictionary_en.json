@@ -319,6 +319,7 @@
   "weather_condition_wind_pattern": "(wind|windy|gust)",
   "weather_condition_sun_pattern": "(sunny|clear)",
   "weather_condition_cloud_pattern": "(cloud|overcast)",
+  "external_device_battery_pattern": "(?:battery|pin|bateria|батарея|배터리|电量|電量)\\s*(?:còn|remaining|level|left)?\\s*[:：]?\\s*(\\d{1,3})\\s*%|(\\d{1,3})\\s*%\\s*(?:battery|bateria|батарея|배터리|电量|電量)",
   "external_device_name_patterns": [
     "(?:connected|connecting|pair(?:ed|ing))\\s*(?:to)?\\s*[\"«]?([\\p{L}\\p{N}][\\p{L}\\p{N} ._#\\-]{1,40})[\"»]?(?=\\s|$|[,.!])",
     "[\"«]?([\\p{L}\\p{N}][\\p{L}\\p{N} ._#\\-]{1,40})[\"»]?\\s*(?:is\\s+)?(?:connected|connecting|pair(?:ed|ing))\\b"

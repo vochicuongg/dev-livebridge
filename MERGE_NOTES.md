@@ -1270,3 +1270,26 @@ deviceinfo, fetches battery candidates' interface
 descriptors via ServiceManager reflection, and checks
 candidate Samsung framework classes for battery methods.
 Log-only under LiveUpdateListener ("SemProbe:").
+
+Round 88 (tier 2 closed, tier 3 done): SemBatteryProbe
+removed — the round-86 verdict stands: no binder service
+exposes per-device Bluetooth battery to third-party apps
+(the two battery services that answer are the phone's own),
+so the Watch FE's level stays a platform limit and tier 2
+ships with stack-known levels only. Tier 3 upgrades the
+external_device text rule: a new external_device_battery_
+pattern (all 7 dictionaries + a hardcoded default in
+LiveParserDictionary) extracts a battery % written in the
+notification text, and extractExternalDeviceStatusText
+appends it as a localized third segment ("Name · Connected ·
+Pin 80%") via the tier-2 battery wording. VI coverage:
+ghép nối triggers/signals/name patterns, tai nghe/đồng hồ
+generic names. KO coverage: the second name pattern was
+malformed (unclosed group — it never compiled) and is
+replaced by four valid patterns (EN pair + Korean name-first
+with particle stripping + Korean connected-first), plus
+페어링/연결되었습니다 signals and triggers. The base
+dictionary gains the VI/KO patterns, triggers and signals
+too. All 47 external-device patterns compile under
+java.util.regex and the battery extraction passes 9/9
+positive/negative cases offline.

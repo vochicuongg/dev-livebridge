@@ -432,7 +432,14 @@
         "fone de ouvido",
         "relógio",
         "relogio",
-        "smartwatch"
+        "smartwatch",
+        "đã kết nối",
+        "đang kết nối",
+        "ghép nối",
+        "tai nghe",
+        "연결됨",
+        "연결 중",
+        "페어링"
       ],
       "exclude_patterns": [
         "(с дн[её]м рождения|happy birthday|birthday|生日快乐|生日快樂)",
@@ -445,11 +452,11 @@
       "signals": [
         {
           "stage": 2,
-          "pattern": "(connected\\b|pair(?:ed)?\\b|подключ(?:ен(?:а|о|ы)?|ено)\\b|соедин(?:ен(?:а|о|ы)?|ено)\\b|已连接|已連接|配对成功|配對成功|已连线|已連線)"
+          "pattern": "(connected\\b|pair(?:ed)?\\b|подключ(?:ен(?:а|о|ы)?|ено)\\b|соедин(?:ен(?:а|о|ы)?|ено)\\b|已连接|已連接|配对成功|配對成功|已连线|已連線|đã kết nối|đã ghép nối)"
         },
         {
           "stage": 1,
-          "pattern": "(connecting\\b|pair(?:ing)?\\b|подключ(?:ается|ение)\\b|соедин(?:яется|ение)\\b|正在连接|正在連接|配对中|配對中|连线中|連線中)"
+          "pattern": "(connecting\\b|pair(?:ing)?\\b|подключ(?:ается|ение)\\b|соедин(?:яется|ение)\\b|正在连接|正在連接|配对中|配對中|连线中|連線中|đang kết nối|đang ghép nối)"
         },
         {
           "stage": 2,
@@ -458,6 +465,14 @@
         {
           "stage": 1,
           "pattern": "(conectando\\b|pareando\\b|emparelhando\\b|tentando\\s+conectar|conex[aã]o\\s+em\\s+andamento)"
+        },
+        {
+          "stage": 2,
+          "pattern": "(연결됨|연결되었습니다|연결 완료|페어링 완료)"
+        },
+        {
+          "stage": 1,
+          "pattern": "(연결 중|페어링 중)"
         }
       ]
     },
@@ -705,12 +720,17 @@
   "weather_condition_wind_pattern": "(ветер|ветрено|wind|windy|gust|风|風|vento|ventania|ventoso|rajada)",
   "weather_condition_sun_pattern": "(солнечно|ясно|sunny|clear|晴|阳光|陽光|sol|ensolarado|claro|tempo\\s+aberto)",
   "weather_condition_cloud_pattern": "(пасмурно|облачно|cloud|overcast|阴|陰|云|雲|nublado|encoberto|nebulosidade|nuvem|nuvens)",
+  "external_device_battery_pattern": "(?:battery|pin|bateria|батарея|배터리|电量|電量)\\s*(?:còn|remaining|level|left)?\\s*[:：]?\\s*(\\d{1,3})\\s*%|(\\d{1,3})\\s*%\\s*(?:battery|bateria|батарея|배터리|电量|電量)",
   "external_device_name_patterns": [
     "(?:connected|connecting|pair(?:ed|ing)|подключ(?:ен(?:а|о|ы)?|ается|ение)|соедин(?:ен(?:а|о|ы)?|яется))\\s*(?:to|к)?\\s*[\"«]?([\\p{L}\\p{N}][\\p{L}\\p{N} ._#\\-]{1,40})[\"»]?(?=\\s|$|[,.!])",
     "[\"«]?([\\p{L}\\p{N}][\\p{L}\\p{N} ._#\\-]{1,40})[\"»]?\\s*(?:is\\s+)?(?:connected|connecting|pair(?:ed|ing)|подключ(?:ен(?:а|о|ы)?|ается|ение)|соедин(?:ен(?:а|о|ы)?|яется))\\b",
     "[\"«]?([\\p{L}\\p{N}][\\p{L}\\p{N} ._#\\-]{1,40})[\"»]?\\s*(?:已连接|已連接|配对成功|配對成功|已连线|已連線|正在连接|正在連接)",
     "(?:conectad[oa]s?|conectando|paread[oa]s?|pareando|emparelhad[oa]s?|emparelhando)\\s*(?:a|ao|à|com)?\\s*[\"«]?([\\p{L}\\p{N}][\\p{L}\\p{N} ._#\\-]{1,40})[\"»]?(?=\\s|$|[,.!])",
-    "[\"«]?([\\p{L}\\p{N}][\\p{L}\\p{N} ._#\\-]{1,40})[\"»]?\\s*(?:est[aá]\\s+)?(?:conectad[oa]s?|conectando|paread[oa]s?|pareando|emparelhad[oa]s?|emparelhando)\\b"
+    "[\"«]?([\\p{L}\\p{N}][\\p{L}\\p{N} ._#\\-]{1,40})[\"»]?\\s*(?:est[aá]\\s+)?(?:conectad[oa]s?|conectando|paread[oa]s?|pareando|emparelhad[oa]s?|emparelhando)\\b",
+    "[\\\"«]?([\\p{L}\\p{N}][\\p{L}\\p{N} ._#\\-]{1,40})[\\\"»]?\\s*(?:đã kết nối|đang kết nối|đã ghép nối|đang ghép nối)\\b",
+    "(?:đã kết nối|đang kết nối|đã ghép nối|đang ghép nối)\\s*(?:với)?\\s*[\\\"«]?([\\p{L}\\p{N}][\\p{L}\\p{N} ._#\\-]{1,40})[\\\"»]?(?=\\s|$|[,.!])",
+    "[\\\"«]?([\\p{L}\\p{N}][\\p{L}\\p{N} ._#\\-]{1,40}?)[\\\"»]?\\s*(?:에|가|이)?\\s*(?:연결됨|연결되었습니다|연결 완료|페어링 완료)",
+    "(?:연결됨|연결 중|페어링 완료|페어링 중)\\s*[:：]?\\s*[\\\"«]?([\\p{L}\\p{N}][\\p{L}\\p{N} ._#\\-]{1,40})[\\\"»]?(?=\\s|$|[,.!])"
   ],
   "external_device_generic_names": [
     "device",
@@ -763,7 +783,13 @@
     "relógio",
     "relogio",
     "smartwatch",
-    "pulseira"
+    "pulseira",
+    "thiết bị",
+    "tai nghe",
+    "đồng hồ",
+    "기기",
+    "블루투스",
+    "액세서리"
   ],
   "vpn_speed_pattern": "(?<!\\d)\\d{1,4}(?:[.,]\\d{1,2})?\\s*(?:[kmgт]?i?[bб])\\s*(?:(?:/\\s*[sс])|(?:/\\s*sec)|ps)\\b|(?<!\\d)\\d{1,4}(?:[.,]\\d{1,2})?\\s*(?:[kmg]?i?[bB])\\s*(?:(?:/\\s*s)|(?:/\\s*seg)|ps)\\b",
   "vpn_context_pattern": "(\\bvpn\\b|wireguard|openvpn|hiddify|clash|v2ray|singbox|outline|amnezia|tailscale|zerotier|туннел|прокси|proxy|代理|节点|節點|t[úu]nel|conex[aã]o\\s+segura|servidor|n[óo])",

@@ -1425,10 +1425,6 @@ object LiveUpdateNotifier {
         prefs: ConverterPrefs,
         devices: List<ConnectedDeviceInfo>
     ): Boolean {
-        // Round 86 (tier-2 discovery): map the doors to
-        // Samsung's internal device-battery service once per
-        // process.
-        SemBatteryProbe.runOnce(context)
         if (
             !prefs.getSmartExternalDevicesEnabled() ||
             !prefs.getConverterEnabled() ||
@@ -7359,12 +7355,31 @@ object LiveUpdateNotifier {
             stageValue = stageValue,
             locale = currentLocale(context)
         )
+        // Tier 3 (round 88): a battery level written in the
+        // notification text itself ("Pin 80%", "배터리 80%")
+        // rides along as a third segment.
+        val batteryText = extractExternalDeviceBatteryLevel(
+            text = combinedText,
+            parserDictionary = parserDictionary
+        )?.let { level -> connectedDevicesBatteryText(context, level) }
 
-        return when {
-            !deviceName.isNullOrBlank() && !statusText.isNullOrBlank() -> "$deviceName · $statusText"
-            !deviceName.isNullOrBlank() -> deviceName
-            else -> statusText
-        }
+        val parts = listOfNotNull(
+            deviceName?.takeIf { it.isNotBlank() },
+            statusText?.takeIf { it.isNotBlank() },
+            batteryText
+        )
+        return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
+    }
+
+    private fun extractExternalDeviceBatteryLevel(
+        text: String,
+        parserDictionary: LiveParserDictionary
+    ): Int? {
+        val match = parserDictionary.externalDeviceBatteryPattern.find(text)
+            ?: return null
+        val raw = match.groupValues.getOrNull(1)?.takeIf { it.isNotEmpty() }
+            ?: match.groupValues.getOrNull(2)
+        return raw?.toIntOrNull()?.takeIf { it in 0..100 }
     }
 
     private fun extractConnectedDeviceName(
