@@ -1486,3 +1486,11 @@ glyph; the SystemUI runtime-load probe (round 100) stays in
 place for a later swap to the authentic asset once its
 resource name is confirmed. ic_battery_low stays on disk,
 unused.
+
+Round 102 (owner feedback, 31/10): the round-101
+horizontal-outline "!" icon did not match Samsung's glyph.
+ic_battery_alert redrawn Samsung-style: VERTICAL solid-white
+battery (rounded corners, nub on top) with the "!" cut out
+via evenOdd fill, so the "!" shows the surface colour
+beneath (red on LiveBridge's pill, as blue on Samsung's
+badge). No code change — same drawable reference.
