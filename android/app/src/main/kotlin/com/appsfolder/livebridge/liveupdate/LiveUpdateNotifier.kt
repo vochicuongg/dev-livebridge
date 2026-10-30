@@ -2321,7 +2321,10 @@ object LiveUpdateNotifier {
             title = lowBatteryFallbackTitle(context, percent),
             collapsedText = remainingText.orEmpty(),
             expandedText = remainingText.orEmpty(),
-            iconRes = R.drawable.ic_charging_bolt,
+            // Round 99: its own low-battery icon instead of the
+            // charging bolt, so the two capsules no longer share
+            // an icon on the shade and the Now Bar pill.
+            iconRes = R.drawable.ic_battery_low,
             color = CHARGING_INFO_LOW_BATTERY_COLOR,
             lowBattery = true,
             lowBatteryPowerSavingAction = synchronized(stateLock) {

@@ -1455,3 +1455,11 @@ rewrite + charging "Còn" removal.
   Vietnamese only ("2 tiếng 10 phút nữa sẽ đầy"); other
   locales never had a leading word there. The low-battery
   "Còn x giờ y phút" is unchanged (separate request).
+
+Round 99 (owner request, 31/10): low-battery capsule icon.
+New vector ic_battery_low (26x26, same white style as
+ic_charging_bolt): battery body outline + terminal nub + a
+short fill bar at roughly a quarter, the "low" cue. The low-
+battery snapshot now uses it instead of the charging bolt,
+so the two capsules no longer share an icon on the shade
+and the Now Bar pill. Charging icons unchanged.
