@@ -2327,7 +2327,8 @@ object LiveUpdateNotifier {
             // Round 99: its own low-battery icon instead of the
             // charging bolt, so the two capsules no longer share
             // an icon on the shade and the Now Bar pill.
-            iconRes = R.drawable.ic_battery_low,
+            // Round 101: battery-with-exclamation glyph.
+            iconRes = R.drawable.ic_battery_alert,
             color = CHARGING_INFO_LOW_BATTERY_COLOR,
             lowBattery = true,
             lowBatteryPowerSavingAction = synchronized(stateLock) {

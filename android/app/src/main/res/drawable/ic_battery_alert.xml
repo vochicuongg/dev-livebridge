@@ -1,0 +1,30 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="26dp"
+    android:height="26dp"
+    android:viewportWidth="26"
+    android:viewportHeight="26">
+    <!-- Battery-with-exclamation glyph (round 101): the same
+        26x26 white style as ic_battery_low / ic_charging_bolt,
+        but the fill bar is replaced by a "!" — matching the
+        SystemUI low-battery notification glyph the owner
+        pointed at (white battery, "!" inside). Used for the
+        whole low-battery capsule (<= 15%), since Samsung's own
+        15% notification already uses this glyph. -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2"
+        android:pathData="M3,8 L20,8 L20,18 L3,18 z" />
+    <!-- Terminal nub. -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M21,11 L24,11 L24,15 L21,15 z" />
+    <!-- Exclamation bar, centred in the body. -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M10.25,10 L12.75,10 L12.75,14 L10.25,14 z" />
+    <!-- Exclamation dot. -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M11.5,14.8 m-1.4,0 a1.4,1.4 0 1,0 2.8,0 a1.4,1.4 0 1,0 -2.8,0" />
+</vector>

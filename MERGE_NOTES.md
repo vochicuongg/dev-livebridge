@@ -1473,3 +1473,16 @@ log decides which glyph becomes the 5-15% low icon and which
 becomes the below-5% battery-with-exclamation icon; the
 hand-drawn ic_battery_low stays as fallback. Hooked once at
 the top of refreshChargingInfo.
+
+Round 101 (owner request, 31/10): low-battery capsule icon
+becomes the battery-with-exclamation glyph. New vector
+ic_battery_alert (26x26, same white style as
+ic_battery_low/ic_charging_bolt: body outline + nub, fill bar
+replaced by "!" bar + dot), wired into lowBatterySnapshot
+for the whole <= 15% range — Samsung's own 15%
+notification already uses this glyph, so no separate 5-15%
+glyph. This is a redrawn vector matching the screenshot
+glyph; the SystemUI runtime-load probe (round 100) stays in
+place for a later swap to the authentic asset once its
+resource name is confirmed. ic_battery_low stays on disk,
+unused.
