@@ -1,4 +1,4 @@
-package com.appsfolder.livebridge.liveupdate
+package com.kakao.taxi.liveupdate
 
 import android.content.Context
 import android.util.Log
