@@ -283,6 +283,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         processingHandler.post {
             if (!destroyed) {
                 maybeSnoozeSystemChargingNotification(sbn)
+                maybeSnoozeSystemLowBatteryNotification(sbn)
                 maybeSnoozeSystemFlashlightNotification(sbn)
                 sourceLifecycle.posted(sbn.key)
                 processSafely(sbn)
@@ -975,6 +976,34 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         }
     }
 
+    // Low-battery counterpart of the charging snooze (round 98):
+    // hide the system's low-battery record while the capsule
+    // feature is on, so the user sees only LiveBridge's capsule.
+    // The record is harvested BEFORE snoozing: its power-saving
+    // action becomes the capsule's button and its remaining-time
+    // estimate seeds the capsule's own estimate until the
+    // discharge rate is learned. Without the harvest-first order
+    // the snoozed record would be gone from the active list and
+    // both would be lost.
+    private fun maybeSnoozeSystemLowBatteryNotification(sbn: StatusBarNotification) {
+        if (
+            !prefs.getConverterEnabled() ||
+            !prefs.getSmartChargingInfoEnabled() ||
+            isUnsupportedDevice()
+        ) {
+            return
+        }
+        if (!LiveUpdateNotifier.isSystemLowBatteryNotification(sbn)) {
+            return
+        }
+        LiveUpdateNotifier.rememberLowBatterySystemNotification(sbn)
+        runCatching {
+            snoozeNotification(sbn.key, SYSTEM_LOW_BATTERY_SOURCE_SNOOZE_MS)
+        }.onFailure { error ->
+            Log.w(TAG, "snoozeNotification failed for system low-battery source: ${sbn.key}", error)
+        }
+    }
+
     // Counterpart of the snooze above (round 49): when the charging
     // capsule feature is switched off, the system's charging
     // notification must come back. There is no un-snooze API, so the
@@ -999,6 +1028,28 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
             }
     }
 
+    // Low-battery counterpart of the restore above (round 98):
+    // when the capsule feature is switched off, the system's
+    // low-battery notification must come back the same way.
+    private fun restoreSystemLowBatteryNotification() {
+        val snoozed = runCatching { snoozedNotifications?.toList() }
+            .getOrNull()
+            .orEmpty()
+        snoozed
+            .filter { sbn -> LiveUpdateNotifier.isSystemLowBatteryNotification(sbn) }
+            .forEach { sbn ->
+                runCatching {
+                    snoozeNotification(sbn.key, SYSTEM_LOW_BATTERY_RESTORE_SNOOZE_MS)
+                }.onFailure { error ->
+                    Log.w(
+                        TAG,
+                        "Failed to restore system low-battery notification: ${sbn.key}",
+                        error
+                    )
+                }
+            }
+    }
+
     private fun syncChargingInfoMonitoring(
         snapshots: Collection<StatusBarNotification>? = null
     ) {
@@ -1012,8 +1063,12 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
             // notification: keep that record snoozed while the capsule
             // feature is on (round 48). Re-checked here so toggling
             // the feature on mid-charge hides an already-posted one.
+            // Round 98 applies the same treatment to the system's
+            // low-battery record, so only the capsule remains.
             (snapshots ?: activeNotificationSnapshotsForChargingInfo())
                 .forEach(::maybeSnoozeSystemChargingNotification)
+            (snapshots ?: activeNotificationSnapshotsForChargingInfo())
+                .forEach(::maybeSnoozeSystemLowBatteryNotification)
             LiveUpdateNotifier.refreshChargingInfo(
                 context = applicationContext,
                 prefs = prefs,
@@ -1021,6 +1076,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
             )
         } else {
             restoreSystemChargingNotification()
+            restoreSystemLowBatteryNotification()
             unregisterChargingInfoReceiverIfNeeded()
             LiveUpdateNotifier.cancelChargingInfo(applicationContext)
         }
@@ -1979,6 +2035,8 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         private const val VPN_SOURCE_SNOOZE_MS = 12 * 60 * 60 * 1000L
         private const val SYSTEM_CHARGING_SOURCE_SNOOZE_MS = 12 * 60 * 60 * 1000L
         private const val SYSTEM_CHARGING_RESTORE_SNOOZE_MS = 1_000L
+        private const val SYSTEM_LOW_BATTERY_SOURCE_SNOOZE_MS = 12 * 60 * 60 * 1000L
+        private const val SYSTEM_LOW_BATTERY_RESTORE_SNOOZE_MS = 1_000L
         private const val ORIGINAL_DISMISS_RETRY_DELAY_MS = 250L
         private const val ORIGINAL_DISMISS_MAX_ATTEMPTS = 6
         private const val ORIGINAL_SOURCE_SNOOZE_MS = 500L

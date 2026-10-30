@@ -102,6 +102,14 @@ object LiveUpdateNotifier {
     private const val PERCENT_SAMPLE_WINDOW_MS = 600_000L
     private const val PERCENT_RATE_MIN_SPAN_MS = 45_000L
     private const val CHARGING_RATE_MEMORY_MS = 1_800_000L
+    // Round 98 (low-battery capsule rewrite): discharge-rate
+    // learning mirrors the charging percent-rate estimator, but
+    // discharge is slower (~1% per several minutes), so the window
+    // is longer (60 min) and the minimum span is 5 min before a
+    // learned rate is trusted.
+    private const val DISCHARGE_SAMPLE_WINDOW_MS = 3_600_000L
+    private const val DISCHARGE_RATE_MIN_SPAN_MS = 300_000L
+    private const val DISCHARGE_RATE_MEMORY_MS = 1_800_000L
     private const val LOW_BATTERY_THRESHOLD_PERCENT = 15
     private const val SYSTEMUI_PACKAGE = "com.android.systemui"
     private const val GALAXY_WEARABLE_PACKAGE = "com.samsung.android.app.watchmanager"
@@ -203,7 +211,6 @@ object LiveUpdateNotifier {
         setOf(RegexOption.IGNORE_CASE)
     )
     private val TEXT_PROGRESS_PERCENT_PATTERN = Regex("(?<!\\d)(\\d{1,3})\\s*%")
-    private val LOW_BATTERY_TITLE_PERCENT_PATTERN = Regex("(?<!\\d)\\d{1,3}\\s*%")
     private val TEXT_PROGRESS_DISCOUNT_CONTEXT_PATTERN = Regex(
         "(скид|акци|промокод|промо|купон|распрод|кэшб[еэ]к|кешб[еэ]к|discount|promo|coupon|sale|cashback|off\\b|выгод|bonus|бонус|save|deal|special\\s+offer|limited\\s+time|дарим|подар)",
         setOf(RegexOption.IGNORE_CASE)
@@ -383,7 +390,19 @@ object LiveUpdateNotifier {
     private var chargingInfoTickScheduled = false
     private var chargingInfoTickGeneration = 0L
     private var chargingInfoVisible = false
-    private var retainedLowBatterySnapshot: RetainedLowBatterySnapshot? = null
+    // Round 98: the low-battery capsule no longer mirrors the
+    // system notification's text (that text only moved when the
+    // system re-posted, so the capsule looked frozen between
+    // percents). What survives from the system record is only its
+    // power-saving action and its remaining-time estimate, both
+    // captured before the record is snoozed away.
+    private var retainedLowBatteryPowerSavingAction: LowBatteryPowerSavingAction? = null
+    private var lastSystemLowBatteryRemainingMinutes: Int? = null
+    private var lastSystemLowBatteryPercent: Int = -1
+    private var lastLowBatteryRemainingMinutes: Int? = null
+    private val dischargePercentSamples = java.util.ArrayDeque<Pair<Long, Int>>()
+    private var lastDischargeRatePercentPerMinute: Double? = null
+    private var lastDischargeRateAtMs: Long = 0L
     private val chargingRateSamples = java.util.ArrayDeque<Pair<Long, Int>>()
     private val chargingPercentSamples = java.util.ArrayDeque<Pair<Long, Int>>()
     private var lastChargingRatePercentPerMinute: Double? = null
@@ -423,20 +442,6 @@ object LiveUpdateNotifier {
         // Raw estimate for the compact standby chip; null when there
         // is no estimate or the battery is already full (round 47).
         val remainingMinutes: Int? = null
-    )
-
-    private data class LowBatterySystemText(
-        val title: String?,
-        val collapsedText: String,
-        val expandedText: String,
-        val powerSavingAction: LowBatteryPowerSavingAction?
-    )
-
-    private data class RetainedLowBatterySnapshot(
-        val titleTemplate: String?,
-        val collapsedText: String,
-        val expandedText: String,
-        val powerSavingAction: LowBatteryPowerSavingAction?
     )
 
     private data class LowBatteryPowerSavingAction(
@@ -1077,7 +1082,11 @@ object LiveUpdateNotifier {
             chargingInfoDelayScheduled = false
             chargingInfoDelayGeneration += 1
             chargingInfoVisible = false
-            retainedLowBatterySnapshot = null
+            retainedLowBatteryPowerSavingAction = null
+            lastSystemLowBatteryRemainingMinutes = null
+            lastSystemLowBatteryPercent = -1
+            lastLowBatteryRemainingMinutes = null
+            dischargePercentSamples.clear()
             chargingPercentSamples.clear()
             chargingRateSamples.clear()
         }
@@ -1358,8 +1367,7 @@ object LiveUpdateNotifier {
 
         val snapshot = resolveChargingInfoSnapshot(
             context = context,
-            batteryIntent = batteryIntent ?: stickyBatteryIntent(context),
-            activeNotifications = activeNotifications
+            batteryIntent = batteryIntent ?: stickyBatteryIntent(context)
         )
         if (snapshot == null) {
             cancelChargingInfo(context)
@@ -1383,11 +1391,13 @@ object LiveUpdateNotifier {
         }.onFailure { error ->
             Log.e(TAG, "Failed to post charging info capsule", error)
         }.isSuccess
-        // While the device is charging, re-check every 30 seconds so
-        // the remaining-time estimate tracks the system's own number
-        // instead of only moving when a battery broadcast lands
-        // (owner request, round 44).
-        if (posted && !snapshot.lowBattery) {
+        // Re-check every 30 seconds so the remaining-time estimate
+        // tracks instead of only moving when a battery broadcast
+        // lands (owner request, round 44). Round 98 extends the tick
+        // to low battery too: the discharge estimate now comes from
+        // LiveBridge's own rate, which refines as samples age, so a
+        // periodic re-post keeps it fresh between percent changes.
+        if (posted) {
             scheduleChargingInfoTick(context)
         } else {
             stopChargingInfoTicker()
@@ -1402,7 +1412,11 @@ object LiveUpdateNotifier {
             chargingInfoTickScheduled = false
             chargingInfoTickGeneration += 1
             chargingInfoVisible = false
-            retainedLowBatterySnapshot = null
+            retainedLowBatteryPowerSavingAction = null
+            lastSystemLowBatteryRemainingMinutes = null
+            lastSystemLowBatteryPercent = -1
+            lastLowBatteryRemainingMinutes = null
+            dischargePercentSamples.clear()
             chargingPercentSamples.clear()
             chargingRateSamples.clear()
         }
@@ -1906,9 +1920,11 @@ object LiveUpdateNotifier {
         // long and gets cut off on the chip (round 47). The
         // lock-screen pill and the shade keep the percentage as the
         // title with the full time sentence underneath. Low battery
-        // keeps its existing expanded-text chip.
+        // (round 98) uses its short collapsed text on the chip too:
+        // the old expanded-text chip showed the system's long body
+        // and got cut off mid-sentence on the Now Bar pill.
         val capsuleChipText = when {
-            snapshot.lowBattery -> expandedText
+            snapshot.lowBattery -> collapsedText.ifBlank { title }
             else -> snapshot.remainingMinutes?.let { minutes ->
                 chargingInfoChipRemainingText(context, minutes)
             } ?: collapsedText.ifBlank { title }
@@ -2129,10 +2145,13 @@ object LiveUpdateNotifier {
                 hours > 0 -> "완충까지 ${hours}시간"
                 else -> "완충까지 ${minutes}분"
             }
+            // Round 98: owner request — drop the leading "Còn"
+            // from the Vietnamese until-full sentence (the other
+            // locales never had a leading word here).
             AppLocale.VI -> when {
-                hours > 0 && minutes > 0 -> "Còn $hours tiếng $minutes phút nữa sẽ đầy"
-                hours > 0 -> "Còn $hours tiếng nữa sẽ đầy"
-                else -> "Còn $minutes phút nữa sẽ đầy"
+                hours > 0 && minutes > 0 -> "$hours tiếng $minutes phút nữa sẽ đầy"
+                hours > 0 -> "$hours tiếng nữa sẽ đầy"
+                else -> "$minutes phút nữa sẽ đầy"
             }
             AppLocale.EN -> when {
                 hours > 0 && minutes > 0 -> "$hours h $minutes min until full"
@@ -2218,8 +2237,7 @@ object LiveUpdateNotifier {
 
     private fun resolveChargingInfoSnapshot(
         context: Context,
-        batteryIntent: Intent?,
-        activeNotifications: Collection<StatusBarNotification>
+        batteryIntent: Intent?
     ): ChargingInfoSnapshot? {
         batteryIntent ?: return null
         val level = batteryIntent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
@@ -2237,7 +2255,10 @@ object LiveUpdateNotifier {
                 status == BatteryManager.BATTERY_STATUS_FULL ||
                 plugged != 0
         if (isCharging) {
-            clearRetainedLowBatterySnapshot()
+            clearLowBatteryRetainedState()
+            synchronized(stateLock) {
+                dischargePercentSamples.clear()
+            }
             return chargingInfoSnapshot(
                 context = context,
                 batteryIntent = batteryIntent,
@@ -2245,17 +2266,18 @@ object LiveUpdateNotifier {
             )
         }
 
+        // Discharging: record the sample before the threshold
+        // check, so by the time the battery falls to the threshold
+        // there is already a drain history to estimate from. The
+        // receiver fires on every battery broadcast, i.e. on every
+        // percent change, so each refresh recomputes the remaining
+        // time from the current percent (round 98).
+        recordDischargePercentSample(percent)
         if (percent > LOW_BATTERY_THRESHOLD_PERCENT) {
-            clearRetainedLowBatterySnapshot()
+            clearLowBatteryRetainedState()
             return null
         }
-        lowBatterySystemText(activeNotifications, percent)?.let { lowBatteryText ->
-            rememberRetainedLowBatterySnapshot(lowBatteryText)
-            return lowBatterySnapshot(context, percent, lowBatteryText)
-        }
-        return retainedLowBatterySnapshot()?.let { retained ->
-            lowBatterySnapshot(context, percent, retained)
-        }
+        return lowBatterySnapshot(context, percent)
     }
 
     private fun chargingInfoSnapshot(
@@ -2282,87 +2304,201 @@ object LiveUpdateNotifier {
         )
     }
 
+    // Round 98: the low-battery capsule is LiveBridge's own now.
+    // Collapsed content is exactly the remaining time ("Còn x giờ
+    // y phút") — never the system notification's long body — and
+    // the estimate is recomputed from the current percent on every
+    // refresh, so it moves on every percent drop instead of sitting
+    // frozen on the system notification's last text.
     private fun lowBatterySnapshot(
         context: Context,
-        percent: Int,
-        lowBatteryText: LowBatterySystemText
+        percent: Int
     ): ChargingInfoSnapshot {
+        val remainingMinutes = remainingDischargeMinutes(percent)
+        val remainingText = remainingMinutes?.let { lowBatteryRemainingText(context, it) }
         return ChargingInfoSnapshot(
             percent = percent,
-            title = lowBatteryTitleForPercent(context, lowBatteryText.title, percent),
-            collapsedText = lowBatteryText.collapsedText,
-            expandedText = lowBatteryText.expandedText,
+            title = lowBatteryFallbackTitle(context, percent),
+            collapsedText = remainingText.orEmpty(),
+            expandedText = remainingText.orEmpty(),
             iconRes = R.drawable.ic_charging_bolt,
             color = CHARGING_INFO_LOW_BATTERY_COLOR,
             lowBattery = true,
-            lowBatteryPowerSavingAction = lowBatteryText.powerSavingAction
+            lowBatteryPowerSavingAction = synchronized(stateLock) {
+                retainedLowBatteryPowerSavingAction
+            },
+            remainingMinutes = remainingMinutes
         )
     }
 
-    private fun lowBatterySnapshot(
-        context: Context,
-        percent: Int,
-        retained: RetainedLowBatterySnapshot
-    ): ChargingInfoSnapshot {
-        return ChargingInfoSnapshot(
-            percent = percent,
-            title = lowBatteryTitleForPercent(context, retained.titleTemplate, percent),
-            collapsedText = retained.collapsedText,
-            expandedText = retained.expandedText,
-            iconRes = R.drawable.ic_charging_bolt,
-            color = CHARGING_INFO_LOW_BATTERY_COLOR,
-            lowBattery = true,
-            lowBatteryPowerSavingAction = retained.powerSavingAction
-        )
-    }
-
-    private fun rememberRetainedLowBatterySnapshot(lowBatteryText: LowBatterySystemText) {
+    private fun clearLowBatteryRetainedState() {
         synchronized(stateLock) {
-            retainedLowBatterySnapshot = RetainedLowBatterySnapshot(
-                titleTemplate = lowBatteryText.title,
-                collapsedText = lowBatteryText.collapsedText,
-                expandedText = lowBatteryText.expandedText,
-                powerSavingAction = lowBatteryText.powerSavingAction
-            )
+            retainedLowBatteryPowerSavingAction = null
+            lastSystemLowBatteryRemainingMinutes = null
+            lastSystemLowBatteryPercent = -1
+            lastLowBatteryRemainingMinutes = null
         }
     }
 
-    private fun retainedLowBatterySnapshot(): RetainedLowBatterySnapshot? {
-        return synchronized(stateLock) {
-            retainedLowBatterySnapshot
-        }
-    }
-
-    private fun clearRetainedLowBatterySnapshot() {
+    // Called by the listener BEFORE the system low-battery record
+    // is snoozed away: harvest the two things worth keeping — its
+    // power-saving action (the capsule's button) and its own
+    // remaining-time estimate (the fallback until LiveBridge's
+    // discharge rate is learned). After the snooze the record is
+    // gone from the active list, so this is the only chance.
+    fun rememberLowBatterySystemNotification(sbn: StatusBarNotification) {
+        val notification = sbn.notification
+        val action = lowBatteryPowerSavingAction(notification)
+        val body = lowBatteryBodyText(notification)
+        val systemMinutes = body?.let(::parseSystemRemainingMinutes)
+        val systemPercent = notification.extras
+            .getCharSequence(Notification.EXTRA_TITLE)
+            ?.let { SYSTEM_TITLE_PERCENT_PATTERN.find(it)?.groupValues?.getOrNull(1)?.toIntOrNull() }
         synchronized(stateLock) {
-            retainedLowBatterySnapshot = null
+            if (action != null) {
+                retainedLowBatteryPowerSavingAction = action
+            }
+            if (systemMinutes != null) {
+                lastSystemLowBatteryRemainingMinutes = systemMinutes
+                if (systemPercent != null) {
+                    lastSystemLowBatteryPercent = systemPercent
+                }
+            }
         }
     }
 
-    private fun lowBatteryTitleForPercent(
-        context: Context,
-        titleTemplate: String?,
-        percent: Int
-    ): String {
-        val fallback = lowBatteryFallbackTitle(context, percent)
-        val title = titleTemplate?.trim()?.takeIf { it.isNotEmpty() } ?: return fallback
-        val percentText = "$percent%"
-        if (LOW_BATTERY_TITLE_PERCENT_PATTERN.containsMatchIn(title)) {
-            return LOW_BATTERY_TITLE_PERCENT_PATTERN.replace(title, percentText)
+    private val SYSTEM_TITLE_PERCENT_PATTERN = Regex("(\\d{1,3})\\s*%")
+
+    // Discharge remaining-time chain (round 98): LiveBridge's own
+    // learned drain rate first (it moves on every percent), the
+    // system estimate scaled to the current percent second, and
+    // the last computed value as the final fallback so the capsule
+    // never goes blank mid-session.
+    private fun remainingDischargeMinutes(percent: Int): Int? {
+        val estimate = dischargeRateEstimateMinutes(percent)
+            ?: scaledSystemRemainingMinutes(percent)
+            ?: synchronized(stateLock) { lastLowBatteryRemainingMinutes }
+        if (estimate != null) {
+            synchronized(stateLock) {
+                lastLowBatteryRemainingMinutes = estimate
+            }
         }
-        return "$title $percentText"
+        return estimate
     }
 
-    private fun lowBatterySystemText(
-        activeNotifications: Collection<StatusBarNotification>,
-        percent: Int
-    ): LowBatterySystemText? {
-        return activeNotifications
-            .asSequence()
-            .filter(::isLowBatterySystemNotification)
-            .sortedByDescending { sbn -> sbn.postTime }
-            .firstNotNullOfOrNull { sbn -> parseLowBatterySystemText(sbn, percent) }
+    private fun scaledSystemRemainingMinutes(percent: Int): Int? {
+        val systemMinutes: Int?
+        val systemPercent: Int
+        synchronized(stateLock) {
+            systemMinutes = lastSystemLowBatteryRemainingMinutes
+            systemPercent = lastSystemLowBatteryPercent
+        }
+        if (systemMinutes == null) {
+            return null
+        }
+        if (systemPercent <= 0 || systemPercent == percent) {
+            return systemMinutes
+        }
+        return ((systemMinutes * percent) / systemPercent).coerceAtLeast(0)
     }
+
+    private fun recordDischargePercentSample(percent: Int) {
+        val nowMs = SystemClock.elapsedRealtime()
+        synchronized(stateLock) {
+            if (
+                dischargePercentSamples.isNotEmpty() &&
+                percent > dischargePercentSamples.last().second
+            ) {
+                // Percent went up: plugged in or a new session.
+                dischargePercentSamples.clear()
+            }
+            if (dischargePercentSamples.lastOrNull()?.second != percent) {
+                dischargePercentSamples.addLast(nowMs to percent)
+            }
+            while (dischargePercentSamples.size > 40) {
+                dischargePercentSamples.removeFirst()
+            }
+        }
+    }
+
+    private fun dischargeRateEstimateMinutes(percent: Int): Int? {
+        if (percent < 1) {
+            return null
+        }
+        val nowMs = SystemClock.elapsedRealtime()
+        val ratePerMinute = synchronized(stateLock) {
+            while (
+                dischargePercentSamples.isNotEmpty() &&
+                nowMs - dischargePercentSamples.first().first > DISCHARGE_SAMPLE_WINDOW_MS
+            ) {
+                dischargePercentSamples.removeFirst()
+            }
+            val first = dischargePercentSamples.firstOrNull()
+            val last = dischargePercentSamples.lastOrNull()
+            var rate: Double? = null
+            if (first != null && last != null) {
+                val droppedPercent = first.second - last.second
+                val spanMs = last.first - first.first
+                if (droppedPercent >= 1 && spanMs >= DISCHARGE_RATE_MIN_SPAN_MS) {
+                    rate = droppedPercent.toDouble() * 60_000.0 / spanMs
+                    lastDischargeRatePercentPerMinute = rate
+                    lastDischargeRateAtMs = nowMs
+                }
+            }
+            rate ?: lastDischargeRatePercentPerMinute?.takeIf {
+                nowMs - lastDischargeRateAtMs <= DISCHARGE_RATE_MEMORY_MS
+            }
+        } ?: return null
+        val minutes = (percent / ratePerMinute).roundToInt()
+        return minutes.takeIf { it in 0..(24 * 60) }
+    }
+
+    private fun lowBatteryRemainingText(context: Context, minutes: Int): String {
+        return when (appLocale(context)) {
+            AppLocale.VI -> if (minutes >= 60) {
+                "Còn ${minutes / 60} giờ ${minutes % 60} phút"
+            } else {
+                "Còn $minutes phút"
+            }
+            else -> if (minutes >= 60) {
+                "${minutes / 60} hr ${minutes % 60} min left"
+            } else {
+                "$minutes min left"
+            }
+        }
+    }
+
+    // The system's own estimate lives in its body text ("Còn 1 giờ
+    // 22 phút..." / "1 hr 22 min remaining..."). Only the FIRST
+    // estimate is taken: the body also carries the larger
+    // power-saving figure ("tăng thành 1 giờ 40 phút"), which must
+    // not be mistaken for the current remaining time.
+    private fun parseSystemRemainingMinutes(body: String): Int? {
+        SYSTEM_REMAINING_HOURS_MINUTES_PATTERNS.firstNotNullOfOrNull { pattern ->
+            pattern.find(body)?.let { match ->
+                val hours = match.groupValues.getOrNull(1)?.toIntOrNull()
+                val mins = match.groupValues.getOrNull(2)?.toIntOrNull()
+                if (hours != null && mins != null) {
+                    hours * 60 + mins
+                } else {
+                    null
+                }
+            }
+        }?.let { return it }
+        return SYSTEM_REMAINING_MINUTES_ONLY_PATTERNS.firstNotNullOfOrNull { pattern ->
+            pattern.find(body)?.groupValues?.getOrNull(1)?.toIntOrNull()
+        }
+    }
+
+    private val SYSTEM_REMAINING_HOURS_MINUTES_PATTERNS = listOf(
+        Regex("""Còn\s+(\d+)\s*giờ\s+(\d+)\s*phút"""),
+        Regex("""(\d+)\s*h(?:r|our)?s?\s+(\d+)\s*min""", RegexOption.IGNORE_CASE)
+    )
+
+    private val SYSTEM_REMAINING_MINUTES_ONLY_PATTERNS = listOf(
+        Regex("""Còn\s+(\d+)\s*phút"""),
+        Regex("""(\d+)\s*min\b""", RegexOption.IGNORE_CASE)
+    )
 
     // Identity of the system's own charging notification (One UI:
     // SystemUI, tag "charging_state", channel CHR) — verified against
@@ -2372,7 +2508,14 @@ object LiveUpdateNotifier {
         return sbn.packageName == SYSTEMUI_PACKAGE && sbn.tag == CHARGING_STATE_TAG
     }
 
-    private fun isLowBatterySystemNotification(sbn: StatusBarNotification): Boolean {
+    // Identity of the system's own low-battery notification
+    // (round 98): same tag/channel identification the capsule
+    // previously used to find the record to mirror — now used to
+    // find the record to snooze, so only the capsule remains. The
+    // tag/channel match is what fires on the owner's Flip5; the
+    // title fallback covers builds where they differ, including
+    // the Vietnamese titles ("Nguồn pin", "Pin yếu").
+    fun isSystemLowBatteryNotification(sbn: StatusBarNotification): Boolean {
         if (sbn.packageName != SYSTEMUI_PACKAGE) {
             return false
         }
@@ -2387,32 +2530,9 @@ object LiveUpdateNotifier {
                 ?: sbn.notification.extras.getCharSequence(Notification.EXTRA_TITLE_BIG)
         ) ?: return false
         return title.contains("battery power", ignoreCase = true) ||
-            title.contains("low battery", ignoreCase = true)
-    }
-
-    private fun parseLowBatterySystemText(
-        sbn: StatusBarNotification,
-        percent: Int
-    ): LowBatterySystemText? {
-        val notification = sbn.notification
-        val extras = notification.extras
-        val title = NotificationTextNormalizer.normalize(
-            extras.getCharSequence(Notification.EXTRA_TITLE)
-                ?: extras.getCharSequence(Notification.EXTRA_TITLE_BIG)
-        )?.takeIf { text -> text.contains("$percent%") || text.isNotBlank() }
-        val body = lowBatteryBodyText(notification) ?: return null
-        val actionText = notification.actions
-            ?.firstNotNullOfOrNull { action ->
-                NotificationTextNormalizer.normalize(action.title)
-            }
-        val (collapsedText, expandedText) = splitLowBatteryBodyText(body, actionText)
-            ?: return null
-        return LowBatterySystemText(
-            title = title,
-            collapsedText = collapsedText,
-            expandedText = expandedText,
-            powerSavingAction = lowBatteryPowerSavingAction(notification)
-        )
+            title.contains("low battery", ignoreCase = true) ||
+            title.contains("nguồn pin", ignoreCase = true) ||
+            title.contains("pin yếu", ignoreCase = true)
     }
 
     private fun lowBatteryPowerSavingAction(
@@ -2460,25 +2580,6 @@ object LiveUpdateNotifier {
             ?.mapNotNull(NotificationTextNormalizer::normalize)
             ?.joinToString(" ")
             ?.takeIf { it.isNotBlank() }
-    }
-
-    private fun splitLowBatteryBodyText(
-        body: String,
-        actionText: String?
-    ): Pair<String, String>? {
-        val normalizedBody = NotificationTextNormalizer.normalize(body) ?: return null
-        val normalizedAction = actionText?.trim()?.takeIf { it.isNotEmpty() }
-        val actionIndex = normalizedAction
-            ?.let { normalizedBody.indexOf(it, ignoreCase = true) }
-            ?.takeIf { it > 0 }
-        if (actionIndex != null) {
-            val collapsedText = normalizedBody.substring(0, actionIndex).trim()
-            val actionLine = normalizedBody.substring(actionIndex).trim()
-            if (collapsedText.isNotEmpty() && actionLine.isNotEmpty()) {
-                return collapsedText to "$collapsedText\n$actionLine"
-            }
-        }
-        return normalizedBody to normalizedBody
     }
 
     private fun lowBatteryFallbackTitle(context: Context, percent: Int): String {

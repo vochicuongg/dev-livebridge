@@ -1428,3 +1428,30 @@ battery provider (signature). No legitimate third-party
 route exists on the phone. Round 97 removes the last two
 probes and both dead manifest declarations. The capsule
 ships as it stood after round 88.
+
+Round 98 (owner request, 31/10): low-battery capsule
+rewrite + charging "Còn" removal.
+- The capsule no longer mirrors the SystemUI low-battery
+  notification's text (that text only moved when the system
+  re-posted, so the capsule looked frozen between percents).
+  Collapsed content is now exactly the remaining time ("Còn x
+  giờ y phút" in VI), computed by LiveBridge: learned
+  discharge rate first (60-min window, 5-min min span, 30-min
+  rate memory, mirroring the charging estimator), the system
+  estimate scaled to the current percent second, last computed
+  value last. The battery receiver already fires on every
+  percent change, so each refresh recomputes from the current
+  percent; the 30s tick now also runs for low battery.
+- The system's own low-battery record is snoozed 12h while
+  the capsule feature is on (charging round-48 pattern),
+  re-snoozed 1s to restore when the feature is off. Before
+  snoozing, the record is harvested for its power-saving
+  action (the capsule's button) and its remaining-time
+  estimate (the fallback until the rate is learned) — after
+  the snooze it is gone from the active list.
+- Now Bar pill chip uses the short collapsed text instead of
+  the old long expanded text, which was cut off mid-sentence.
+- Charging until-full sentence drops the leading "Còn" in
+  Vietnamese only ("2 tiếng 10 phút nữa sẽ đầy"); other
+  locales never had a leading word there. The low-battery
+  "Còn x giờ y phút" is unchanged (separate request).
