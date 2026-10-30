@@ -1915,7 +1915,19 @@ object LiveUpdateNotifier {
         val title = snapshot.title
         val collapsedText = snapshot.collapsedText
         val expandedText = snapshot.expandedText
-        val icon = IconCompat.createWithResource(context, snapshot.iconRes)
+        // Round 105: the low-battery capsule uses Samsung
+        // SystemUI's own caution glyph (stat_notify_battery_caution,
+        // loaded at runtime) for its chip/Now Bar icon whenever it
+        // can be produced, falling back to the redrawn vector.
+        // Mirrors the devices capsule's Samsung-bitmap pattern
+        // (round 77).
+        val systemUiBitmap = if (snapshot.lowBattery) {
+            SystemUiBatteryIcons.iconBitmap(context)
+        } else {
+            null
+        }
+        val icon = systemUiBitmap?.let { bitmap -> IconCompat.createWithBitmap(bitmap) }
+            ?: IconCompat.createWithResource(context, snapshot.iconRes)
         // Condensed surfaces (standby/AOD chip, status-bar chip) lead
         // with the time until full instead of the percentage — that is
         // the glanceable value there (user feedback, round 46) — in a
@@ -1963,6 +1975,8 @@ object LiveUpdateNotifier {
 
         chargingInfoContentIntent(context)?.let(builder::setContentIntent)
 
+        systemUiBitmap?.let(builder::setLargeIcon)
+
         @Suppress("DEPRECATION")
         val bridgeSource = Notification().apply {
             color = snapshot.color
@@ -1994,7 +2008,20 @@ object LiveUpdateNotifier {
             // (owner request, round 45).
             lockscreenOnly = false
         )
-        return SamsungOneUi7NowBarCompat.markEligible(builder.build())
+        val notification = SamsungOneUi7NowBarCompat.markEligible(builder.build())
+        // Rounds 81-82 (devices capsule): every One UI surface
+        // that draws a capsule's card renders the SMALL icon,
+        // never the large one, so the SystemUI bitmap has to be
+        // swapped in after the build through the platform's
+        // adopting builder, same as the devices capsule.
+        if (systemUiBitmap != null) {
+            val rebuilt = Notification.Builder.recoverBuilder(context, notification)
+                .setSmallIcon(Icon.createWithBitmap(systemUiBitmap))
+                .build()
+            Log.i(TAG, "Charging capsule: low-battery small icon type after swap: ${rebuilt.smallIcon?.type}")
+            return rebuilt
+        }
+        return notification
     }
 
     private fun buildLowBatteryPowerSavingAction(

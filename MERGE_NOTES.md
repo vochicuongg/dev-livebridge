@@ -1505,3 +1505,20 @@ Round 104 (owner feedback, 31/10): glyph enlarged — body
 r=1.6 — after the round-103 glyph looked small next to
 Samsung's badge glyph. Same drawable reference, no code
 change.
+
+Round 105 (owner found the asset, 31/10): the low-battery
+capsule now uses Samsung SystemUI's own caution glyph at
+runtime. New SystemUiBatteryIcons loader (same route as the
+Wearable glyphs, rounds 77-82): createPackageContext on
+com.android.systemui, getIdentifier for
+stat_notify_battery_caution, render at 192px, then recolor
+white through the asset's own alpha (DST_IN) — the asset's
+pixels are black, and Samsung's badge shows a white battery
+with the badge colour in the "!" cutout; the recolor makes
+it read white on LiveBridge's red pill too. Wired into
+buildChargingInfoNotification mirroring the devices
+capsule: bitmap IconCompat for chip/Now Bar icons, large
+icon, and a post-build recoverBuilder small-icon swap.
+Any load failure falls back to the redrawn
+ic_battery_alert vector. Nothing Samsung-owned is copied
+into this app.
