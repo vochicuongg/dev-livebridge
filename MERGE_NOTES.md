@@ -1494,3 +1494,8 @@ battery (rounded corners, nub on top) with the "!" cut out
 via evenOdd fill, so the "!" shows the surface colour
 beneath (red on LiveBridge's pill, as blue on Samsung's
 badge). No code change — same drawable reference.
+
+Round 103 (owner feedback, 31/10): pronounced rounded
+corners on the battery glyph — body r=3 (up from r=2),
+nub r=1, capsule ends on the "!" bar, dot moved down for a
+clear bar/dot gap. Same drawable reference, no code change.
