@@ -21,11 +21,19 @@ import android.util.Log
 // in the "!" cutout, and it makes the glyph read white on
 // LiveBridge's red pill too. Any failure returns null and the
 // caller falls back to the redrawn ic_battery_alert vector.
+//
+// Round 106: the vector code file the owner confirmed,
+// ic_accessibility_hearing_aid_low_battery (a 19x19 vector:
+// vertical battery with the "!" cut out by opposite winding),
+// is tried FIRST — a vector renders crisply at any size, which
+// is the display optimization the owner asked for — with the
+// caution webp kept as the second source.
 internal object SystemUiBatteryIcons {
 
     private const val TAG = "LiveUpdateListener"
     private const val SOURCE_PACKAGE = "com.android.systemui"
-    private const val RESOURCE_NAME = "stat_notify_battery_caution"
+    private const val VECTOR_RESOURCE_NAME = "ic_accessibility_hearing_aid_low_battery"
+    private const val BITMAP_RESOURCE_NAME = "stat_notify_battery_caution"
     private const val RENDER_SIZE_PX = 192
 
     @Volatile
@@ -55,46 +63,49 @@ internal object SystemUiBatteryIcons {
                 Context.CONTEXT_IGNORE_SECURITY
             )
             val resources = packageContext.resources
-            val resourceId = resources.getIdentifier(RESOURCE_NAME, "drawable", SOURCE_PACKAGE)
-            if (resourceId == 0) {
-                Log.i(TAG, "SystemUiBatteryIcons: $RESOURCE_NAME not found")
-                return null
-            }
-            @Suppress("DEPRECATION")
-            val drawable = resources.getDrawable(resourceId, null)
-            if (drawable == null) {
-                Log.i(TAG, "SystemUiBatteryIcons: $RESOURCE_NAME drawable is null")
-                return null
-            }
-            val rendered = Bitmap.createBitmap(
-                RENDER_SIZE_PX,
-                RENDER_SIZE_PX,
-                Bitmap.Config.ARGB_8888
-            )
-            Canvas(rendered).also { canvas ->
-                drawable.setBounds(0, 0, RENDER_SIZE_PX, RENDER_SIZE_PX)
-                drawable.draw(canvas)
-            }
-            // Recolor through the asset's own alpha: white where
-            // the battery is opaque, transparent where the "!"
-            // is cut out.
-            val white = Bitmap.createBitmap(
-                RENDER_SIZE_PX,
-                RENDER_SIZE_PX,
-                Bitmap.Config.ARGB_8888
-            )
-            Canvas(white).also { canvas ->
-                canvas.drawColor(Color.WHITE)
-                val paint = Paint().apply {
-                    xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_IN)
+            for (resourceName in listOf(VECTOR_RESOURCE_NAME, BITMAP_RESOURCE_NAME)) {
+                val resourceId = resources.getIdentifier(resourceName, "drawable", SOURCE_PACKAGE)
+                if (resourceId == 0) {
+                    Log.i(TAG, "SystemUiBatteryIcons: $resourceName not found")
+                    continue
                 }
-                canvas.drawBitmap(rendered, 0f, 0f, paint)
+                @Suppress("DEPRECATION")
+                val drawable = resources.getDrawable(resourceId, null)
+                if (drawable == null) {
+                    Log.i(TAG, "SystemUiBatteryIcons: $resourceName drawable is null")
+                    continue
+                }
+                val rendered = Bitmap.createBitmap(
+                    RENDER_SIZE_PX,
+                    RENDER_SIZE_PX,
+                    Bitmap.Config.ARGB_8888
+                )
+                Canvas(rendered).also { canvas ->
+                    drawable.setBounds(0, 0, RENDER_SIZE_PX, RENDER_SIZE_PX)
+                    drawable.draw(canvas)
+                }
+                // Recolor through the asset's own alpha: white where
+                // the battery is opaque, transparent where the "!"
+                // is cut out.
+                val white = Bitmap.createBitmap(
+                    RENDER_SIZE_PX,
+                    RENDER_SIZE_PX,
+                    Bitmap.Config.ARGB_8888
+                )
+                Canvas(white).also { canvas ->
+                    canvas.drawColor(Color.WHITE)
+                    val paint = Paint().apply {
+                        xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_IN)
+                    }
+                    canvas.drawBitmap(rendered, 0f, 0f, paint)
+                }
+                rendered.recycle()
+                Log.i(TAG, "SystemUiBatteryIcons: $resourceName loaded")
+                return white
             }
-            rendered.recycle()
-            Log.i(TAG, "SystemUiBatteryIcons: $RESOURCE_NAME loaded")
-            white
+            null
         } catch (error: Exception) {
-            Log.i(TAG, "SystemUiBatteryIcons: failed for $RESOURCE_NAME: $error")
+            Log.i(TAG, "SystemUiBatteryIcons: failed: $error")
             null
         }
     }

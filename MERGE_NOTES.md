@@ -1522,3 +1522,15 @@ icon, and a post-build recoverBuilder small-icon swap.
 Any load failure falls back to the redrawn
 ic_battery_alert vector. Nothing Samsung-owned is copied
 into this app.
+
+Round 106 (owner confirmed the code file, 31/10):
+SystemUiBatteryIcons now tries the vector
+ic_accessibility_hearing_aid_low_battery FIRST — the
+19x19 vector code file the owner confirmed as the XML
+embodiment of the glyph (vertical battery, "!" cut out by
+opposite winding) — because a vector renders crisply at any
+size, which is the display optimization asked for. The
+stat_notify_battery_caution webp stays as the second
+source; the redrawn ic_battery_alert vector remains the
+final fallback. Nothing Samsung-owned is copied into this
+app; both SystemUI sources load at runtime.
