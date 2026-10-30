@@ -1463,3 +1463,13 @@ short fill bar at roughly a quarter, the "low" cue. The low-
 battery snapshot now uses it instead of the charging bolt,
 so the two capsules no longer share an icon on the shade
 and the Now Bar pill. Charging icons unchanged.
+
+Round 100 probe (owner request, 31/10): SystemUI icons
+for the low-battery capsule. SystemUiIconProbe reflects over
+com.android.systemui R$drawable (round-91 technique), logs
+every drawable with "batter" in its name plus whether it
+loads and its size, with a getIdentifier fallback list. The
+log decides which glyph becomes the 5-15% low icon and which
+becomes the below-5% battery-with-exclamation icon; the
+hand-drawn ic_battery_low stays as fallback. Hooked once at
+the top of refreshChargingInfo.

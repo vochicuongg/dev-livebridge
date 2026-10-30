@@ -1356,6 +1356,9 @@ object LiveUpdateNotifier {
         activeNotifications: Collection<StatusBarNotification> = emptyList(),
         delayAppearance: Boolean = true
     ): Boolean {
+        // Round 100 probe: list SystemUI's battery drawables so
+        // the capsule can use Samsung's own low/critical icons.
+        SystemUiIconProbe.runOnce(context)
         if (
             !prefs.getSmartChargingInfoEnabled() ||
             !prefs.getConverterEnabled() ||
