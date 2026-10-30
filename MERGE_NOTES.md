@@ -1499,3 +1499,9 @@ Round 103 (owner feedback, 31/10): pronounced rounded
 corners on the battery glyph — body r=3 (up from r=2),
 nub r=1, capsule ends on the "!" bar, dot moved down for a
 clear bar/dot gap. Same drawable reference, no code change.
+
+Round 104 (owner feedback, 31/10): glyph enlarged — body
+14x17 (was 10x16), "!" bar 3 wide with capsule ends, dot
+r=1.6 — after the round-103 glyph looked small next to
+Samsung's badge glyph. Same drawable reference, no code
+change.

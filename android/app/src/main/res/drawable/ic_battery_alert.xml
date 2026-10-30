@@ -4,15 +4,15 @@
     android:viewportWidth="26"
     android:viewportHeight="26">
     <!-- Battery-with-exclamation glyph, Samsung SystemUI style
-        (rounds 102-103): VERTICAL solid-white battery with the
+        (rounds 102-104): VERTICAL solid-white battery with the
         "!" cut out (evenOdd), so the "!" shows the surface
         colour beneath — blue on Samsung's blue badge, red on
-        LiveBridge's red pill. Round 103: pronounced rounded
-        corners everywhere — body r=3, nub r=1, and capsule
-        ends on the "!" bar — matching Samsung's soft-cornered
-        glyph. -->
+        LiveBridge's red pill. Round 104: glyph enlarged to
+        fill the viewport like Samsung's (body 14x17 instead of
+        10x16, thicker "!" bar) after the owner reported the
+        round-103 glyph looked small next to the system one. -->
     <path
         android:fillColor="#FFFFFFFF"
         android:fillType="evenOdd"
-        android:pathData="M11,6 L15,6 Q18,6 18,9 L18,19 Q18,22 15,22 L11,22 Q8,22 8,19 L8,9 Q8,6 11,6 z M11.5,3.5 L14.5,3.5 Q15.5,3.5 15.5,4.5 L15.5,6 L10.5,6 L10.5,4.5 Q10.5,3.5 11.5,3.5 z M11.75,10.25 A1.25,1.25 0 0 1 14.25,10.25 L14.25,14.75 A1.25,1.25 0 0 1 11.75,14.75 z M13,18.2 m-1.4,0 a1.4,1.4 0 1,0 2.8,0 a1.4,1.4 0 1,0 -2.8,0" />
+        android:pathData="M9,6 L17,6 Q20,6 20,9 L20,20 Q20,23 17,23 L9,23 Q6,23 6,20 L6,9 Q6,6 9,6 z M11,3 L15,3 Q16,3 16,4 L16,6 L10,6 L10,4 Q10,3 11,3 z M11.5,11 A1.5,1.5 0 0 1 14.5,11 L14.5,15 A1.5,1.5 0 0 1 11.5,15 z M13,18.8 m-1.6,0 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0" />
 </vector>
