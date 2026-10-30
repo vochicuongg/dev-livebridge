@@ -25,9 +25,16 @@ import android.util.Log
 // Round 106: the vector code file the owner confirmed,
 // ic_accessibility_hearing_aid_low_battery (a 19x19 vector:
 // vertical battery with the "!" cut out by opposite winding),
-// is tried FIRST — a vector renders crisply at any size, which
+// was tried FIRST — a vector renders crisply at any size, which
 // is the display optimization the owner asked for — with the
 // caution webp kept as the second source.
+//
+// Round 107: reverted to webp-first. Device evidence showed
+// the vector renders SMALLER than the round-105 webp: the
+// vector's glyph fills only ~43% of its viewport width (thick
+// transparent side margins) versus ~58% for the webp, so on the
+// pill the vector looked small. The vector stays as the
+// fallback when the webp is absent.
 internal object SystemUiBatteryIcons {
 
     private const val TAG = "LiveUpdateListener"
@@ -63,7 +70,7 @@ internal object SystemUiBatteryIcons {
                 Context.CONTEXT_IGNORE_SECURITY
             )
             val resources = packageContext.resources
-            for (resourceName in listOf(VECTOR_RESOURCE_NAME, BITMAP_RESOURCE_NAME)) {
+            for (resourceName in listOf(BITMAP_RESOURCE_NAME, VECTOR_RESOURCE_NAME)) {
                 val resourceId = resources.getIdentifier(resourceName, "drawable", SOURCE_PACKAGE)
                 if (resourceId == 0) {
                     Log.i(TAG, "SystemUiBatteryIcons: $resourceName not found")

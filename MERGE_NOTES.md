@@ -1534,3 +1534,11 @@ stat_notify_battery_caution webp stays as the second
 source; the redrawn ic_battery_alert vector remains the
 final fallback. Nothing Samsung-owned is copied into this
 app; both SystemUI sources load at runtime.
+
+Round 107 (owner feedback, 31/10): webp-first order
+restored. The round-106 vector rendered smaller than the
+round-105 webp on the pill (vector glyph ~43% of viewport
+width vs webp ~58%), so the owner asked for the round-105
+size back. stat_notify_battery_caution is primary again;
+ic_accessibility_hearing_aid_low_battery stays as the
+fallback when the webp is absent.
