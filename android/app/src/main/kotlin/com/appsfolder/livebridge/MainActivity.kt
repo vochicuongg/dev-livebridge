@@ -1431,6 +1431,14 @@ class MainActivity : FlutterActivity() {
         // from closing LiveBridge. Note: Samsung does not expose
         // this setting's state to apps, so the permissions
         // screen shows guidance instead of a granted badge.
+        // Round 115: verified by web research (31/10) — Android
+        // exposes no public intent to the per-app Battery page,
+        // and Samsung Device Care components
+        // (com.samsung.android.lool ... BatteryActivity) open
+        // the main battery page, not the per-app page, so they
+        // are NOT used here. The app-details page stays the
+        // stable route; its Battery row is one tap away from
+        // the three options.
         return launchSettingsIntent(appDetailsIntent())
     }
 

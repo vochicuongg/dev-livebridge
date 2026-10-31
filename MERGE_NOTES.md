@@ -1629,3 +1629,16 @@ toast), and a chevron row in SettingsPermissionsScreen.
 Note: Samsung does not expose this setting's state to
 apps, so the row shows guidance instead of a granted
 badge — it must not claim a state it cannot read.
+
+Round 115 (owner fixes, 31/10): battery row renamed to
+"Quyền không hạn chế" in all 10 languages, subtitle
+removed so the row shows the title only (the help string
+is deleted with it). Direct-to-Battery investigated by
+web research: Android exposes no public intent to the
+per-app Battery page, and Samsung Device Care components
+open the main battery page, not the per-app page, so the
+app-details page stays the stable route — its Battery row
+is one tap from the three options. Build data: the run
+block now forces Gradle offline explicitly (GRADLE_OPTS),
+on top of pub --offline and build --no-pub, so the only
+network use left is the small git pull.

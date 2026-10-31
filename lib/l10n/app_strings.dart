@@ -2389,29 +2389,16 @@ class AppStrings {
   );
 
   String get batteryUnrestricted => tr(
-    en: 'Battery: Unrestricted',
-    es: 'Batería: Sin restricciones',
-    de: 'Akku: Uneingeschränkt',
-    ru: 'Батарея: без ограничений',
-    tr: 'Pil: Kısıtlama yok',
-    ptBr: 'Bateria: Sem restrições',
-    zhHans: '电池：不受限制',
-    zhHant: '電池：不受限制',
-    ko: '배터리: 제한 없음',
-    vi: 'Pin: Không hạn chế',
-  );
-
-  String get batteryUnrestrictedHelp => tr(
-    en: 'Open the app settings page, then choose Battery > Unrestricted so the system does not close LiveBridge.',
-    es: 'Abre la configuración de la app y elige Batería > Sin restricciones para que el sistema no cierre LiveBridge.',
-    de: 'Öffne die App-Einstellungen und wähle Akku > Uneingeschränkt, damit das System LiveBridge nicht beendet.',
-    ru: 'Откройте настройки приложения и выберите «Батарея» > «Без ограничений», чтобы система не закрывала LiveBridge.',
-    tr: 'Uygulama ayarlarını açıp Pil > Kısıtlama yok seçeneğini işaretleyin, böylece sistem LiveBridge\'i kapatmaz.',
-    ptBr: 'Abra as configurações do app e escolha Bateria > Sem restrições para que o sistema não feche o LiveBridge.',
-    zhHans: '打开应用设置，然后选择电池 > 不受限制，以免系统关闭 LiveBridge。',
-    zhHant: '開啟應用程式設定，然後選擇電池 > 不受限制，以免系統關閉 LiveBridge。',
-    ko: '앱 설정 페이지를 열고 배터리 > 제한 없음을 선택하면 시스템이 LiveBridge를 종료하지 않습니다.',
-    vi: 'Mở trang Cài đặt ứng dụng, rồi chọn Pin > Không hạn chế để hệ thống không đóng LiveBridge.',
+    en: 'Unrestricted permission',
+    es: 'Permiso sin restricciones',
+    de: 'Uneingeschränkte Berechtigung',
+    ru: 'Разрешение без ограничений',
+    tr: 'Kısıtlamasız izin',
+    ptBr: 'Permissão sem restrições',
+    zhHans: '不受限制的权限',
+    zhHant: '不受限制的權限',
+    ko: '제한 없는 권한',
+    vi: 'Quyền không hạn chế',
   );
 
   String get batterySettingsUnavailable => tr(

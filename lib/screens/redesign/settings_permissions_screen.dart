@@ -169,7 +169,6 @@ class _SettingsPermissionsScreenState extends State<SettingsPermissionsScreen>
       ),
       LbListItemData(
         title: strings.batteryUnrestricted,
-        subtitle: strings.batteryUnrestrictedHelp,
         showChevron: true,
         onTap: () {
           unawaited(_openBatterySettings());
