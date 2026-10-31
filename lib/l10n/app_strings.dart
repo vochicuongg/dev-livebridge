@@ -2389,16 +2389,16 @@ class AppStrings {
   );
 
   String get batteryUnrestricted => tr(
-    en: 'Unrestricted permission',
-    es: 'Permiso sin restricciones',
-    de: 'Uneingeschränkte Berechtigung',
-    ru: 'Разрешение без ограничений',
-    tr: 'Kısıtlamasız izin',
-    ptBr: 'Permissão sem restrições',
-    zhHans: '不受限制的权限',
-    zhHant: '不受限制的權限',
-    ko: '제한 없는 권한',
-    vi: 'Quyền không hạn chế',
+    en: 'Unrestricted battery usage permission',
+    es: 'Permiso de uso de batería sin restricciones',
+    de: 'Berechtigung: uneingeschränkte Akkunutzung',
+    ru: 'Разрешение на неограниченное использование батареи',
+    tr: 'Kısıtlamasız pil kullanım izni',
+    ptBr: 'Permissão de uso da bateria sem restrições',
+    zhHans: '不受限制的电池使用权限',
+    zhHant: '不受限制的電池使用權限',
+    ko: '제한 없는 배터리 사용 권한',
+    vi: 'Quyền sử dụng Pin không hạn chế',
   );
 
   String get batterySettingsUnavailable => tr(

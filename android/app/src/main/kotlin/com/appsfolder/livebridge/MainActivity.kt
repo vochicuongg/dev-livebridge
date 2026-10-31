@@ -1424,45 +1424,22 @@ class MainActivity : FlutterActivity() {
 
     private fun openBatterySettings(): Boolean {
         // Round 114: Samsung's per-app Battery setting
-        // (Unrestricted / Optimized / Restricted) has no direct
-        // public intent, so the first version opened the
-        // app-details page, where the user picks Battery >
-        // Unrestricted. That is the "Pin -> Không hạn chế"
-        // step that keeps the system from closing LiveBridge.
-        // Note: Samsung does not expose this setting's state
-        // to apps, so the permissions screen shows guidance
-        // instead of a granted badge.
-        // Round 116: direct route, discovered via dumpsys on
-        // the owner's J7 (31/10) — the Battery page is the
+        // (Unrestricted / Optimized / Restricted) — the
+        // "Quyền sử dụng Pin không hạn chế" step that keeps
+        // the system from closing LiveBridge. The entry opens
+        // the app-details page, where the user picks Battery >
+        // Unrestricted; Samsung does not expose this setting's
+        // state to apps, so the permissions screen shows no
+        // granted badge.
+        // Round 116 tried a direct deep link to the
         // PowerBackgroundUsageDetail fragment inside
-        // com.android.settings/.SubSettings, so SubSettings is
-        // launched with the ":settings:show_fragment" extra
-        // naming that fragment and the package in
-        // ":settings:show_fragment_args". Gated to Samsung
-        // devices (the fragment name was verified on Samsung
-        // Settings); other devices keep the app-details page.
-        // If the direct route fails to launch, it falls back
-        // to the app-details page.
-        if (Build.MANUFACTURER.equals("samsung", ignoreCase = true)) {
-            val args = Bundle().apply {
-                putString("package", packageName)
-                putString("packageName", packageName)
-            }
-            val direct = Intent(Intent.ACTION_MAIN).apply {
-                component = ComponentName(
-                    "com.android.settings",
-                    "com.android.settings.SubSettings"
-                )
-                putExtra(
-                    ":settings:show_fragment",
-                    "com.android.settings.fuelgauge.PowerBackgroundUsageDetail"
-                )
-                putExtra(":settings:show_fragment_args", args)
-            }
-            if (launchSettingsIntent(direct)) {
-                return true
-            }
-        }
+        // com.android.settings/.SubSettings, but SubSettings
+        // is not exported to third-party apps, so the launch
+        // always fell back here (confirmed on the owner's J7).
+        // A third-party app cannot open the per-app Battery
+        // page directly; the app-details page (Battery one tap
+        // away) is the deepest reachable page. The direct code
+        // was removed in round 117 for that reason.
         return launchSettingsIntent(appDetailsIntent())
     }
 

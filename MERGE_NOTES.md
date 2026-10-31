@@ -1655,3 +1655,12 @@ fragment and the package in ":settings:show_fragment_args"
 devices (fragment verified on Samsung Settings); other
 devices and any launch failure fall back to the
 app-details page.
+
+Round 117 (owner request, 31/10): battery row renamed
+to "Quyền sử dụng Pin không hạn chế" in all 10
+languages. The dead round-116 direct-fragment code is
+removed: SubSettings is not exported to third-party
+apps, so the direct route could never launch and always
+fell back to the app-details page (confirmed on J7).
+Behavior is unchanged — the entry opens the app-details
+page, Battery one tap away.
