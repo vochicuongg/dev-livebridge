@@ -1700,3 +1700,10 @@ with a toast for the granted/failed cases. The guide body
 notes the extra step in all 10 languages. This does NOT
 replace Samsung's Unrestricted — Samsung can still sleep
 the app even when Doze is exempted.
+
+Round 121 (owner request, 31/10): battery row renamed
+to "Quyền cho phép ứng dụng luôn chạy trong nền" in all
+10 languages — the row now covers both the Samsung
+Unrestricted step and the Doze exemption, so the title
+names the actual goal (always running in the background)
+instead of just the Samsung setting.
