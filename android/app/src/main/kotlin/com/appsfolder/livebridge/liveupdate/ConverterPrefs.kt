@@ -671,18 +671,6 @@ class ConverterPrefs(context: Context) {
         prefs.edit().putBoolean(KEY_SMART_CHARGING_INFO_ENABLED, value).apply()
     }
 
-    // Round 130: hides Samsung Camera's image-processing
-    // notification (round 129 snooze). Off by default: hiding a
-    // system notification is opt-in, so other users keep the
-    // processing progress unless they choose otherwise.
-    fun getHideCameraPostProcessEnabled(): Boolean {
-        return prefs.getBoolean(KEY_HIDE_CAMERA_POST_PROCESS_ENABLED, false)
-    }
-
-    fun setHideCameraPostProcessEnabled(value: Boolean) {
-        prefs.edit().putBoolean(KEY_HIDE_CAMERA_POST_PROCESS_ENABLED, value).apply()
-    }
-
     fun getSmartNotificationCapsuleEnabled(): Boolean {
         return prefs.getBoolean(KEY_SMART_NOTIFICATION_CAPSULE_ENABLED, false)
     }
@@ -1137,10 +1125,6 @@ class ConverterPrefs(context: Context) {
             .put("smart_weather_enabled", getSmartWeatherEnabled())
             .put("smart_weather_lockscreen_only", getSmartWeatherLockscreenOnly())
             .put("smart_charging_info_enabled", getSmartChargingInfoEnabled())
-            .put(
-                "hide_camera_post_process_enabled",
-                getHideCameraPostProcessEnabled()
-            )
             .put("smart_notification_capsule_enabled", getSmartNotificationCapsuleEnabled())
             .put(
                 "notification_capsule_smart_enabled",
@@ -1291,8 +1275,6 @@ class ConverterPrefs(context: Context) {
         bool(settings, "smart_weather_lockscreen_only")
             ?.let(::setSmartWeatherLockscreenOnly)
         bool(settings, "smart_charging_info_enabled")?.let(::setSmartChargingInfoEnabled)
-        bool(settings, "hide_camera_post_process_enabled")
-            ?.let(::setHideCameraPostProcessEnabled)
         bool(settings, "smart_notification_capsule_enabled")
             ?.let(::setSmartNotificationCapsuleEnabled)
         bool(settings, "notification_capsule_smart_enabled")
@@ -1612,8 +1594,6 @@ class ConverterPrefs(context: Context) {
         private const val KEY_SMART_WEATHER_ENABLED = "smart_weather_enabled"
         private const val KEY_SMART_WEATHER_LOCKSCREEN_ONLY = "smart_weather_lockscreen_only"
         private const val KEY_SMART_CHARGING_INFO_ENABLED = "smart_charging_info_enabled"
-        private const val KEY_HIDE_CAMERA_POST_PROCESS_ENABLED =
-            "hide_camera_post_process_enabled"
         private const val KEY_SMART_NOTIFICATION_CAPSULE_ENABLED =
             "smart_notification_capsule_enabled"
         private const val KEY_NOTIFICATION_CAPSULE_SMART_ENABLED =

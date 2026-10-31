@@ -353,10 +353,6 @@ class LiveBridgePlatform {
       _askBool('getSmartChargingInfoEnabled');
   static Future<bool> setSmartChargingInfoEnabled(bool value) =>
       _askBool('setSmartChargingInfoEnabled', {'value': value});
-  static Future<bool> getHideCameraPostProcessEnabled() =>
-      _askBool('getHideCameraPostProcessEnabled');
-  static Future<bool> setHideCameraPostProcessEnabled(bool value) =>
-      _askBool('setHideCameraPostProcessEnabled', {'value': value});
   static Future<bool> getSmartNotificationCapsuleEnabled() =>
       _askBool('getSmartNotificationCapsuleEnabled');
   static Future<bool> setSmartNotificationCapsuleEnabled(bool value) =>

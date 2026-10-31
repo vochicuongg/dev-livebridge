@@ -1767,33 +1767,3 @@ battery usage" (Doze) dialog. The guide's four strings
 granted/failed toasts and the row's optional accent
 indicator stay. Already-granted still toasts, and a
 fresh grant is still confirmed on return (round 126).
-
-Round 129 (owner request, 01/11): Samsung Camera's
-post-processing notification ("Đang tinh chỉnh hình ảnh…",
-channel post_process_notichannel) is snoozed on sight by
-the listener, 12h, like the SystemUI sources. It cannot be
-blocked any other way: pm revoke POST_NOTIFICATION fails
-("Unknown permission" — the system Camera app is exempt),
-appops ignore does not stick, and the Settings notification
-block does not suppress this ongoing record (all
-user-tested 01/11). Match is package + channel only (no
-title text, locale-independent) and unconditional, as
-requested. Hooked in onNotificationPosted and in the
-onListenerConnected snapshot loop (already-posted record).
-If the system ever rejects the snooze, the failure is only
-logged. The snooze dies with the record when Camera cancels
-it on completion; processing itself is untouched.
-
-Round 130 (owner request, 01/11): the round-129 Camera
-post-processing snooze is now gated on a settings toggle,
-"Ẩn thông báo xử lý ảnh", in the miscellaneous rules
-screen (after the charging row), with title + subtitle in
-all 10 languages. It is OFF by default: hiding a system
-notification is opt-in, so other users keep the processing
-progress unless they choose otherwise. Wiring follows the
-charging toggle exactly (ConverterPrefs key
-hide_camera_post_process_enabled + snapshot/restore,
-MainActivity get/set dispatch, platform methods, screen
-row); the listener reads the pref live, so toggling takes
-effect from the next shot — a record already posted
-finishes within seconds anyway.
