@@ -1707,3 +1707,12 @@ to "Quyền cho phép ứng dụng luôn chạy trong nền" in all
 Unrestricted step and the Doze exemption, so the title
 names the actual goal (always running in the background)
 instead of just the Samsung setting.
+
+Round 122 (owner request, 31/10): battery row renamed
+to "Quyền bật Pin không hạn chế" in all 10 languages
+(owner typed a doubled "không không" — corrected to a
+single "không", since the double negation would mean the
+opposite). Guide body first sentence now adds the benefit
+in all 10 languages: keeping the app alive in background
+reduces the risk of losing Live Updates ("Thông báo Trực
+tiếp" in Vietnamese).
