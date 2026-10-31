@@ -29,6 +29,9 @@ class _SettingsPermissionsScreenState extends State<SettingsPermissionsScreen>
     status: 'unknown',
   );
   bool _hidePromotedAccess = false;
+  // Round 126: set when the system Doze dialog was launched;
+  // cleared on the next resume, when the grant is confirmed.
+  bool _dozeRequestPending = false;
 
   @override
   void initState() {
@@ -49,6 +52,7 @@ class _SettingsPermissionsScreenState extends State<SettingsPermissionsScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       unawaited(_loadState());
+      unawaited(_confirmPendingDozeGrant());
     }
   }
 
@@ -170,8 +174,28 @@ class _SettingsPermissionsScreenState extends State<SettingsPermissionsScreen>
       _snack(AppStrings.of(context).batteryDozeGranted);
     } else if (status == 'failed') {
       _snack(AppStrings.of(context).batteryDozeUnavailable);
+    } else if (status == 'requested') {
+      // The system dialog is up; the grant is confirmed when
+      // the user returns to this screen (see below).
+      _dozeRequestPending = true;
     }
-    // "requested": the system dialog is up; the user decides there.
+  }
+
+  /// Round 126: after the user returns from the system Doze
+  /// dialog, a pending request is confirmed — if the system
+  /// now reports the app exempt, the same "optimized" message
+  /// as the already-granted case is shown. Denials and
+  /// dismissals stay silent (no nagging).
+  Future<void> _confirmPendingDozeGrant() async {
+    if (!_dozeRequestPending) {
+      return;
+    }
+    _dozeRequestPending = false;
+    final bool exempt = await LiveBridgePlatform.isDozeExempt();
+    if (!mounted || !exempt) {
+      return;
+    }
+    _snack(AppStrings.of(context).batteryDozeGranted);
   }
 
   Future<void> _openPromotedSettings() async {

@@ -137,6 +137,7 @@ class MainActivity : FlutterActivity() {
             "openAppNotificationSettings" -> res.success(openAppNotificationSettings())
             "openBatterySettings" -> res.success(openBatterySettings())
             "requestDozeExemption" -> res.success(requestDozeExemption())
+            "isDozeExempt" -> res.success(isDozeExempt())
             "getInstalledApps" -> loadInstalledAppsAsync(
                 forceRefresh = call.argument<Boolean>("forceRefresh") ?: false,
                 res = res
@@ -1469,6 +1470,15 @@ class MainActivity : FlutterActivity() {
         } catch (e: SecurityException) {
             "failed"
         }
+    }
+
+    private fun isDozeExempt(): Boolean {
+        // Round 126: PowerManager check used by the permissions
+        // screen to confirm a Doze grant after the user returns
+        // from the system dialog.
+        val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
+            ?: return false
+        return powerManager.isIgnoringBatteryOptimizations(packageName)
     }
 
     private fun openPromotedNotificationSettings(): Boolean {

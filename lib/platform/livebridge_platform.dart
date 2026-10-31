@@ -77,6 +77,8 @@ class LiveBridgePlatform {
   // Round 120: "granted" | "requested" | "failed" (see MainActivity).
   static Future<String> requestDozeExemption() =>
       _askStr('requestDozeExemption');
+  // Round 126: confirms a Doze grant after the system dialog.
+  static Future<bool> isDozeExempt() => _askBool('isDozeExempt');
   static Future<String> exportLiveBridgeSettingsBackup() =>
       _askStr('exportLiveBridgeSettingsBackup');
   static Future<String> saveLiveBridgeSettingsBackupToDownloads() =>

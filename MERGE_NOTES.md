@@ -1739,3 +1739,12 @@ only the benefit sentence plus the Later / Allow
 buttons. (This also resolves the owner's cut-off
 "và bổ sung" from round 123: it was a deletion, not an
 addition.)
+
+Round 126 (owner request, 31/10): a confirmation
+message after allowing Doze. The system dialog returns
+no result, so the permissions screen now marks a Doze
+request pending and, on the next resume, checks
+PowerManager: if the app is now exempt, the same
+"battery usage has been optimized" message as the
+already-granted case is shown. Denials and dismissals
+stay silent (no nagging).
