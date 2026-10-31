@@ -1731,3 +1731,11 @@ Doze toast is reworded in all 10 languages — from the
 technical "exempt from Doze" to the user-facing
 "battery usage has been optimized" ("LiveBridge đã được
 tối ưu mức sử dụng pin." in Vietnamese).
+
+Round 125 (owner request, 31/10): the "Extra"
+("Bổ sung") paragraph is removed from the battery
+guide body in all 10 languages — the dialog now shows
+only the benefit sentence plus the Later / Allow
+buttons. (This also resolves the owner's cut-off
+"và bổ sung" from round 123: it was a deletion, not an
+addition.)

@@ -2429,22 +2429,22 @@ class AppStrings {
 
   String get batteryGuideBody => tr(
     en:
-        'LiveBridge needs this so the system does not close the app in the background, reducing the risk of losing Live Updates.\n\nExtra: tap Allow to ask the system not to apply Doze to LiveBridge.',
+        'LiveBridge needs this so the system does not close the app in the background, reducing the risk of losing Live Updates.',
     es:
-        'LiveBridge necesita esto para que el sistema no cierre la app en segundo plano, reduciendo el riesgo de perder las Live Updates.\n\nExtra: toca Permitir para pedir al sistema que no aplique Doze a LiveBridge.',
+        'LiveBridge necesita esto para que el sistema no cierre la app en segundo plano, reduciendo el riesgo de perder las Live Updates.',
     de:
-        'LiveBridge braucht dies, damit das System die App im Hintergrund nicht schließt, wodurch das Risiko sinkt, Live-Updates zu verlieren.\n\nExtra: Tippe auf Zulassen, um das System zu bitten, Doze nicht auf LiveBridge anzuwenden.',
+        'LiveBridge braucht dies, damit das System die App im Hintergrund nicht schließt, wodurch das Risiko sinkt, Live-Updates zu verlieren.',
     ru:
-        'LiveBridge нужно это, чтобы система не закрывала приложение в фоне, снижая риск потери Live Updates.\n\nДополнительно: нажмите «Разрешить», чтобы попросить систему не применять Doze к LiveBridge.',
+        'LiveBridge нужно это, чтобы система не закрывала приложение в фоне, снижая риск потери Live Updates.',
     tr:
-        "LiveBridge'in arka planda sistem tarafından kapatılmaması ve Live Updates'i kaybetme riskini azaltmak için bu gerekli.\n\nEk: Sistemin LiveBridge'e Doze uygulamasını engellemek için İzin ver'e dokun.",
+        "LiveBridge'in arka planda sistem tarafından kapatılmaması ve Live Updates'i kaybetme riskini azaltmak için bu gerekli.",
     ptBr:
-        'O LiveBridge precisa disso para que o sistema não feche o app em segundo plano, reduzindo o risco de perder as Live Updates.\n\nExtra: toque em Permitir para pedir ao sistema que não aplique o Doze ao LiveBridge.',
-    zhHans: 'LiveBridge 需要此权限，以免系统在后台关闭应用，并降低丢失 Live Updates 的风险。\n\n补充：点按“允许”，请求系统不对 LiveBridge 应用 Doze。',
-    zhHant: 'LiveBridge 需要此權限，以免系統在背景關閉應用程式，並降低遺失 Live Updates 的風險。\n\n補充：點按“允許”，請求系統不對 LiveBridge 套用 Doze。',
-    ko: 'LiveBridge가 백그라운드에서 시스템에 의해 종료되지 않고 Live Updates를 잃을 위험을 줄이려면 이 권한이 필요합니다.\n\n추가: 허용을 탭하여 시스템이 LiveBridge에 Doze를 적용하지 않도록 요청하세요.',
+        'O LiveBridge precisa disso para que o sistema não feche o app em segundo plano, reduzindo o risco de perder as Live Updates.',
+    zhHans: 'LiveBridge 需要此权限，以免系统在后台关闭应用，并降低丢失 Live Updates 的风险。',
+    zhHant: 'LiveBridge 需要此權限，以免系統在背景關閉應用程式，並降低遺失 Live Updates 的風險。',
+    ko: 'LiveBridge가 백그라운드에서 시스템에 의해 종료되지 않고 Live Updates를 잃을 위험을 줄이려면 이 권한이 필요합니다.',
     vi:
-        'LiveBridge cần quyền này để hệ thống không tự đóng ứng dụng khi chạy nền, giảm nguy cơ bị mất Thông báo Trực tiếp.\n\nBổ sung: bấm Cho phép để xin hệ thống không áp Doze cho LiveBridge.',
+        'LiveBridge cần quyền này để hệ thống không tự đóng ứng dụng khi chạy nền, giảm nguy cơ bị mất Thông báo Trực tiếp.',
   );
 
   String get batteryGuideAllow => tr(
