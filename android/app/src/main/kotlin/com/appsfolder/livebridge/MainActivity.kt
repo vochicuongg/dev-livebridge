@@ -1425,20 +1425,44 @@ class MainActivity : FlutterActivity() {
     private fun openBatterySettings(): Boolean {
         // Round 114: Samsung's per-app Battery setting
         // (Unrestricted / Optimized / Restricted) has no direct
-        // intent, so open the app-details page, where the user
-        // picks Battery > Unrestricted. That is the
-        // "Pin -> Không hạn chế" step that keeps the system
-        // from closing LiveBridge. Note: Samsung does not expose
-        // this setting's state to apps, so the permissions
-        // screen shows guidance instead of a granted badge.
-        // Round 115: verified by web research (31/10) — Android
-        // exposes no public intent to the per-app Battery page,
-        // and Samsung Device Care components
-        // (com.samsung.android.lool ... BatteryActivity) open
-        // the main battery page, not the per-app page, so they
-        // are NOT used here. The app-details page stays the
-        // stable route; its Battery row is one tap away from
-        // the three options.
+        // public intent, so the first version opened the
+        // app-details page, where the user picks Battery >
+        // Unrestricted. That is the "Pin -> Không hạn chế"
+        // step that keeps the system from closing LiveBridge.
+        // Note: Samsung does not expose this setting's state
+        // to apps, so the permissions screen shows guidance
+        // instead of a granted badge.
+        // Round 116: direct route, discovered via dumpsys on
+        // the owner's J7 (31/10) — the Battery page is the
+        // PowerBackgroundUsageDetail fragment inside
+        // com.android.settings/.SubSettings, so SubSettings is
+        // launched with the ":settings:show_fragment" extra
+        // naming that fragment and the package in
+        // ":settings:show_fragment_args". Gated to Samsung
+        // devices (the fragment name was verified on Samsung
+        // Settings); other devices keep the app-details page.
+        // If the direct route fails to launch, it falls back
+        // to the app-details page.
+        if (Build.MANUFACTURER.equals("samsung", ignoreCase = true)) {
+            val args = Bundle().apply {
+                putString("package", packageName)
+                putString("packageName", packageName)
+            }
+            val direct = Intent(Intent.ACTION_MAIN).apply {
+                component = ComponentName(
+                    "com.android.settings",
+                    "com.android.settings.SubSettings"
+                )
+                putExtra(
+                    ":settings:show_fragment",
+                    "com.android.settings.fuelgauge.PowerBackgroundUsageDetail"
+                )
+                putExtra(":settings:show_fragment_args", args)
+            }
+            if (launchSettingsIntent(direct)) {
+                return true
+            }
+        }
         return launchSettingsIntent(appDetailsIntent())
     }
 

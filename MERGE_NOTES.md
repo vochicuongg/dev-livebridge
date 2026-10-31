@@ -1642,3 +1642,16 @@ is one tap from the three options. Build data: the run
 block now forces Gradle offline explicitly (GRADLE_OPTS),
 on top of pub --offline and build --no-pub, so the only
 network use left is the small git pull.
+
+Round 116 (owner request, 31/10): "Quyền không hạn chế"
+now opens the per-app Battery page directly instead of
+the app-details page. Discovered via dumpsys on the
+owner's J7: the Battery page is the
+PowerBackgroundUsageDetail fragment inside
+com.android.settings/.SubSettings, so SubSettings is
+launched with ":settings:show_fragment" naming that
+fragment and the package in ":settings:show_fragment_args"
+("package" + "packageName" keys). Gated to Samsung
+devices (fragment verified on Samsung Settings); other
+devices and any launch failure fall back to the
+app-details page.
