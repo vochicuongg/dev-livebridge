@@ -259,7 +259,10 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
             reconcileSources(snapshots)
             syncFlashlightMirror(snapshots)
             for (sbn in snapshots) {
-                if (sbn.packageName != packageName) processSafely(sbn)
+                if (sbn.packageName != packageName) {
+                    maybeSnoozeCameraPostProcessNotification(sbn)
+                    processSafely(sbn)
+                }
             }
         }
     }
@@ -285,6 +288,7 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
                 maybeSnoozeSystemChargingNotification(sbn)
                 maybeSnoozeSystemLowBatteryNotification(sbn)
                 maybeSnoozeSystemFlashlightNotification(sbn)
+                maybeSnoozeCameraPostProcessNotification(sbn)
                 sourceLifecycle.posted(sbn.key)
                 processSafely(sbn)
             }
@@ -1001,6 +1005,35 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
             snoozeNotification(sbn.key, SYSTEM_LOW_BATTERY_SOURCE_SNOOZE_MS)
         }.onFailure { error ->
             Log.w(TAG, "snoozeNotification failed for system low-battery source: ${sbn.key}", error)
+        }
+    }
+
+    // Round 129: Samsung Camera's post-processing notification
+    // ("Đang tinh chỉnh hình ảnh…", channel post_process_notichannel)
+    // cannot be blocked by the user: the Camera app is a system app
+    // exempt from POST_NOTIFICATION (pm revoke fails with "Unknown
+    // permission"), appops ignore does not stick, and the Settings
+    // notification block does not suppress this ongoing record
+    // (all user-tested 01/11). So the listener snoozes it on sight,
+    // like the SystemUI sources above: the 12h snooze far outlives
+    // the processing, and the snooze dies with the record when
+    // Camera cancels it on completion. The match is package +
+    // channel only (no title text, so it works in every locale),
+    // and it is unconditional — the owner asked for this
+    // notification to be gone entirely. If the system ever rejects
+    // the snooze (e.g. a true foreground-service record), the
+    // failure is only logged; nothing else changes.
+    private fun maybeSnoozeCameraPostProcessNotification(sbn: StatusBarNotification) {
+        if (
+            sbn.packageName != CAMERA_POST_PROCESS_PACKAGE ||
+            sbn.notification.channelId != CAMERA_POST_PROCESS_CHANNEL_ID
+        ) {
+            return
+        }
+        runCatching {
+            snoozeNotification(sbn.key, CAMERA_POST_PROCESS_SOURCE_SNOOZE_MS)
+        }.onFailure { error ->
+            Log.w(TAG, "snoozeNotification failed for camera post-process source: ${sbn.key}", error)
         }
     }
 
@@ -2057,6 +2090,9 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
         private const val FLASHLIGHT_SOURCE_PACKAGE = "com.android.systemui"
         private const val FLASHLIGHT_SOURCE_CHANNEL_ID = "FLASHLIGHT_ONGOING"
         private const val FLASHLIGHT_SOURCE_TAG = "Flashlight"
+        private const val CAMERA_POST_PROCESS_PACKAGE = "com.sec.android.app.camera"
+        private const val CAMERA_POST_PROCESS_CHANNEL_ID = "post_process_notichannel"
+        private const val CAMERA_POST_PROCESS_SOURCE_SNOOZE_MS = 12 * 60 * 60 * 1000L
         private const val REPLY_SOURCE_CANCEL_TTL_MS = 15_000L
         private const val PROGRAMMATIC_CANCEL_TTL_MS = 15_000L
 
