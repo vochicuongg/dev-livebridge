@@ -74,6 +74,9 @@ class LiveBridgePlatform {
       _askBool('openAppNotificationSettings');
   static Future<bool> openBatterySettings() =>
       _askBool('openBatterySettings');
+  // Round 120: "granted" | "requested" | "failed" (see MainActivity).
+  static Future<String> requestDozeExemption() =>
+      _askStr('requestDozeExemption');
   static Future<String> exportLiveBridgeSettingsBackup() =>
       _askStr('exportLiveBridgeSettingsBackup');
   static Future<String> saveLiveBridgeSettingsBackupToDownloads() =>

@@ -1689,3 +1689,14 @@ opens, then Battery, then Unrestricted) — because a
 third-party app cannot land directly on the per-app
 Battery page. "Open Settings" proceeds to the app-info
 page; "Later" dismisses. Guide text in all 10 languages.
+
+Round 120 (owner request, 31/10): the battery guide
+gains a "Doze exemption" button as a supplementary layer.
+It fires the system's one-tap Doze dialog
+(ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS); the native
+side returns "granted" (already exempt, no dialog),
+"requested" (dialog shown) or "failed" (could not launch),
+with a toast for the granted/failed cases. The guide body
+notes the extra step in all 10 languages. This does NOT
+replace Samsung's Unrestricted — Samsung can still sleep
+the app even when Doze is exempted.

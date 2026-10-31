@@ -13,6 +13,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.os.Environment
 import android.provider.MediaStore
 import android.provider.Settings
@@ -135,6 +136,7 @@ class MainActivity : FlutterActivity() {
             "openPromotedNotificationSettings" -> res.success(openPromotedNotificationSettings())
             "openAppNotificationSettings" -> res.success(openAppNotificationSettings())
             "openBatterySettings" -> res.success(openBatterySettings())
+            "requestDozeExemption" -> res.success(requestDozeExemption())
             "getInstalledApps" -> loadInstalledAppsAsync(
                 forceRefresh = call.argument<Boolean>("forceRefresh") ?: false,
                 res = res
@@ -1441,6 +1443,32 @@ class MainActivity : FlutterActivity() {
         // away) is the deepest reachable page. The direct code
         // was removed in round 117 for that reason.
         return launchSettingsIntent(appDetailsIntent())
+    }
+
+    private fun requestDozeExemption(): String {
+        // Round 120: supplementary to Samsung's Unrestricted
+        // setting — the AOSP Doze exemption dialog. Returns
+        // "granted" when already exempt (no dialog shown),
+        // "requested" when the system dialog was launched, and
+        // "failed" when it could not be launched. Note this
+        // does NOT replace Samsung's Unrestricted: Samsung can
+        // still sleep the app even when Doze is exempted.
+        val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
+            ?: return "failed"
+        if (powerManager.isIgnoringBatteryOptimizations(packageName)) {
+            return "granted"
+        }
+        return try {
+            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                data = Uri.parse("package:$packageName")
+            }
+            startActivity(intent)
+            "requested"
+        } catch (e: ActivityNotFoundException) {
+            "failed"
+        } catch (e: SecurityException) {
+            "failed"
+        }
     }
 
     private fun openPromotedNotificationSettings(): Boolean {

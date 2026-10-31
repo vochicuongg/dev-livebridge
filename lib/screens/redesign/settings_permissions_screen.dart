@@ -126,9 +126,12 @@ class _SettingsPermissionsScreenState extends State<SettingsPermissionsScreen>
   /// (app info opens, then Battery, then Unrestricted) — because a
   /// third-party app cannot land directly on the per-app Battery
   /// page. "Open Settings" proceeds; "Later" just dismisses.
+  /// Round 120: the guide also offers "Doze exemption", which
+  /// fires the system's one-tap Doze dialog as a supplementary
+  /// layer (it does not replace Samsung's Unrestricted).
   Future<void> _showBatteryGuide() async {
     final AppStrings strings = AppStrings.of(context);
-    final bool? open = await showDialog<bool>(
+    final String? choice = await showDialog<String>(
       context: context,
       builder: (BuildContext dialogContext) {
         return AlertDialog(
@@ -136,21 +139,42 @@ class _SettingsPermissionsScreenState extends State<SettingsPermissionsScreen>
           content: Text(strings.batteryGuideBody),
           actions: <Widget>[
             TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
+              onPressed: () => Navigator.of(dialogContext).pop(),
               child: Text(strings.batteryGuideLater),
             ),
             TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
+              onPressed: () => Navigator.of(dialogContext).pop('doze'),
+              child: Text(strings.batteryGuideDoze),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop('open'),
               child: Text(strings.batteryGuideOpen),
             ),
           ],
         );
       },
     );
-    if (open != true || !mounted) {
+    if (!mounted) {
       return;
     }
-    await _openBatterySettings();
+    if (choice == 'open') {
+      await _openBatterySettings();
+    } else if (choice == 'doze') {
+      await _requestDozeExemption();
+    }
+  }
+
+  Future<void> _requestDozeExemption() async {
+    final String status = await LiveBridgePlatform.requestDozeExemption();
+    if (!mounted) {
+      return;
+    }
+    if (status == 'granted') {
+      _snack(AppStrings.of(context).batteryDozeGranted);
+    } else if (status == 'failed') {
+      _snack(AppStrings.of(context).batteryDozeUnavailable);
+    }
+    // "requested": the system dialog is up; the user decides there.
   }
 
   Future<void> _openPromotedSettings() async {
