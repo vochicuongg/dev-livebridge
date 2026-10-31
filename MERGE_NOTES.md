@@ -1681,3 +1681,11 @@ un-duplicated), so the actions work from the shade / Now
 Bar expansion too. Plain actions keep their original
 intent verbatim — exactly what tapping them on the
 original notification does.
+
+Round 119 (owner request, 31/10): tapping the battery
+row now shows a SystemUI-style guide first — why the
+permission matters plus the exact taps left (app info
+opens, then Battery, then Unrestricted) — because a
+third-party app cannot land directly on the per-app
+Battery page. "Open Settings" proceeds to the app-info
+page; "Later" dismisses. Guide text in all 10 languages.

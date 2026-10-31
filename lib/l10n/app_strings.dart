@@ -2414,6 +2414,65 @@ class AppStrings {
     vi: 'Không mở được cài đặt Pin.',
   );
 
+  String get batteryGuideTitle => tr(
+    en: 'Allow unrestricted battery use',
+    es: 'Permitir uso de batería sin restricciones',
+    de: 'Uneingeschränkte Akkunutzung zulassen',
+    ru: 'Разрешить неограниченное использование батареи',
+    tr: 'Kısıtlamasız pil kullanımına izin ver',
+    ptBr: 'Permitir uso da bateria sem restrições',
+    zhHans: '允许不受限制的电池使用',
+    zhHant: '允許不受限制的電池使用',
+    ko: '제한 없는 배터리 사용 허용',
+    vi: 'Bật Pin không hạn chế',
+  );
+
+  String get batteryGuideBody => tr(
+    en:
+        'LiveBridge needs this so the system does not close the app in the background.\n\n1. The app info page will open.\n2. Tap Battery.\n3. Choose Unrestricted.',
+    es:
+        'LiveBridge necesita esto para que el sistema no cierre la app en segundo plano.\n\n1. Se abrirá la página de información de la app.\n2. Toca Batería.\n3. Elige Sin restricciones.',
+    de:
+        'LiveBridge braucht dies, damit das System die App im Hintergrund nicht schließt.\n\n1. Die App-Infoseite wird geöffnet.\n2. Tippe auf Akku.\n3. Wähle Uneingeschränkt.',
+    ru:
+        'LiveBridge нужно это, чтобы система не закрывала приложение в фоне.\n\n1. Откроется страница сведений о приложении.\n2. Нажмите «Батарея».\n3. Выберите «Без ограничений».',
+    tr:
+        "LiveBridge'in arka planda sistem tarafından kapatılmaması için bu gerekli.\n\n1. Uygulama bilgi sayfası açılacak.\n2. Pil'e dokun.\n3. Kısıtlamasız'ı seç.",
+    ptBr:
+        'O LiveBridge precisa disso para que o sistema não feche o app em segundo plano.\n\n1. A página de informações do app será aberta.\n2. Toque em Bateria.\n3. Escolha Sem restrições.',
+    zhHans: 'LiveBridge 需要此权限，以免系统在后台关闭应用。\n\n1. 将打开应用信息页。\n2. 点按电池。\n3. 选择不受限制。',
+    zhHant: 'LiveBridge 需要此權限，以免系統在背景關閉應用程式。\n\n1. 將開啟應用程式資訊頁。\n2. 點按電池。\n3. 選擇不受限制。',
+    ko: 'LiveBridge가 백그라운드에서 시스템에 의해 종료되지 않으려면 이 권한이 필요합니다.\n\n1. 앱 정보 페이지가 열립니다.\n2. 배터리를 탭하세요.\n3. 제한 없음을 선택하세요.',
+    vi:
+        'LiveBridge cần quyền này để hệ thống không tự đóng ứng dụng khi chạy nền.\n\n1. Trang Cài đặt ứng dụng sẽ mở ra.\n2. Chạm vào Pin.\n3. Chọn Không hạn chế.',
+  );
+
+  String get batteryGuideOpen => tr(
+    en: 'Open Settings',
+    es: 'Abrir Ajustes',
+    de: 'Einstellungen öffnen',
+    ru: 'Открыть настройки',
+    tr: 'Ayarları aç',
+    ptBr: 'Abrir Ajustes',
+    zhHans: '打开设置',
+    zhHant: '開啟設定',
+    ko: '설정 열기',
+    vi: 'Mở Cài đặt',
+  );
+
+  String get batteryGuideLater => tr(
+    en: 'Later',
+    es: 'Más tarde',
+    de: 'Später',
+    ru: 'Позже',
+    tr: 'Sonra',
+    ptBr: 'Mais tarde',
+    zhHans: '稍后',
+    zhHant: '稍後',
+    ko: '나중에',
+    vi: 'Để sau',
+  );
+
   String get liveUpdatesAccess => tr(
     en: 'Live Updates promotion',
     es: 'Permiso de Live Updates',

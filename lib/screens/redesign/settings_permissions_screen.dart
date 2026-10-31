@@ -121,6 +121,38 @@ class _SettingsPermissionsScreenState extends State<SettingsPermissionsScreen>
     _snack(AppStrings.of(context).batterySettingsUnavailable);
   }
 
+  /// Round 119: tapping the battery row first shows a SystemUI-style
+  /// guide — why the permission matters and the exact taps left
+  /// (app info opens, then Battery, then Unrestricted) — because a
+  /// third-party app cannot land directly on the per-app Battery
+  /// page. "Open Settings" proceeds; "Later" just dismisses.
+  Future<void> _showBatteryGuide() async {
+    final AppStrings strings = AppStrings.of(context);
+    final bool? open = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: Text(strings.batteryGuideTitle),
+          content: Text(strings.batteryGuideBody),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: Text(strings.batteryGuideLater),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: Text(strings.batteryGuideOpen),
+            ),
+          ],
+        );
+      },
+    );
+    if (open != true || !mounted) {
+      return;
+    }
+    await _openBatterySettings();
+  }
+
   Future<void> _openPromotedSettings() async {
     unawaited(LiveBridgeHaptics.openSurface());
     final bool opened =
@@ -171,7 +203,7 @@ class _SettingsPermissionsScreenState extends State<SettingsPermissionsScreen>
         title: strings.batteryUnrestricted,
         showChevron: true,
         onTap: () {
-          unawaited(_openBatterySettings());
+          unawaited(_showBatteryGuide());
         },
       ),
       if (!_hidePromotedAccess)
