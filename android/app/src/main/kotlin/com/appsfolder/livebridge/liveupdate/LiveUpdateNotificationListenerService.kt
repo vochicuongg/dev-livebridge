@@ -1024,6 +1024,15 @@ class LiveUpdateNotificationListenerService : NotificationListenerService() {
     // the snooze (e.g. a true foreground-service record), the
     // failure is only logged; nothing else changes.
     private fun maybeSnoozeCameraPostProcessNotification(sbn: StatusBarNotification) {
+        // Round 130: gated on the settings toggle (off by
+        // default) so users who want the processing progress
+        // keep it; the round-129 unconditional snooze is now
+        // opt-in. The pref is read live, so toggling takes
+        // effect from the next shot (a record already posted
+        // finishes within seconds anyway).
+        if (!prefs.getHideCameraPostProcessEnabled()) {
+            return
+        }
         if (
             sbn.packageName != CAMERA_POST_PROCESS_PACKAGE ||
             sbn.notification.channelId != CAMERA_POST_PROCESS_CHANNEL_ID

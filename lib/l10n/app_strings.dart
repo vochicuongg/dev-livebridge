@@ -3168,6 +3168,32 @@ class AppStrings {
     vi: 'Hiển thị phần trăm pin, thời gian cho đến khi đầy, tốc độ sạc và cảnh báo pin yếu trong hộp thông tin Now Bar trên màn hình khóa.',
   );
 
+  String get hideCameraPostProcessTitle => tr(
+    en: 'Hide image-processing notification',
+    es: 'Ocultar la notificación de procesamiento de imágenes',
+    de: 'Benachrichtigung zur Bildverarbeitung ausblenden',
+    ru: 'Скрывать уведомление об обработке изображений',
+    tr: 'Görüntü işleme bildirimini gizle',
+    ptBr: 'Ocultar a notificação de processamento de imagem',
+    zhHans: '隐藏图像处理通知',
+    zhHant: '隱藏影像處理通知',
+    ko: '이미지 처리 알림 숨기기',
+    vi: 'Ẩn thông báo xử lý ảnh',
+  );
+
+  String get hideCameraPostProcessSubtitle => tr(
+    en: 'LiveBridge hides Samsung Camera\'s image-processing notification after each shot. Processing itself is unaffected.',
+    es: 'LiveBridge oculta la notificación de procesamiento de imágenes de la Cámara de Samsung después de cada foto. El procesamiento en sí no se ve afectado.',
+    de: 'LiveBridge blendet die Bildverarbeitungs-Benachrichtigung der Samsung-Kamera nach jeder Aufnahme aus. Die Verarbeitung selbst ist nicht betroffen.',
+    ru: 'LiveBridge скрывает уведомление Samsung Camera об обработке изображений после каждого снимка. Сама обработка не затрагивается.',
+    tr: 'LiveBridge, her çekimden sonra Samsung Kamera\'nın görüntü işleme bildirimini gizler. İşlemenin kendisi etkilenmez.',
+    ptBr: 'O LiveBridge oculta a notificação de processamento de imagem da Câmera Samsung após cada foto. O processamento em si não é afetado.',
+    zhHans: 'LiveBridge 会在每次拍摄后隐藏三星相机的图像处理通知。处理本身不受影响。',
+    zhHant: 'LiveBridge 會在每次拍攝後隱藏三星相機的影像處理通知。處理本身不受影響。',
+    ko: 'LiveBridge는 매 촬영 후 삼성 카메라의 이미지 처리 알림을 숨깁니다. 처리 자체에는 영향을 주지 않습니다.',
+    vi: 'LiveBridge ẩn thông báo xử lý ảnh của Máy ảnh Samsung sau mỗi lần chụp. Việc xử lý ảnh không bị ảnh hưởng.',
+  );
+
   String get smartNotificationCapsuleTitle => tr(
     en: 'Notification capsule',
     ru: 'Капсула уведомлений',

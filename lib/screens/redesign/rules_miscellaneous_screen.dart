@@ -27,6 +27,7 @@ class _RulesMiscellaneousScreenState extends State<RulesMiscellaneousScreen> {
   bool _weatherEnabled = false;
   bool _weatherLockscreenOnly = false;
   bool _chargingInfoEnabled = false;
+  bool _hideCameraPostProcessEnabled = false;
   bool _smartFlashlightEnabled = false;
   FlashlightCapability _flashlightCapability = const FlashlightCapability();
 
@@ -56,6 +57,8 @@ class _RulesMiscellaneousScreenState extends State<RulesMiscellaneousScreen> {
           LiveBridgePlatform.getSmartWeatherLockscreenOnly();
       final Future<bool> chargingInfoFuture =
           LiveBridgePlatform.getSmartChargingInfoEnabled();
+      final Future<bool> hideCameraPostProcessFuture =
+          LiveBridgePlatform.getHideCameraPostProcessEnabled();
       final Future<bool> flashlightEnabledFuture =
           LiveBridgePlatform.getSmartFlashlightEnabled();
       final Future<FlashlightCapability> flashlightCapabilityFuture =
@@ -69,6 +72,8 @@ class _RulesMiscellaneousScreenState extends State<RulesMiscellaneousScreen> {
       final bool weatherEnabled = await weatherFuture;
       final bool weatherLockscreenOnly = await weatherLockscreenOnlyFuture;
       final bool chargingInfoEnabled = await chargingInfoFuture;
+      final bool hideCameraPostProcessEnabled =
+          await hideCameraPostProcessFuture;
       final bool flashlightEnabled = await flashlightEnabledFuture;
       final FlashlightCapability flashlightCapability =
           await flashlightCapabilityFuture;
@@ -86,6 +91,7 @@ class _RulesMiscellaneousScreenState extends State<RulesMiscellaneousScreen> {
         _weatherEnabled = weatherEnabled;
         _weatherLockscreenOnly = weatherLockscreenOnly;
         _chargingInfoEnabled = chargingInfoEnabled;
+        _hideCameraPostProcessEnabled = hideCameraPostProcessEnabled;
         _smartFlashlightEnabled = flashlightEnabled;
         _flashlightCapability = flashlightCapability;
       });
@@ -154,6 +160,14 @@ class _RulesMiscellaneousScreenState extends State<RulesMiscellaneousScreen> {
     }
     setState(() => _chargingInfoEnabled = value);
     await LiveBridgePlatform.setSmartChargingInfoEnabled(value);
+  }
+
+  Future<void> _setHideCameraPostProcessEnabled(bool value) async {
+    if (value == _hideCameraPostProcessEnabled) {
+      return;
+    }
+    setState(() => _hideCameraPostProcessEnabled = value);
+    await LiveBridgePlatform.setHideCameraPostProcessEnabled(value);
   }
 
   Future<void> _setSmartFlashlightEnabled(bool value) async {
@@ -316,6 +330,20 @@ class _RulesMiscellaneousScreenState extends State<RulesMiscellaneousScreen> {
           final bool nextValue = !_chargingInfoEnabled;
           unawaited(LiveBridgeHaptics.toggle(nextValue));
           unawaited(_setChargingInfoEnabled(nextValue));
+        },
+      ),
+      LbListItemData(
+        title: strings.hideCameraPostProcessTitle,
+        description: strings.hideCameraPostProcessSubtitle,
+        showChevron: false,
+        toggleValue: _hideCameraPostProcessEnabled,
+        onToggle: (bool value) {
+          unawaited(_setHideCameraPostProcessEnabled(value));
+        },
+        onTap: () {
+          final bool nextValue = !_hideCameraPostProcessEnabled;
+          unawaited(LiveBridgeHaptics.toggle(nextValue));
+          unawaited(_setHideCameraPostProcessEnabled(nextValue));
         },
       ),
     ];

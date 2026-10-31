@@ -866,6 +866,13 @@ class MainActivity : FlutterActivity() {
                 syncChargingInfo(prefs)
                 res.success(true)
             }
+            "getHideCameraPostProcessEnabled" -> {
+                res.success(prefs.getHideCameraPostProcessEnabled())
+            }
+            "setHideCameraPostProcessEnabled" -> {
+                prefs.setHideCameraPostProcessEnabled(call.argument<Boolean>("value") ?: false)
+                res.success(true)
+            }
             "getSmartNotificationCapsuleEnabled" -> {
                 res.success(prefs.getSmartNotificationCapsuleEnabled())
             }
