@@ -122,13 +122,16 @@ class _SettingsPermissionsScreenState extends State<SettingsPermissionsScreen>
   }
 
   /// Round 119: tapping the battery row first shows a SystemUI-style
-  /// guide — why the permission matters and the exact taps left
-  /// (app info opens, then Battery, then Unrestricted) — because a
-  /// third-party app cannot land directly on the per-app Battery
-  /// page. "Open Settings" proceeds; "Later" just dismisses.
-  /// Round 120: the guide also offers "Doze exemption", which
-  /// fires the system's one-tap Doze dialog as a supplementary
-  /// layer (it does not replace Samsung's Unrestricted).
+  /// guide — why the permission matters — because a third-party
+  /// app cannot land directly on the per-app Battery page.
+  /// Round 120: the guide offered the system's one-tap Doze
+  /// dialog as a supplementary layer (it does not replace
+  /// Samsung's Unrestricted).
+  /// Round 123: the guide is Doze-only now — the "Open Settings"
+  /// button and the numbered Samsung steps are gone, and the
+  /// Doze button is relabeled "Allow". "Later" just dismisses.
+  /// (_openBatterySettings stays for a future return of the
+  /// Samsung path; it is currently unreferenced.)
   Future<void> _showBatteryGuide() async {
     final AppStrings strings = AppStrings.of(context);
     final String? choice = await showDialog<String>(
@@ -144,11 +147,7 @@ class _SettingsPermissionsScreenState extends State<SettingsPermissionsScreen>
             ),
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop('doze'),
-              child: Text(strings.batteryGuideDoze),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop('open'),
-              child: Text(strings.batteryGuideOpen),
+              child: Text(strings.batteryGuideAllow),
             ),
           ],
         );
@@ -157,9 +156,7 @@ class _SettingsPermissionsScreenState extends State<SettingsPermissionsScreen>
     if (!mounted) {
       return;
     }
-    if (choice == 'open') {
-      await _openBatterySettings();
-    } else if (choice == 'doze') {
+    if (choice == 'doze') {
       await _requestDozeExemption();
     }
   }

@@ -1716,3 +1716,12 @@ opposite). Guide body first sentence now adds the benefit
 in all 10 languages: keeping the app alive in background
 reduces the risk of losing Live Updates ("Thông báo Trực
 tiếp" in Vietnamese).
+
+Round 123 (owner request, 31/10): battery guide is
+Doze-only now — the "Open Settings" button and the
+numbered Samsung steps are removed, and the Doze button
+is relabeled "Allow" (all 10 languages; the dead
+batteryGuideOpen string is removed with its button).
+The body keeps the benefit sentence plus the Doze line,
+reworded to the new button name. The native Samsung
+app-info path stays in the tree for a future return.
