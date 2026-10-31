@@ -134,6 +134,7 @@ class MainActivity : FlutterActivity() {
             "getPromotedNotificationAccess" -> res.success(getPromotedNotificationAccess())
             "openPromotedNotificationSettings" -> res.success(openPromotedNotificationSettings())
             "openAppNotificationSettings" -> res.success(openAppNotificationSettings())
+            "openBatterySettings" -> res.success(openBatterySettings())
             "getInstalledApps" -> loadInstalledAppsAsync(
                 forceRefresh = call.argument<Boolean>("forceRefresh") ?: false,
                 res = res
@@ -1418,6 +1419,18 @@ class MainActivity : FlutterActivity() {
             return true
         }
 
+        return launchSettingsIntent(appDetailsIntent())
+    }
+
+    private fun openBatterySettings(): Boolean {
+        // Round 114: Samsung's per-app Battery setting
+        // (Unrestricted / Optimized / Restricted) has no direct
+        // intent, so open the app-details page, where the user
+        // picks Battery > Unrestricted. That is the
+        // "Pin -> Không hạn chế" step that keeps the system
+        // from closing LiveBridge. Note: Samsung does not expose
+        // this setting's state to apps, so the permissions
+        // screen shows guidance instead of a granted badge.
         return launchSettingsIntent(appDetailsIntent())
     }
 

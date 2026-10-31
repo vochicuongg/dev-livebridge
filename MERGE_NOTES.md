@@ -1617,3 +1617,15 @@ redrawn ic_battery_alert the owner found not beautiful.
 No Kotlin icon wiring change beyond snapshot.iconRes;
 the icon stays a vector resource, so each device UI
 auto-tints and auto-scales it like the charging icon.
+
+Round 114 (owner request, 31/10): permissions screen
+gains a "Pin: Không hạn chế" entry so LiveBridge is not
+closed by the system. Samsung's per-app Battery setting
+has no direct intent, so tapping the entry opens the app
+details page, where the user picks Battery > Unrestricted.
+New platform method openBatterySettings (MainActivity),
+Dart API, three localized strings (title, help, failure
+toast), and a chevron row in SettingsPermissionsScreen.
+Note: Samsung does not expose this setting's state to
+apps, so the row shows guidance instead of a granted
+badge — it must not claim a state it cannot read.

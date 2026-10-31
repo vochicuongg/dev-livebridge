@@ -112,6 +112,15 @@ class _SettingsPermissionsScreenState extends State<SettingsPermissionsScreen>
     _snack(AppStrings.of(context).notificationsUnavailable);
   }
 
+  Future<void> _openBatterySettings() async {
+    unawaited(LiveBridgeHaptics.openSurface());
+    final bool opened = await LiveBridgePlatform.openBatterySettings();
+    if (!mounted || opened) {
+      return;
+    }
+    _snack(AppStrings.of(context).batterySettingsUnavailable);
+  }
+
   Future<void> _openPromotedSettings() async {
     unawaited(LiveBridgeHaptics.openSurface());
     final bool opened =
@@ -156,6 +165,14 @@ class _SettingsPermissionsScreenState extends State<SettingsPermissionsScreen>
           } else {
             unawaited(_requestNotificationPermission());
           }
+        },
+      ),
+      LbListItemData(
+        title: strings.batteryUnrestricted,
+        subtitle: strings.batteryUnrestrictedHelp,
+        showChevron: true,
+        onTap: () {
+          unawaited(_openBatterySettings());
         },
       ),
       if (!_hidePromotedAccess)

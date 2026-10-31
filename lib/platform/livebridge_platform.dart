@@ -72,6 +72,8 @@ class LiveBridgePlatform {
       _askBool('openPromotedNotificationSettings');
   static Future<bool> openAppNotificationSettings() =>
       _askBool('openAppNotificationSettings');
+  static Future<bool> openBatterySettings() =>
+      _askBool('openBatterySettings');
   static Future<String> exportLiveBridgeSettingsBackup() =>
       _askStr('exportLiveBridgeSettingsBackup');
   static Future<String> saveLiveBridgeSettingsBackupToDownloads() =>
