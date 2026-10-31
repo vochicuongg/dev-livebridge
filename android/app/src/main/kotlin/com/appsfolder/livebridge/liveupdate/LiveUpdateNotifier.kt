@@ -1922,19 +1922,23 @@ object LiveUpdateNotifier {
         // Mirrors the devices capsule's Samsung-bitmap pattern
         // (round 77).
         // Round 112 (owner decision, 31/10): the low-battery
-        // icon is the redrawn vector resource (snapshot.iconRes
-        // = ic_battery_alert), exactly like the charging icon —
-        // NOT the runtime-loaded SystemUI bitmap. A bitmap's
-        // baked white pixels cannot be re-tinted per surface, so
-        // on devices whose expanded view draws a light badge (J7
-        // port ROM) the white glyph vanishes; a resource icon is
-        // auto-tinted and auto-scaled by each device UI, which is
-        // why the charging icon never broke on J7. Trade-off
-        // accepted by the owner: the glyph is the redrawn
-        // Samsung-style vector, not Samsung's authentic webp.
+        // icon is a vector resource (snapshot.iconRes), exactly
+        // like the charging icon — NOT the runtime-loaded
+        // SystemUI bitmap. A bitmap's baked white pixels cannot
+        // be re-tinted per surface, so on devices whose expanded
+        // view draws a light badge (J7 port ROM) the white glyph
+        // vanishes; a resource icon is auto-tinted and
+        // auto-scaled by each device UI, which is why the
+        // charging icon never broke on J7.
+        // Round 113 (owner file, 31/10): snapshot.iconRes is now
+        // Samsung's own hearing-aid low-battery vector
+        // (ic_accessibility_hearing_aid_low_battery), decoded
+        // from the owner's binary XML and group-scaled 1.232x
+        // about the viewport centre, replacing the redrawn
+        // ic_battery_alert the owner found not beautiful.
         // The SystemUiBatteryIcons loader stays in the tree
-        // unused for now, in case the authentic glyph is wanted
-        // back for stock devices later.
+        // unused for now, in case the authentic webp glyph is
+        // wanted back for stock devices later.
         val icon = IconCompat.createWithResource(context, snapshot.iconRes)
         // Condensed surfaces (standby/AOD chip, status-bar chip) lead
         // with the time until full instead of the percentage — that is
@@ -2351,7 +2355,7 @@ object LiveUpdateNotifier {
             // charging bolt, so the two capsules no longer share
             // an icon on the shade and the Now Bar pill.
             // Round 101: battery-with-exclamation glyph.
-            iconRes = R.drawable.ic_battery_alert,
+            iconRes = R.drawable.ic_accessibility_hearing_aid_low_battery,
             color = CHARGING_INFO_LOW_BATTERY_COLOR,
             lowBattery = true,
             lowBatteryPowerSavingAction = synchronized(stateLock) {

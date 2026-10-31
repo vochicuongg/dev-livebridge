@@ -1602,3 +1602,18 @@ on J7. Trade-off: glyph is the redrawn Samsung-style
 vector, not Samsung's authentic webp. SystemUiBatteryIcons
 loader stays in the tree unused for a possible later
 return to the authentic glyph on stock devices.
+
+Round 113 (owner file, 31/10): low-battery icon replaced
+with Samsung's own hearing-aid low-battery vector
+(ic_accessibility_hearing_aid_low_battery), decoded from
+the owner's binary XML (the uploaded file was Android
+binary XML, not text) via the axml decoder. Its original
+fillColor was a SystemUI-internal reference, replaced
+with white so it works as a notification icon mask, and
+the glyph is group-scaled 1.232x about the viewport
+centre (53 pct wide, 83 pct tall, like the caution glyph)
+instead of the small 43-pct-wide original — replacing the
+redrawn ic_battery_alert the owner found not beautiful.
+No Kotlin icon wiring change beyond snapshot.iconRes;
+the icon stays a vector resource, so each device UI
+auto-tints and auto-scales it like the charging icon.
