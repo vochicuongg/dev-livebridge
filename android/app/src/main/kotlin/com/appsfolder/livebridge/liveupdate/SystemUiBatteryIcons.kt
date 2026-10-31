@@ -54,7 +54,7 @@ internal object SystemUiBatteryIcons {
     private const val VECTOR_RESOURCE_NAME = "ic_accessibility_hearing_aid_low_battery"
     private const val BITMAP_RESOURCE_NAME = "stat_notify_battery_caution"
     private const val RENDER_SIZE_PX = 192
-    private const val BADGE_CORNER_RADIUS_PX = 48f
+    private const val BADGE_GLYPH_INSET_FRACTION = 0.1f
 
     @Volatile
     private var cached: Bitmap? = null
@@ -86,9 +86,17 @@ internal object SystemUiBatteryIcons {
     // collapsed). A self-contained badge reads on any
     // background: on the red pill it blends into the pill
     // colour, on a light badge it shows as a red badge with a
-    // white glyph. The caller uses this for every icon slot
-    // (small, large, chip, nowBar) so the expanded view is
-    // fixed whichever slot its SystemUI draws.
+    // white glyph.
+    //
+    // Round 110: the round-109 badge still showed an excess
+    // white border and rendered oversized in the expanded view
+    // (owner's J7 screenshot). Two causes: the rounded rect
+    // left the slot's light background showing at the corners,
+    // and the glyph filled the bitmap edge to edge. Fix: the
+    // background now fills the bitmap edge to edge (no
+    // rounding — a rounded slot clips it itself), and the glyph
+    // is drawn at 80% size centered, so it reads as a badge
+    // glyph instead of a blown-up frame-filler.
     fun badgeBitmap(context: Context, color: Int): Bitmap? {
         badgeCache[color]?.let { return it }
         val glyph = iconBitmap(context) ?: return null
@@ -102,12 +110,17 @@ internal object SystemUiBatteryIcons {
                 this.color = color
                 isAntiAlias = true
             }
-            val rect = RectF(
+            canvas.drawRect(
                 0f, 0f,
-                RENDER_SIZE_PX.toFloat(), RENDER_SIZE_PX.toFloat()
+                RENDER_SIZE_PX.toFloat(), RENDER_SIZE_PX.toFloat(),
+                paint
             )
-            canvas.drawRoundRect(rect, BADGE_CORNER_RADIUS_PX, BADGE_CORNER_RADIUS_PX, paint)
-            canvas.drawBitmap(glyph, 0f, 0f, null)
+            val inset = RENDER_SIZE_PX * BADGE_GLYPH_INSET_FRACTION
+            val dest = RectF(
+                inset, inset,
+                RENDER_SIZE_PX - inset, RENDER_SIZE_PX - inset
+            )
+            canvas.drawBitmap(glyph, null, dest, null)
         }
         badgeCache[color] = badge
         return badge

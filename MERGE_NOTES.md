@@ -1564,3 +1564,15 @@ its own capsule-colour rounded rect (E53935). On the red
 pill it blends into the pill colour; on a light badge it
 reads as a red badge with a white glyph. Simulated against
 the extracted webp on both backgrounds before pushing.
+
+Round 110 (owner J7 screenshot, 31/10): the round-109
+badge still showed an excess white border and rendered
+oversized in the expanded view. Fix: badge background
+now fills the bitmap edge to edge (no rounding — a
+rounded slot clips it itself, so no light background can
+show at the corners), glyph drawn at 80% size centered,
+and no LARGE icon for low battery (the large slot renders
+oversized in some expanded views; cards and expansions
+draw the small icon anyway per rounds 81-82). Simulated
+on white and on pill-red before pushing: identical solid
+red square, no white edge, glyph proportioned as a badge.

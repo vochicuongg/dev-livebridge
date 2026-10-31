@@ -1922,11 +1922,16 @@ object LiveUpdateNotifier {
         // Mirrors the devices capsule's Samsung-bitmap pattern
         // (round 77).
         // Round 109: every slot uses the BADGE version (glyph on
-        // its own capsule-colour rounded rect) instead of the bare
+        // its own capsule-colour background) instead of the bare
         // glyph, because some devices draw the tapped (expanded)
         // pill's icon on a light badge where a bare white glyph
         // vanishes. On the red pill the badge blends into the
         // pill colour; on a light badge it reads as a red badge.
+        // Round 110: no LARGE icon for low battery. The large
+        // icon slot renders oversized in some devices' expanded
+        // view (owner's J7 screenshot), and per rounds 81-82 the
+        // cards and expansions draw the SMALL icon anyway, so
+        // the large slot only adds the oversized rendering.
         val systemUiBitmap = if (snapshot.lowBattery) {
             SystemUiBatteryIcons.iconBitmap(context)
         } else {
@@ -1987,7 +1992,8 @@ object LiveUpdateNotifier {
 
         chargingInfoContentIntent(context)?.let(builder::setContentIntent)
 
-        iconBitmap?.let(builder::setLargeIcon)
+        // Round 110: deliberately no setLargeIcon for low
+        // battery — see the comment above the iconBitmap block.
 
         @Suppress("DEPRECATION")
         val bridgeSource = Notification().apply {
