@@ -1588,3 +1588,17 @@ the icon to its own surfaces instead of the app
 hard-coding a background or size. The round-108
 transparent-pixel zeroing is kept (invisible on correct
 renderers, not a size change).
+
+Round 112 (owner decision, 31/10): low-battery icon
+switched to the redrawn vector resource (ic_battery_alert,
+via snapshot.iconRes) for every slot — small, chip,
+nowBar — exactly like the charging icon, with no
+post-build bitmap swap and no large icon. Reason: a
+bitmap's baked white pixels cannot be re-tinted per
+surface, so J7's light expanded-view badge swallowed the
+glyph; a resource icon is auto-tinted and auto-scaled by
+each device UI, which is why the charging icon never broke
+on J7. Trade-off: glyph is the redrawn Samsung-style
+vector, not Samsung's authentic webp. SystemUiBatteryIcons
+loader stays in the tree unused for a possible later
+return to the authentic glyph on stock devices.

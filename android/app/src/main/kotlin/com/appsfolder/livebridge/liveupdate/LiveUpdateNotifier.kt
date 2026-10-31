@@ -1921,20 +1921,21 @@ object LiveUpdateNotifier {
         // can be produced, falling back to the redrawn vector.
         // Mirrors the devices capsule's Samsung-bitmap pattern
         // (round 77).
-        // Round 111 (owner instruction, 31/10): rounds 109-110's
-        // manual fitting — badge background, 80% glyph, no large
-        // icon — did NOT fix the tapped icon on J7, so the icon
-        // is restored to exactly the round-105 wiring: the plain
-        // glyph bitmap at full size in every slot, and each
-        // device UI scales and fits it to its own surfaces
-        // instead of the app hard-coding a background or size.
-        val systemUiBitmap = if (snapshot.lowBattery) {
-            SystemUiBatteryIcons.iconBitmap(context)
-        } else {
-            null
-        }
-        val icon = systemUiBitmap?.let { bitmap -> IconCompat.createWithBitmap(bitmap) }
-            ?: IconCompat.createWithResource(context, snapshot.iconRes)
+        // Round 112 (owner decision, 31/10): the low-battery
+        // icon is the redrawn vector resource (snapshot.iconRes
+        // = ic_battery_alert), exactly like the charging icon —
+        // NOT the runtime-loaded SystemUI bitmap. A bitmap's
+        // baked white pixels cannot be re-tinted per surface, so
+        // on devices whose expanded view draws a light badge (J7
+        // port ROM) the white glyph vanishes; a resource icon is
+        // auto-tinted and auto-scaled by each device UI, which is
+        // why the charging icon never broke on J7. Trade-off
+        // accepted by the owner: the glyph is the redrawn
+        // Samsung-style vector, not Samsung's authentic webp.
+        // The SystemUiBatteryIcons loader stays in the tree
+        // unused for now, in case the authentic glyph is wanted
+        // back for stock devices later.
+        val icon = IconCompat.createWithResource(context, snapshot.iconRes)
         // Condensed surfaces (standby/AOD chip, status-bar chip) lead
         // with the time until full instead of the percentage — that is
         // the glanceable value there (user feedback, round 46) — in a
@@ -1982,8 +1983,6 @@ object LiveUpdateNotifier {
 
         chargingInfoContentIntent(context)?.let(builder::setContentIntent)
 
-        systemUiBitmap?.let(builder::setLargeIcon)
-
         @Suppress("DEPRECATION")
         val bridgeSource = Notification().apply {
             color = snapshot.color
@@ -2015,20 +2014,10 @@ object LiveUpdateNotifier {
             // (owner request, round 45).
             lockscreenOnly = false
         )
-        val notification = SamsungOneUi7NowBarCompat.markEligible(builder.build())
-        // Rounds 81-82 (devices capsule): every One UI surface
-        // that draws a capsule's card renders the SMALL icon,
-        // never the large one, so the SystemUI bitmap has to be
-        // swapped in after the build through the platform's
-        // adopting builder, same as the devices capsule.
-        if (systemUiBitmap != null) {
-            val rebuilt = Notification.Builder.recoverBuilder(context, notification)
-                .setSmallIcon(Icon.createWithBitmap(systemUiBitmap))
-                .build()
-            Log.i(TAG, "Charging capsule: low-battery small icon type after swap: ${rebuilt.smallIcon?.type}")
-            return rebuilt
-        }
-        return notification
+        // Round 112: no post-build small-icon swap — the small
+        // icon stays the vector resource (snapshot.iconRes),
+        // same as the charging capsule.
+        return SamsungOneUi7NowBarCompat.markEligible(builder.build())
     }
 
     private fun buildLowBatteryPowerSavingAction(
