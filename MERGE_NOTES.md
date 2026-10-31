@@ -1748,3 +1748,13 @@ PowerManager: if the app is now exempt, the same
 "battery usage has been optimized" message as the
 already-granted case is shown. Denials and dismissals
 stay silent (no nagging).
+
+Round 127 (owner request, 31/10): the battery row now
+shows its not-enabled state. Required permissions keep
+their warning-red alert icon; the battery row is
+optional, so its indicator uses the accent color
+instead — visible but not compulsory. The indicator
+reflects the Doze exemption (via round 126's
+isDozeExempt, refreshed on every resume); Samsung's
+Unrestricted setting has no readable API, so it cannot
+be shown here. Granted Doze clears the indicator.

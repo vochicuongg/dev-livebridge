@@ -32,6 +32,9 @@ class _SettingsPermissionsScreenState extends State<SettingsPermissionsScreen>
   // Round 126: set when the system Doze dialog was launched;
   // cleared on the next resume, when the grant is confirmed.
   bool _dozeRequestPending = false;
+  // Round 127: Doze exemption state, driving the battery row's
+  // optional indicator (see the row below).
+  bool _dozeExempt = false;
 
   @override
   void initState() {
@@ -71,6 +74,7 @@ class _SettingsPermissionsScreenState extends State<SettingsPermissionsScreen>
           await LiveBridgePlatform.isNotificationPermissionGranted();
       final promoted = await LiveBridgePlatform.getPromotedNotificationAccess();
       final DeviceInfo deviceInfo = await LiveBridgePlatform.getDeviceInfo();
+      final bool dozeExempt = await LiveBridgePlatform.isDozeExempt();
 
       if (!mounted) {
         return;
@@ -81,6 +85,7 @@ class _SettingsPermissionsScreenState extends State<SettingsPermissionsScreen>
         _notificationsGranted = notificationsGranted;
         _promoted = promoted;
         _hidePromotedAccess = deviceInfo.shouldHideLiveUpdatesPromotion;
+        _dozeExempt = dozeExempt;
       });
     } catch (_) {}
   }
@@ -244,9 +249,20 @@ class _SettingsPermissionsScreenState extends State<SettingsPermissionsScreen>
           }
         },
       ),
+      // Round 127: the battery row is OPTIONAL (the app works
+      // without it, just less reliably), so its not-enabled
+      // indicator uses the accent color instead of the required
+      // items' warning red — visible, but not compulsory. The
+      // indicator reflects the Doze exemption only: Samsung's
+      // Unrestricted setting has no API to read, so it cannot
+      // be shown here (round 114).
       LbListItemData(
         title: strings.batteryUnrestricted,
         showChevron: true,
+        trailingIcon:
+            _dozeExempt ? null : LbIconSymbol.alertOctagonFilled,
+        trailingIconColor:
+            _dozeExempt ? null : LbPalette.of(context).accent,
         onTap: () {
           unawaited(_showBatteryGuide());
         },
