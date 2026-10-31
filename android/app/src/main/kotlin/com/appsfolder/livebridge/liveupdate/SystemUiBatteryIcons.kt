@@ -7,7 +7,9 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
+import android.graphics.RectF
 import android.util.Log
+import java.util.concurrent.ConcurrentHashMap
 
 // Round 105: the low-battery capsule uses Samsung SystemUI's own
 // caution glyph — stat_notify_battery_caution, the asset the
@@ -52,12 +54,15 @@ internal object SystemUiBatteryIcons {
     private const val VECTOR_RESOURCE_NAME = "ic_accessibility_hearing_aid_low_battery"
     private const val BITMAP_RESOURCE_NAME = "stat_notify_battery_caution"
     private const val RENDER_SIZE_PX = 192
+    private const val BADGE_CORNER_RADIUS_PX = 48f
 
     @Volatile
     private var cached: Bitmap? = null
 
     @Volatile
     private var missing = false
+
+    private val badgeCache = ConcurrentHashMap<Int, Bitmap>()
 
     fun iconBitmap(context: Context): Bitmap? {
         cached?.let { return it }
@@ -71,6 +76,41 @@ internal object SystemUiBatteryIcons {
         }
         cached = bitmap
         return bitmap
+    }
+
+    // Round 109: the same glyph on its own badge background —
+    // a rounded rect in the capsule's colour. Some devices
+    // draw the tapped (expanded) pill's icon on a LIGHT badge,
+    // where a bare white glyph vanishes (the owner's J7
+    // screenshot: white square when tapped, normal pill when
+    // collapsed). A self-contained badge reads on any
+    // background: on the red pill it blends into the pill
+    // colour, on a light badge it shows as a red badge with a
+    // white glyph. The caller uses this for every icon slot
+    // (small, large, chip, nowBar) so the expanded view is
+    // fixed whichever slot its SystemUI draws.
+    fun badgeBitmap(context: Context, color: Int): Bitmap? {
+        badgeCache[color]?.let { return it }
+        val glyph = iconBitmap(context) ?: return null
+        val badge = Bitmap.createBitmap(
+            RENDER_SIZE_PX,
+            RENDER_SIZE_PX,
+            Bitmap.Config.ARGB_8888
+        )
+        Canvas(badge).also { canvas ->
+            val paint = Paint().apply {
+                this.color = color
+                isAntiAlias = true
+            }
+            val rect = RectF(
+                0f, 0f,
+                RENDER_SIZE_PX.toFloat(), RENDER_SIZE_PX.toFloat()
+            )
+            canvas.drawRoundRect(rect, BADGE_CORNER_RADIUS_PX, BADGE_CORNER_RADIUS_PX, paint)
+            canvas.drawBitmap(glyph, 0f, 0f, null)
+        }
+        badgeCache[color] = badge
+        return badge
     }
 
     private fun loadBitmap(context: Context): Bitmap? {

@@ -1921,12 +1921,24 @@ object LiveUpdateNotifier {
         // can be produced, falling back to the redrawn vector.
         // Mirrors the devices capsule's Samsung-bitmap pattern
         // (round 77).
+        // Round 109: every slot uses the BADGE version (glyph on
+        // its own capsule-colour rounded rect) instead of the bare
+        // glyph, because some devices draw the tapped (expanded)
+        // pill's icon on a light badge where a bare white glyph
+        // vanishes. On the red pill the badge blends into the
+        // pill colour; on a light badge it reads as a red badge.
         val systemUiBitmap = if (snapshot.lowBattery) {
             SystemUiBatteryIcons.iconBitmap(context)
         } else {
             null
         }
-        val icon = systemUiBitmap?.let { bitmap -> IconCompat.createWithBitmap(bitmap) }
+        val systemUiBadgeBitmap = if (snapshot.lowBattery) {
+            SystemUiBatteryIcons.badgeBitmap(context, snapshot.color)
+        } else {
+            null
+        }
+        val iconBitmap = systemUiBadgeBitmap ?: systemUiBitmap
+        val icon = iconBitmap?.let { bitmap -> IconCompat.createWithBitmap(bitmap) }
             ?: IconCompat.createWithResource(context, snapshot.iconRes)
         // Condensed surfaces (standby/AOD chip, status-bar chip) lead
         // with the time until full instead of the percentage — that is
@@ -1975,7 +1987,7 @@ object LiveUpdateNotifier {
 
         chargingInfoContentIntent(context)?.let(builder::setContentIntent)
 
-        systemUiBitmap?.let(builder::setLargeIcon)
+        iconBitmap?.let(builder::setLargeIcon)
 
         @Suppress("DEPRECATION")
         val bridgeSource = Notification().apply {
@@ -2014,9 +2026,9 @@ object LiveUpdateNotifier {
         // never the large one, so the SystemUI bitmap has to be
         // swapped in after the build through the platform's
         // adopting builder, same as the devices capsule.
-        if (systemUiBitmap != null) {
+        if (iconBitmap != null) {
             val rebuilt = Notification.Builder.recoverBuilder(context, notification)
-                .setSmallIcon(Icon.createWithBitmap(systemUiBitmap))
+                .setSmallIcon(Icon.createWithBitmap(iconBitmap))
                 .build()
             Log.i(TAG, "Charging capsule: low-battery small icon type after swap: ${rebuilt.smallIcon?.type}")
             return rebuilt

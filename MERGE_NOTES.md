@@ -1553,3 +1553,14 @@ the extracted webp: before = blank white square, after =
 black square + white glyph on an alpha-ignoring renderer;
 correct alpha compositing unchanged). Applies to both the
 webp and the vector source.
+
+Round 109 (owner J7 report, 31/10): tapped (expanded)
+pill's icon still a white square on J7, while the
+collapsed pill renders fine. Cause: the expanded view's
+icon slot sits on a LIGHT badge, where a bare white glyph
+vanishes. Fix: every icon slot (small, large, chip,
+nowBar) now uses a BADGE version — the SystemUI glyph on
+its own capsule-colour rounded rect (E53935). On the red
+pill it blends into the pill colour; on a light badge it
+reads as a red badge with a white glyph. Simulated against
+the extracted webp on both backgrounds before pushing.
