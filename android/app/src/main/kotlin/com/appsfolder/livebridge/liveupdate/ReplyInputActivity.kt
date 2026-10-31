@@ -1,12 +1,14 @@
 package com.kakao.taxi.liveupdate
 
 import android.app.Activity
+import android.app.PendingIntent
 import android.app.RemoteInput
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.os.Bundle
 import android.view.Choreographer
 import android.view.GestureDetector
@@ -143,7 +145,8 @@ class ReplyInputActivity : Activity() {
             accentColor = display.accentColor,
             hintText = display.hintText,
             sendText = display.sendText,
-            interactive = true
+            interactive = true,
+            otherActions = display.otherActions
         )
         val unit = card.unit
         input = card.inputField!!
@@ -380,7 +383,20 @@ class ReplyInputActivity : Activity() {
         val iconView: ImageView,
         val titleView: TextView,
         val messageView: TextView,
-        val inputField: EditText?
+        val inputField: EditText?,
+        val actionsRow: LinearLayout?
+    )
+
+    /**
+     * Round 118: one of the source notification's plain actions
+     * (Mark as read, Instagram Like, ...) shown as a chip in the
+     * reply editor. Tapping sends the source app's own intent —
+     * exactly what tapping the action on the original notification
+     * does.
+     */
+    private data class OtherAction(
+        val title: String,
+        val intent: PendingIntent
     )
 
     /**
@@ -396,7 +412,8 @@ class ReplyInputActivity : Activity() {
         accentColor: Int,
         hintText: String,
         sendText: String,
-        interactive: Boolean
+        interactive: Boolean,
+        otherActions: List<OtherAction> = emptyList()
     ): CardUnit {
         val radius = dp(24).toFloat()
 
@@ -475,6 +492,26 @@ class ReplyInputActivity : Activity() {
         header.addView(headerTexts)
         unit.addView(header)
 
+        // --- Quick actions row (round 118): the source's plain
+        // actions as chips on a dark band that reads as part of the
+        // header card (headerEnd solid, square edges top and bottom
+        // like the header/strip junction). Only the live editor
+        // gets one; the passive preview stays a plain card, since
+        // its chips would never be tappable and a switch rebuilds
+        // the live card from the new session anyway.
+        val actionsRow = if (interactive) {
+            LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(16), dp(8), dp(16), dp(10))
+                setBackgroundColor(Color.rgb(8, 11, 15))
+                visibility = View.GONE
+            }
+        } else {
+            null
+        }
+        actionsRow?.let { unit.addView(it) }
+
         // --- Blue reply strip (input field + Send), attached below ---
         val strip = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -519,7 +556,61 @@ class ReplyInputActivity : Activity() {
             field.isEnabled = false
             field.isFocusable = false
         }
-        return CardUnit(unit, header, strip, iconView, title, message, if (interactive) field else null)
+        if (actionsRow != null) {
+            populateActionsRow(actionsRow, otherActions)
+        }
+        return CardUnit(unit, header, strip, iconView, title, message, if (interactive) field else null, actionsRow)
+    }
+
+    /** Builds one quick-action chip; tapping sends the source intent. */
+    private fun buildActionChip(action: OtherAction): TextView {
+        return TextView(this).apply {
+            text = action.title
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            alpha = 0.95f
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            setPadding(dp(14), dp(7), dp(14), dp(7))
+            background = GradientDrawable().apply {
+                setColor(Color.argb(46, 255, 255, 255))
+                cornerRadius = dp(20).toFloat()
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { rightMargin = dp(8) }
+            setOnClickListener {
+                try {
+                    action.intent.send()
+                } catch (e: PendingIntent.CanceledException) {
+                    // Source withdrew the action; nothing to do.
+                } catch (e: Exception) {
+                    // Best effort: a failing action never crashes the editor.
+                }
+                // One-shot: a second tap could double-fire a toggle
+                // like Instagram's Like, so the chip disables itself.
+                // Mark-as-read usually retires the mirror anyway,
+                // which closes the editor via the mirror watch.
+                isEnabled = false
+                alpha = 0.4f
+            }
+        }
+    }
+
+    /**
+     * (Re)fills the quick-actions row for a session. Capped at 4
+     * chips so a long action list cannot overflow the card; the
+     * mirror in the shade carries the full list.
+     */
+    private fun populateActionsRow(row: LinearLayout, actions: List<OtherAction>) {
+        row.removeAllViews()
+        if (actions.isEmpty()) {
+            row.visibility = View.GONE
+            return
+        }
+        row.visibility = View.VISIBLE
+        actions.take(4).forEach { row.addView(buildActionChip(it)) }
     }
 
     /** Display data for one reply session, parsed from its intent extras. */
@@ -529,7 +620,8 @@ class ReplyInputActivity : Activity() {
         val sourceIcon: android.graphics.drawable.Drawable?,
         val accentColor: Int,
         val hintText: String,
-        val sendText: String
+        val sendText: String,
+        val otherActions: List<OtherAction> = emptyList()
     )
 
     private fun sessionDisplay(source: Intent): SessionDisplay {
@@ -564,13 +656,34 @@ class ReplyInputActivity : Activity() {
         } else {
             Color.rgb(10, 108, 255)
         }
+        // Round 118: the source's plain actions, carried as parallel
+        // title + intent lists by the notifier. Zipped by index;
+        // a mismatch drops the unpaired tail rather than crashing.
+        val otherTitles = source.getStringArrayListExtra(
+            ReplyProxyService.EXTRA_REPLY_OTHER_ACTION_TITLES
+        ).orEmpty()
+        @Suppress("DEPRECATION")
+        val otherIntents = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            source.getParcelableArrayListExtra(
+                ReplyProxyService.EXTRA_REPLY_OTHER_ACTION_INTENTS,
+                PendingIntent::class.java
+            )
+        } else {
+            source.getParcelableArrayListExtra(
+                ReplyProxyService.EXTRA_REPLY_OTHER_ACTION_INTENTS
+            )
+        }.orEmpty()
+        val otherActions = otherTitles.zip(otherIntents) { title, intent ->
+            OtherAction(title, intent)
+        }
         return SessionDisplay(
             titleText = conversation ?: label ?: if (vi) "Trả lời" else "Reply",
             contextText = contextText,
             sourceIcon = sourceIcon,
             accentColor = accentColor,
             hintText = hint ?: if (vi) "Trả lời" else "Reply",
-            sendText = if (vi) "Gửi" else "Send"
+            sendText = if (vi) "Gửi" else "Send",
+            otherActions = otherActions
         )
     }
 
@@ -634,6 +747,7 @@ class ReplyInputActivity : Activity() {
         card.strip.background = stripBackground(display.accentColor, radius)
         card.inputField?.hint = display.hintText
         card.inputField?.text?.clear()
+        card.actionsRow?.let { row -> populateActionsRow(row, display.otherActions) }
     }
 
     /** (Re)builds the next-card preview stacked behind the live card. */

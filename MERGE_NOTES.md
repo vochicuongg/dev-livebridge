@@ -1664,3 +1664,20 @@ apps, so the direct route could never launch and always
 fell back to the app-details page (confirmed on J7).
 Behavior is unchanged — the entry opens the app-details
 page, Battery one tap away.
+
+Round 118 (owner bug report, 31/10): messaging
+notifications' plain actions were unreachable — the reply
+editor only ever carried the Reply action, and mirrors only
+copied it too, so "Mark as read" and Instagram "Like" had
+no button anywhere. Fix: the notifier now passes the
+source's plain (non-RemoteInput) actions to the editor,
+which shows them as chips on a dark band between the
+message and the reply strip (max 4; one-shot, disables
+after tap so a toggle like Like cannot double-fire); card
+switches rebind the chips in place. Mirrors also copy
+plain actions now (chat mirrors only, gated on a reply
+action, so media/download mirrors keep their own controls
+un-duplicated), so the actions work from the shade / Now
+Bar expansion too. Plain actions keep their original
+intent verbatim — exactly what tapping them on the
+original notification does.

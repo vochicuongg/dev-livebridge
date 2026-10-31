@@ -6108,6 +6108,12 @@ object LiveUpdateNotifier {
                     mirrorKey = sbn.key,
                     context = context
                 )
+                addPlainActionsIfNotAlreadyCopied(
+                    source = source,
+                    builder = builder,
+                    mirrorKey = sbn.key,
+                    context = context
+                )
             } else {
                 // ── FALLBACK PATH: Source has no raw MessagingStyle messages ──
                 // This happens when Messenger/Zalo update their notification after
@@ -6229,6 +6235,12 @@ object LiveUpdateNotifier {
                         mirrorKey = sbn.key,
                         context = context
                     )
+                    addPlainActionsIfNotAlreadyCopied(
+                        source = source,
+                        builder = builder,
+                        mirrorKey = sbn.key,
+                        context = context
+                    )
                 } else {
                     // ── TRUE FALLBACK: No cache, no MessagingStyle ──
                     // No chat history exists → this is genuinely a non-chat notification
@@ -6307,6 +6319,12 @@ object LiveUpdateNotifier {
 
                     // Add reply action even in true fallback path for inline reply support
                     addReplyActionIfNotAlreadyCopied(
+                        source = source,
+                        builder = builder,
+                        mirrorKey = sbn.key,
+                        context = context
+                    )
+                    addPlainActionsIfNotAlreadyCopied(
                         source = source,
                         builder = builder,
                         mirrorKey = sbn.key,
@@ -9883,6 +9901,69 @@ object LiveUpdateNotifier {
         builder.addAction(compatAction)
     }
 
+    /**
+     * Round 118: the source's plain (non-reply) actions — "Mark as
+     * read", Instagram "Like", and friends — for the reply editor
+     * and the mirror. A plain action is any action with an intent
+     * and a title but no RemoteInput; the reply action itself is
+     * excluded by the RemoteInput check.
+     */
+    private fun otherActionsForReplyEditor(
+        source: Notification
+    ): List<Pair<String, PendingIntent>> {
+        return source.actions.orEmpty().mapNotNull { action ->
+            val intent = action.actionIntent ?: return@mapNotNull null
+            if (hasRemoteInput(action)) return@mapNotNull null
+            val title = NotificationTextNormalizer.normalize(action.title)
+                ?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            title to intent
+        }
+    }
+
+    private fun putOtherActions(intent: Intent, source: Notification) {
+        val others = otherActionsForReplyEditor(source)
+        if (others.isEmpty()) return
+        intent.putStringArrayListExtra(
+            ReplyProxyService.EXTRA_REPLY_OTHER_ACTION_TITLES,
+            ArrayList(others.map { it.first })
+        )
+        intent.putParcelableArrayListExtra(
+            ReplyProxyService.EXTRA_REPLY_OTHER_ACTION_INTENTS,
+            ArrayList(others.map { it.second })
+        )
+    }
+
+    /**
+     * Round 118: copies the source's plain actions onto a chat
+     * mirror, so they work from the shade / Now Bar expansion too.
+     * Chat mirrors only — a mirror is replyable exactly when its
+     * source carries a RemoteInput action. Gating here keeps
+     * media/download mirrors untouched: their actions are already
+     * handled by their own paths, and duplicating them as plain
+     * buttons would double the controls. Plain actions keep
+     * their original intent verbatim (toCompatAction only proxies
+     * RemoteInput actions), which is exactly what tapping the
+     * action on the original notification does.
+     */
+    private fun addPlainActionsIfNotAlreadyCopied(
+        source: Notification,
+        builder: NotificationCompat.Builder,
+        mirrorKey: String? = null,
+        context: Context? = null
+    ) {
+        val actions = source.actions ?: return
+        if (actions.none { hasRemoteInput(it) && it.actionIntent != null }) return
+        actions.filter { action ->
+            action.actionIntent != null &&
+                !hasRemoteInput(action) &&
+                !NotificationTextNormalizer.normalize(action.title).isNullOrBlank()
+        }.forEach { action ->
+            val compatAction = toCompatAction(action, mirrorKey = mirrorKey, context = context)
+                ?: return@forEach
+            builder.addAction(compatAction)
+        }
+    }
+
     private fun hasRemoteInput(action: Notification.Action): Boolean {
         return !action.remoteInputs.isNullOrEmpty() ||
                 !action.dataOnlyRemoteInputs.isNullOrEmpty()
@@ -10680,6 +10761,9 @@ object LiveUpdateNotifier {
                     putExtra(ReplyProxyService.EXTRA_REPLY_ACCENT_COLOR, replyAccentColor)
                 }
             }
+            // Round 118: the editor also carries the source's plain
+            // actions (Mark as read, Like, ...) as chips.
+            sourceNotification?.let { putOtherActions(proxyIntent, it) }
             PendingIntent.getActivity(
                 context,
                 (mirrorKey + resultKey).hashCode(),
@@ -10753,7 +10837,7 @@ object LiveUpdateNotifier {
                 .effectiveNotificationColorArgb()
             customColor ?: SamsungLiveUpdateReparser.resolveChipBackgroundColor(source)
         }
-        return Intent(context, ReplyInputActivity::class.java).apply {
+        val editorIntent = Intent(context, ReplyInputActivity::class.java).apply {
             action = ReplyProxyService.ACTION_PROXY_REPLY
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra(ReplyProxyService.EXTRA_ORIGINAL_PENDING_INTENT, originalIntent)
@@ -10769,6 +10853,10 @@ object LiveUpdateNotifier {
             putExtra(ReplyProxyService.EXTRA_REPLY_SOURCE_PACKAGE, snapshot.packageName)
             putExtra(ReplyProxyService.EXTRA_REPLY_ACCENT_COLOR, replyAccentColor)
         }
+        // Round 118: card switches rebuild the editor from this
+        // intent, so the plain actions travel with it too.
+        putOtherActions(editorIntent, source)
+        return editorIntent
     }
 
     /**
@@ -10926,6 +11014,12 @@ object LiveUpdateNotifier {
                 ?: resolveAppIconAssets(context, sourceSbn.packageName)?.smallIcon
         )
         addReplyActionIfNotAlreadyCopied(
+            source = source,
+            builder = builder,
+            mirrorKey = mirrorKey,
+            context = context
+        )
+        addPlainActionsIfNotAlreadyCopied(
             source = source,
             builder = builder,
             mirrorKey = mirrorKey,
