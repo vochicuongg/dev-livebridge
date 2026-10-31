@@ -130,46 +130,13 @@ class _SettingsPermissionsScreenState extends State<SettingsPermissionsScreen>
     _snack(AppStrings.of(context).batterySettingsUnavailable);
   }
 
-  /// Round 119: tapping the battery row first shows a SystemUI-style
-  /// guide — why the permission matters — because a third-party
-  /// app cannot land directly on the per-app Battery page.
-  /// Round 120: the guide offered the system's one-tap Doze
-  /// dialog as a supplementary layer (it does not replace
-  /// Samsung's Unrestricted).
-  /// Round 123: the guide is Doze-only now — the "Open Settings"
-  /// button and the numbered Samsung steps are gone, and the
-  /// Doze button is relabeled "Allow". "Later" just dismisses.
+  /// Round 128: the battery row goes straight to the system
+  /// "stop optimizing battery usage" (Doze) dialog — the
+  /// intermediate "Bật pin không hạn chế" guide dialog is
+  /// deleted. Already-granted still toasts the "optimized"
+  /// message; a fresh grant is confirmed on return (round 126).
   /// (_openBatterySettings stays for a future return of the
   /// Samsung path; it is currently unreferenced.)
-  Future<void> _showBatteryGuide() async {
-    final AppStrings strings = AppStrings.of(context);
-    final String? choice = await showDialog<String>(
-      context: context,
-      builder: (BuildContext dialogContext) {
-        return AlertDialog(
-          title: Text(strings.batteryGuideTitle),
-          content: Text(strings.batteryGuideBody),
-          actions: <Widget>[
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: Text(strings.batteryGuideLater),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop('doze'),
-              child: Text(strings.batteryGuideAllow),
-            ),
-          ],
-        );
-      },
-    );
-    if (!mounted) {
-      return;
-    }
-    if (choice == 'doze') {
-      await _requestDozeExemption();
-    }
-  }
-
   Future<void> _requestDozeExemption() async {
     final String status = await LiveBridgePlatform.requestDozeExemption();
     if (!mounted) {
@@ -264,7 +231,7 @@ class _SettingsPermissionsScreenState extends State<SettingsPermissionsScreen>
         trailingIconColor:
             _dozeExempt ? null : LbPalette.of(context).accent,
         onTap: () {
-          unawaited(_showBatteryGuide());
+          unawaited(_requestDozeExemption());
         },
       ),
       if (!_hidePromotedAccess)

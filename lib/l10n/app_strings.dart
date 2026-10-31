@@ -2414,52 +2414,6 @@ class AppStrings {
     vi: 'Không mở được cài đặt Pin.',
   );
 
-  String get batteryGuideTitle => tr(
-    en: 'Allow unrestricted battery use',
-    es: 'Permitir uso de batería sin restricciones',
-    de: 'Uneingeschränkte Akkunutzung zulassen',
-    ru: 'Разрешить неограниченное использование батареи',
-    tr: 'Kısıtlamasız pil kullanımına izin ver',
-    ptBr: 'Permitir uso da bateria sem restrições',
-    zhHans: '允许不受限制的电池使用',
-    zhHant: '允許不受限制的電池使用',
-    ko: '제한 없는 배터리 사용 허용',
-    vi: 'Bật Pin không hạn chế',
-  );
-
-  String get batteryGuideBody => tr(
-    en:
-        'LiveBridge needs this so the system does not close the app in the background, reducing the risk of losing Live Updates.',
-    es:
-        'LiveBridge necesita esto para que el sistema no cierre la app en segundo plano, reduciendo el riesgo de perder las Live Updates.',
-    de:
-        'LiveBridge braucht dies, damit das System die App im Hintergrund nicht schließt, wodurch das Risiko sinkt, Live-Updates zu verlieren.',
-    ru:
-        'LiveBridge нужно это, чтобы система не закрывала приложение в фоне, снижая риск потери Live Updates.',
-    tr:
-        "LiveBridge'in arka planda sistem tarafından kapatılmaması ve Live Updates'i kaybetme riskini azaltmak için bu gerekli.",
-    ptBr:
-        'O LiveBridge precisa disso para que o sistema não feche o app em segundo plano, reduzindo o risco de perder as Live Updates.',
-    zhHans: 'LiveBridge 需要此权限，以免系统在后台关闭应用，并降低丢失 Live Updates 的风险。',
-    zhHant: 'LiveBridge 需要此權限，以免系統在背景關閉應用程式，並降低遺失 Live Updates 的風險。',
-    ko: 'LiveBridge가 백그라운드에서 시스템에 의해 종료되지 않고 Live Updates를 잃을 위험을 줄이려면 이 권한이 필요합니다.',
-    vi:
-        'LiveBridge cần quyền này để hệ thống không tự đóng ứng dụng khi chạy nền, giảm nguy cơ bị mất Thông báo Trực tiếp.',
-  );
-
-  String get batteryGuideAllow => tr(
-    en: 'Allow',
-    es: 'Permitir',
-    de: 'Zulassen',
-    ru: 'Разрешить',
-    tr: 'İzin ver',
-    ptBr: 'Permitir',
-    zhHans: '允许',
-    zhHant: '允許',
-    ko: '허용',
-    vi: 'Cho phép',
-  );
-
   String get batteryDozeGranted => tr(
     en: 'LiveBridge\'s battery usage has been optimized.',
     es: 'El uso de batería de LiveBridge ha sido optimizado.',
@@ -2484,19 +2438,6 @@ class AppStrings {
     zhHant: '無法開啟 Doze 對話框。',
     ko: 'Doze 대화상자를 열 수 없습니다.',
     vi: 'Không mở được hộp thoại Doze.',
-  );
-
-  String get batteryGuideLater => tr(
-    en: 'Later',
-    es: 'Más tarde',
-    de: 'Später',
-    ru: 'Позже',
-    tr: 'Sonra',
-    ptBr: 'Mais tarde',
-    zhHans: '稍后',
-    zhHant: '稍後',
-    ko: '나중에',
-    vi: 'Để sau',
   );
 
   String get liveUpdatesAccess => tr(

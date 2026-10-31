@@ -1758,3 +1758,12 @@ reflects the Doze exemption (via round 126's
 isDozeExempt, refreshed on every resume); Samsung's
 Unrestricted setting has no readable API, so it cannot
 be shown here. Granted Doze clears the indicator.
+
+Round 128 (owner request, 31/10): the "Bật pin không
+hạn chế" guide dialog is deleted — tapping the battery
+row now goes straight to the system "stop optimizing
+battery usage" (Doze) dialog. The guide's four strings
+(title, body, Allow, Later) are removed with it; the
+granted/failed toasts and the row's optional accent
+indicator stay. Already-granted still toasts, and a
+fresh grant is still confirmed on return (round 126).
