@@ -1725,3 +1725,9 @@ batteryGuideOpen string is removed with its button).
 The body keeps the benefit sentence plus the Doze line,
 reworded to the new button name. The native Samsung
 app-info path stays in the tree for a future return.
+
+Round 124 (owner request, 31/10): the already-granted
+Doze toast is reworded in all 10 languages — from the
+technical "exempt from Doze" to the user-facing
+"battery usage has been optimized" ("LiveBridge đã được
+tối ưu mức sử dụng pin." in Vietnamese).

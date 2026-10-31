@@ -2461,16 +2461,16 @@ class AppStrings {
   );
 
   String get batteryDozeGranted => tr(
-    en: 'LiveBridge is already exempt from Doze.',
-    es: 'LiveBridge ya está exento de Doze.',
-    de: 'LiveBridge ist bereits von Doze ausgenommen.',
-    ru: 'LiveBridge уже освобождён от Doze.',
-    tr: 'LiveBridge zaten Doze\'dan muaf.',
-    ptBr: 'O LiveBridge já está isento do Doze.',
-    zhHans: 'LiveBridge 已获得 Doze 豁免。',
-    zhHant: 'LiveBridge 已獲得 Doze 豁免。',
-    ko: 'LiveBridge는 이미 Doze에서 제외되었습니다.',
-    vi: 'LiveBridge đã được miễn trừ Doze.',
+    en: 'LiveBridge\'s battery usage has been optimized.',
+    es: 'El uso de batería de LiveBridge ha sido optimizado.',
+    de: 'Die Akkunutzung von LiveBridge wurde optimiert.',
+    ru: 'Использование батареи LiveBridge оптимизировано.',
+    tr: 'LiveBridge\'in pil kullanımı optimize edildi.',
+    ptBr: 'O uso de bateria do LiveBridge foi otimizado.',
+    zhHans: 'LiveBridge 的电池使用已优化。',
+    zhHant: 'LiveBridge 的電池使用已最佳化。',
+    ko: 'LiveBridge의 배터리 사용이 최적화되었습니다.',
+    vi: 'LiveBridge đã được tối ưu mức sử dụng pin.',
   );
 
   String get batteryDozeUnavailable => tr(
