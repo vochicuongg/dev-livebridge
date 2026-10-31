@@ -7,9 +7,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
-import android.graphics.RectF
 import android.util.Log
-import java.util.concurrent.ConcurrentHashMap
 
 // Round 105: the low-battery capsule uses Samsung SystemUI's own
 // caution glyph — stat_notify_battery_caution, the asset the
@@ -54,15 +52,12 @@ internal object SystemUiBatteryIcons {
     private const val VECTOR_RESOURCE_NAME = "ic_accessibility_hearing_aid_low_battery"
     private const val BITMAP_RESOURCE_NAME = "stat_notify_battery_caution"
     private const val RENDER_SIZE_PX = 192
-    private const val BADGE_GLYPH_INSET_FRACTION = 0.1f
 
     @Volatile
     private var cached: Bitmap? = null
 
     @Volatile
     private var missing = false
-
-    private val badgeCache = ConcurrentHashMap<Int, Bitmap>()
 
     fun iconBitmap(context: Context): Bitmap? {
         cached?.let { return it }
@@ -78,54 +73,10 @@ internal object SystemUiBatteryIcons {
         return bitmap
     }
 
-    // Round 109: the same glyph on its own badge background —
-    // a rounded rect in the capsule's colour. Some devices
-    // draw the tapped (expanded) pill's icon on a LIGHT badge,
-    // where a bare white glyph vanishes (the owner's J7
-    // screenshot: white square when tapped, normal pill when
-    // collapsed). A self-contained badge reads on any
-    // background: on the red pill it blends into the pill
-    // colour, on a light badge it shows as a red badge with a
-    // white glyph.
-    //
-    // Round 110: the round-109 badge still showed an excess
-    // white border and rendered oversized in the expanded view
-    // (owner's J7 screenshot). Two causes: the rounded rect
-    // left the slot's light background showing at the corners,
-    // and the glyph filled the bitmap edge to edge. Fix: the
-    // background now fills the bitmap edge to edge (no
-    // rounding — a rounded slot clips it itself), and the glyph
-    // is drawn at 80% size centered, so it reads as a badge
-    // glyph instead of a blown-up frame-filler.
-    fun badgeBitmap(context: Context, color: Int): Bitmap? {
-        badgeCache[color]?.let { return it }
-        val glyph = iconBitmap(context) ?: return null
-        val badge = Bitmap.createBitmap(
-            RENDER_SIZE_PX,
-            RENDER_SIZE_PX,
-            Bitmap.Config.ARGB_8888
-        )
-        Canvas(badge).also { canvas ->
-            val paint = Paint().apply {
-                this.color = color
-                isAntiAlias = true
-            }
-            canvas.drawRect(
-                0f, 0f,
-                RENDER_SIZE_PX.toFloat(), RENDER_SIZE_PX.toFloat(),
-                paint
-            )
-            val inset = RENDER_SIZE_PX * BADGE_GLYPH_INSET_FRACTION
-            val dest = RectF(
-                inset, inset,
-                RENDER_SIZE_PX - inset, RENDER_SIZE_PX - inset
-            )
-            canvas.drawBitmap(glyph, null, dest, null)
-        }
-        badgeCache[color] = badge
-        return badge
-    }
-
+    // Round 111: the round-109/110 badge variants are removed
+    // (owner instruction, 31/10). They did not fix the tapped
+    // icon on J7, so the icon is back to the plain round-105
+    // glyph and each device UI fits it to its own surfaces.
     private fun loadBitmap(context: Context): Bitmap? {
         return try {
             val packageContext = context.createPackageContext(

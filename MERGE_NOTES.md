@@ -1576,3 +1576,15 @@ oversized in some expanded views; cards and expansions
 draw the small icon anyway per rounds 81-82). Simulated
 on white and on pill-red before pushing: identical solid
 red square, no white edge, glyph proportioned as a badge.
+
+Round 111 (owner instruction, 31/10): rounds 109-110
+did not fix the tapped icon on J7, so the icon is
+restored to exactly the round-105 wiring — plain SystemUI
+glyph bitmap at full size in every slot (small via the
+post-build swap, large, chip, nowBar) — with the badge
+background, the 80% glyph scale, and the large-icon
+removal all reverted, so each device UI scales and fits
+the icon to its own surfaces instead of the app
+hard-coding a background or size. The round-108
+transparent-pixel zeroing is kept (invisible on correct
+renderers, not a size change).

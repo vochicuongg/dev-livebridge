@@ -1921,29 +1921,19 @@ object LiveUpdateNotifier {
         // can be produced, falling back to the redrawn vector.
         // Mirrors the devices capsule's Samsung-bitmap pattern
         // (round 77).
-        // Round 109: every slot uses the BADGE version (glyph on
-        // its own capsule-colour background) instead of the bare
-        // glyph, because some devices draw the tapped (expanded)
-        // pill's icon on a light badge where a bare white glyph
-        // vanishes. On the red pill the badge blends into the
-        // pill colour; on a light badge it reads as a red badge.
-        // Round 110: no LARGE icon for low battery. The large
-        // icon slot renders oversized in some devices' expanded
-        // view (owner's J7 screenshot), and per rounds 81-82 the
-        // cards and expansions draw the SMALL icon anyway, so
-        // the large slot only adds the oversized rendering.
+        // Round 111 (owner instruction, 31/10): rounds 109-110's
+        // manual fitting — badge background, 80% glyph, no large
+        // icon — did NOT fix the tapped icon on J7, so the icon
+        // is restored to exactly the round-105 wiring: the plain
+        // glyph bitmap at full size in every slot, and each
+        // device UI scales and fits it to its own surfaces
+        // instead of the app hard-coding a background or size.
         val systemUiBitmap = if (snapshot.lowBattery) {
             SystemUiBatteryIcons.iconBitmap(context)
         } else {
             null
         }
-        val systemUiBadgeBitmap = if (snapshot.lowBattery) {
-            SystemUiBatteryIcons.badgeBitmap(context, snapshot.color)
-        } else {
-            null
-        }
-        val iconBitmap = systemUiBadgeBitmap ?: systemUiBitmap
-        val icon = iconBitmap?.let { bitmap -> IconCompat.createWithBitmap(bitmap) }
+        val icon = systemUiBitmap?.let { bitmap -> IconCompat.createWithBitmap(bitmap) }
             ?: IconCompat.createWithResource(context, snapshot.iconRes)
         // Condensed surfaces (standby/AOD chip, status-bar chip) lead
         // with the time until full instead of the percentage — that is
@@ -1992,8 +1982,7 @@ object LiveUpdateNotifier {
 
         chargingInfoContentIntent(context)?.let(builder::setContentIntent)
 
-        // Round 110: deliberately no setLargeIcon for low
-        // battery — see the comment above the iconBitmap block.
+        systemUiBitmap?.let(builder::setLargeIcon)
 
         @Suppress("DEPRECATION")
         val bridgeSource = Notification().apply {
@@ -2032,9 +2021,9 @@ object LiveUpdateNotifier {
         // never the large one, so the SystemUI bitmap has to be
         // swapped in after the build through the platform's
         // adopting builder, same as the devices capsule.
-        if (iconBitmap != null) {
+        if (systemUiBitmap != null) {
             val rebuilt = Notification.Builder.recoverBuilder(context, notification)
-                .setSmallIcon(Icon.createWithBitmap(iconBitmap))
+                .setSmallIcon(Icon.createWithBitmap(systemUiBitmap))
                 .build()
             Log.i(TAG, "Charging capsule: low-battery small icon type after swap: ${rebuilt.smallIcon?.type}")
             return rebuilt
