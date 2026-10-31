@@ -1542,3 +1542,14 @@ width vs webp ~58%), so the owner asked for the round-105
 size back. stat_notify_battery_caution is primary again;
 ic_accessibility_hearing_aid_low_battery stays as the
 fallback when the webp is absent.
+
+Round 108 (owner screenshot, 31/10): blank white square
+instead of the glyph on some devices' Now Bar pill. Root
+cause: the round-105 DST_IN recolor leaves white RGB under
+alpha 0, so renderers that draw the bitmap ignoring alpha
+show all white. Fix: after recoloring, zero out every
+fully transparent pixel (simulated and confirmed against
+the extracted webp: before = blank white square, after =
+black square + white glyph on an alpha-ignoring renderer;
+correct alpha compositing unchanged). Applies to both the
+webp and the vector source.

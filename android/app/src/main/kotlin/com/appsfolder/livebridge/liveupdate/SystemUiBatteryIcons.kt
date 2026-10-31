@@ -35,6 +35,16 @@ import android.util.Log
 // transparent side margins) versus ~58% for the webp, so on the
 // pill the vector looked small. The vector stays as the
 // fallback when the webp is absent.
+//
+// Round 108: clear the colour of fully transparent pixels
+// after the DST_IN recolor. DST_IN leaves white RGB under
+// alpha 0; renderers that draw the bitmap ignoring alpha
+// (some devices' Now Bar pill) then show a blank white square
+// instead of the glyph — exactly the owner's screenshot.
+// Zeroing those pixels makes the glyph visible even there
+// (black square + white glyph), while correct alpha
+// compositing (Flip5) is unchanged. Applies to both the webp
+// and the vector source, which share this recolor step.
 internal object SystemUiBatteryIcons {
 
     private const val TAG = "LiveUpdateListener"
@@ -107,6 +117,23 @@ internal object SystemUiBatteryIcons {
                     canvas.drawBitmap(rendered, 0f, 0f, paint)
                 }
                 rendered.recycle()
+                // Round 108: fully transparent pixels must carry
+                // no colour, or alpha-ignoring renderers show a
+                // blank white square (see the comment above).
+                val pixels = IntArray(RENDER_SIZE_PX * RENDER_SIZE_PX)
+                white.getPixels(
+                    pixels, 0, RENDER_SIZE_PX, 0, 0,
+                    RENDER_SIZE_PX, RENDER_SIZE_PX
+                )
+                for (i in pixels.indices) {
+                    if (pixels[i] ushr 24 == 0) {
+                        pixels[i] = 0
+                    }
+                }
+                white.setPixels(
+                    pixels, 0, RENDER_SIZE_PX, 0, 0,
+                    RENDER_SIZE_PX, RENDER_SIZE_PX
+                )
                 Log.i(TAG, "SystemUiBatteryIcons: $resourceName loaded")
                 return white
             }
