@@ -56,6 +56,7 @@ enum LbIconSymbol {
   settings,
   settingsFilled,
   alertOctagonFilled,
+  boltFilled,
   checkCircleFilled,
   checkFilled,
   back,
@@ -201,6 +202,8 @@ IconData _iconFor(LbIconSymbol symbol) {
       return MingCuteIcons.mgc_settings_3_fill;
     case LbIconSymbol.alertOctagonFilled:
       return MingCuteIcons.mgc_alert_octagon_fill;
+    case LbIconSymbol.boltFilled:
+      return MingCuteIcons.mgc_flash_fill;
     case LbIconSymbol.checkCircleFilled:
       return MingCuteIcons.mgc_check_circle_fill;
     case LbIconSymbol.checkFilled:

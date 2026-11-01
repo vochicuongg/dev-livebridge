@@ -1767,3 +1767,18 @@ battery usage" (Doze) dialog. The guide's four strings
 granted/failed toasts and the row's optional accent
 indicator stay. Already-granted still toasts, and a
 fresh grant is still confirmed on return (round 126).
+
+Round 132 (owner request, 01/11): the battery row is
+renamed from "Quyền bật Pin không hạn chế" to "Quyền
+không hạn chế ứng dụng" (all 10 languages, same meaning),
+and its not-enabled indicator glyph changes from the
+alert octagon to a bolt (new LbIconSymbol.boltFilled,
+MingCute mgc_flash_fill). The indicator logic is
+unchanged: accent-colored bolt while Doze is not exempt,
+no icon once granted; the required rows keep their
+warning-red alert octagon. Note: rounds 129-131 were
+reverted to the round-128 tree on owner request
+(01/11), so numbering continues at 132 to avoid reuse.
+The swipe-jank performance fix (fewer updates, smaller
+icons, promotion gating for heavy chats) is deferred on
+owner request — to be done later, not in this round.

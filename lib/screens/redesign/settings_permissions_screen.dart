@@ -222,12 +222,12 @@ class _SettingsPermissionsScreenState extends State<SettingsPermissionsScreen>
       // items' warning red — visible, but not compulsory. The
       // indicator reflects the Doze exemption only: Samsung's
       // Unrestricted setting has no API to read, so it cannot
-      // be shown here (round 114).
+      // be shown here (round 114). Round 132: the indicator
+      // glyph is a bolt instead of the alert octagon.
       LbListItemData(
         title: strings.batteryUnrestricted,
         showChevron: true,
-        trailingIcon:
-            _dozeExempt ? null : LbIconSymbol.alertOctagonFilled,
+        trailingIcon: _dozeExempt ? null : LbIconSymbol.boltFilled,
         trailingIconColor:
             _dozeExempt ? null : LbPalette.of(context).accent,
         onTap: () {
