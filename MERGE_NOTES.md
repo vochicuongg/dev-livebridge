@@ -1807,32 +1807,3 @@ build, that app's action set needs to be named, because
 the remaining drop paths are app-specific (null intent,
 blank title, or an action the source itself stops
 posting).
-
-Round 134 (owner request, 03/11): the Like button is
-removed from the chat frame's chip row. otherActions-
-ForReplyEditor now drops any plain action identified as
-Like — by semantic THUMBS_UP when the source sets it
-(API-guarded), or by normalized title across the app's
-10 locales ("Thích", "Like", "Me gusta", and friends).
-Scope is editor-only on purpose: the filter sits in the
-editor-extras path, so mirrors (shade / Now Bar) still
-copy plain actions unchanged, and the reply strip is
-untouched.
-
-Round 135 (owner request, 03/11): a Like tap on a chat
-mirror now dismisses the mirror, like Facebook. The
-button itself already IS the source app's own action
-(original intent verbatim), so a new MirrorLikeAction-
-Receiver proxy fires that intent first — Instagram's
-Like still sends the react the other party sees — and
-then cancels only the mirror (new cancelMirroredForLike,
-no source cancel, unlike the reply path). The wrap is
-added as a third branch in toCompatAction (after the
-reply and progress proxies), threaded through
-copySourceActions with a chat gate (source carries a
-reply action) so media/download mirrors keep their
-plain actions verbatim, and through the existing
-mirrorKey plumbing of addPlainActionsIfNotAlreadyCopied
-for the chat-rebuild path. If the original intent
-fails, the mirror is left alone. A new message re-posts
-the mirror, since the source notification is untouched.
