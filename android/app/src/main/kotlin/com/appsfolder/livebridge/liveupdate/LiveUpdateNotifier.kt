@@ -5980,7 +5980,8 @@ object LiveUpdateNotifier {
             preferMediaControls = preferMediaControls,
             mediaPlaybackIsPlaying = mediaPlaybackIsPlaying,
             useMediaActionSymbols = useMediaActionSymbols,
-            progressSourceKey = if (hasProgress) sbn.key else null
+            progressSourceKey = if (hasProgress) sbn.key else null,
+            mirrorKey = sbn.key
         )
 
         if (hasProgress) {
@@ -9835,7 +9836,8 @@ object LiveUpdateNotifier {
         preferMediaControls: Boolean = false,
         mediaPlaybackIsPlaying: Boolean? = null,
         useMediaActionSymbols: Boolean = false,
-        progressSourceKey: String? = null
+        progressSourceKey: String? = null,
+        mirrorKey: String? = null
     ) {
         val actions = source.actions
             ?.filter { action -> action.remoteInputs.isNullOrEmpty() }
@@ -9871,6 +9873,15 @@ object LiveUpdateNotifier {
             }
         }
 
+        // Round 135: Like actions on CHAT mirrors (the source
+        // carries a reply action) get the dismiss-after-tap
+        // proxy via toCompatAction's mirrorKey branch.
+        // Media/download mirrors keep their plain actions
+        // verbatim: a Like on a media mirror must not eat
+        // the playing capsule.
+        val likeMirrorKey = if (mirrorKey != null &&
+            source.actions?.any { hasRemoteInput(it) && it.actionIntent != null } == true
+        ) mirrorKey else null
         actions
             .withIndex()
             .sortedWith(
@@ -9880,7 +9891,7 @@ object LiveUpdateNotifier {
             )
             .take(safeMaxActions)
             .forEach { (_, frameworkAction) ->
-            val compatAction = toCompatAction(frameworkAction = frameworkAction, context = context, progressSourceKey = progressSourceKey) ?: return@forEach
+            val compatAction = toCompatAction(frameworkAction = frameworkAction, context = context, progressSourceKey = progressSourceKey, mirrorKey = likeMirrorKey) ?: return@forEach
             builder.addAction(compatAction)
         }
     }
@@ -10155,6 +10166,21 @@ object LiveUpdateNotifier {
                     context,
                     actionIntent,
                     progressSourceKey,
+                    actionTitle
+                ) ?: actionIntent
+            } else if (!hasRemoteInputs && mirrorKey != null && context != null &&
+                isLikeAction(frameworkAction, actionTitle)
+            ) {
+                // Round 135: a Like tap on a chat mirror fires
+                // the source app's own action (Instagram's Like,
+                // so the other party sees the react) and then
+                // dismisses the mirror, matching Facebook, whose
+                // own notification goes away on Like. The source
+                // notification itself is untouched.
+                createMirrorLikeActionPendingIntent(
+                    context,
+                    actionIntent,
+                    mirrorKey,
                     actionTitle
                 ) ?: actionIntent
             } else {
@@ -10861,6 +10887,31 @@ object LiveUpdateNotifier {
         }
     }
 
+    private fun createMirrorLikeActionPendingIntent(
+        context: Context,
+        originalIntent: PendingIntent,
+        mirrorKey: String,
+        actionTitle: String
+    ): PendingIntent? {
+        return try {
+            val intent = Intent(context, MirrorLikeActionReceiver::class.java).apply {
+                action = MirrorLikeActionReceiver.ACTION_MIRROR_LIKE
+                putExtra(MirrorLikeActionReceiver.EXTRA_ORIGINAL_PENDING_INTENT, originalIntent)
+                putExtra(MirrorLikeActionReceiver.EXTRA_MIRROR_KEY, mirrorKey)
+                putExtra(MirrorLikeActionReceiver.EXTRA_ACTION_TITLE, actionTitle)
+            }
+            PendingIntent.getBroadcast(
+                context,
+                (mirrorKey + "|like|" + actionTitle).hashCode(),
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to create like action proxy for $mirrorKey", e)
+            null
+        }
+    }
+
     /**
      * Builds a fresh editor intent for [mirrorKey]'s current reply
      * session, or null when the mirror no longer has a replyable source.
@@ -11201,6 +11252,37 @@ object LiveUpdateNotifier {
         LiveUpdateNotificationListenerService.requestCancelSourceNotification(
             context = context.applicationContext,
             sourceKey = sourceSnapshot.sourceKey?.takeIf { it.isNotBlank() } ?: mirrorKey
+        )
+    }
+
+    /**
+     * Round 135: cancels ONLY the LiveBridge mirror for
+     * [mirrorKey], after a Like tap fired the source app's
+     * own action. Unlike cancelMirroredForReply, the source
+     * notification is deliberately NOT cancelled: Instagram
+     * keeps its conversation notification, and a new message
+     * re-posts the mirror. The programmatic-cancel grace
+     * period (via cancelMirroredNotification) keeps the
+     * removal from being mistaken for a user dismissal.
+     */
+    fun cancelMirroredForLike(context: Context, mirrorKey: String) {
+        if (mirrorKey.isBlank()) {
+            return
+        }
+        val ids = synchronized(stateLock) {
+            val collected = mutableSetOf(mirrorIdForKey(mirrorKey))
+            mirrorNotificationIdsByKey[mirrorKey]?.let(collected::addAll)
+            sourceSnapshotsByMirrorKey[mirrorKey]?.key?.takeIf { it.isNotBlank() }?.let { sourceKey ->
+                collected.add(mirrorIdForKey(sourceKey))
+            }
+            collected
+        }
+        val manager = NotificationManagerCompat.from(context)
+        ids.forEach { notificationId -> cancelMirroredNotification(manager, notificationId) }
+        cancelActiveMirrorNotificationsByIds(context, manager, ids)
+        Log.d(
+            TAG,
+            "cancelMirroredForLike: cancelled mirrorKey=$mirrorKey ids=$ids"
         )
     }
 
