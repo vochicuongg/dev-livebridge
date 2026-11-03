@@ -9944,20 +9944,50 @@ object LiveUpdateNotifier {
      * their original intent verbatim (toCompatAction only proxies
      * RemoteInput actions), which is exactly what tapping the
      * action on the original notification does.
+     *
+     * Round 133: the round-118 name promised "IfNotAlreadyCopied"
+     * but the body never checked. buildMirroredNotification
+     * already copies every plain action earlier via
+     * copySourceActions (capped at MAX_MIRRORED_ACTIONS), so
+     * this append duplicated them — Messenger showed
+     * [Like, Mute, Reply, Like, Mute]. Now the builder's
+     * current actions are snapshotted (a throwaway build; the
+     * builder itself is untouched) and any plain action whose
+     * normalized title and intent already match is skipped.
+     * Plains beyond copySourceActions' cap are still added, so
+     * a late plain action (e.g. a 4th "mark as read") is not
+     * lost. If the snapshot build ever throws, the fallback is
+     * the old behavior (add everything) rather than dropping
+     * buttons. The chat-rebuild path (forceUpdateChatUi) passes
+     * requireReplyAction = false: it never runs
+     * copySourceActions, and a chat thread's plain actions must
+     * show even when the source currently carries no reply
+     * action.
      */
     private fun addPlainActionsIfNotAlreadyCopied(
         source: Notification,
         builder: NotificationCompat.Builder,
         mirrorKey: String? = null,
-        context: Context? = null
+        context: Context? = null,
+        requireReplyAction: Boolean = true
     ) {
         val actions = source.actions ?: return
-        if (actions.none { hasRemoteInput(it) && it.actionIntent != null }) return
+        if (requireReplyAction &&
+            actions.none { hasRemoteInput(it) && it.actionIntent != null }
+        ) return
+        val existing = runCatching { builder.build().actions }.getOrNull().orEmpty()
         actions.filter { action ->
             action.actionIntent != null &&
                 !hasRemoteInput(action) &&
                 !NotificationTextNormalizer.normalize(action.title).isNullOrBlank()
         }.forEach { action ->
+            val title = NotificationTextNormalizer.normalize(action.title)
+            val alreadyPresent = existing.any { existingAction ->
+                NotificationTextNormalizer.normalize(existingAction.title) == title &&
+                    (existingAction.actionIntent == null ||
+                        existingAction.actionIntent == action.actionIntent)
+            }
+            if (alreadyPresent) return@forEach
             val compatAction = toCompatAction(action, mirrorKey = mirrorKey, context = context)
                 ?: return@forEach
             builder.addAction(compatAction)
@@ -11023,7 +11053,8 @@ object LiveUpdateNotifier {
             source = source,
             builder = builder,
             mirrorKey = mirrorKey,
-            context = context
+            context = context,
+            requireReplyAction = false
         )
 
         val notification = builder.build().also {

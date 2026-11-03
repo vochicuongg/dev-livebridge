@@ -1782,3 +1782,28 @@ reverted to the round-128 tree on owner request
 The swipe-jank performance fix (fewer updates, smaller
 icons, promotion gating for heavy chats) is deferred on
 owner request — to be done later, not in this round.
+
+Round 133 (owner bug report, 03/11): Now Bar mirrors
+showed duplicated plain buttons — Messenger rendered
+[Like, Mute, Reply, Like, Mute]. Root cause: round 118
+named its helper "IfNotAlreadyCopied" but never checked.
+buildMirroredNotification already copies every plain
+action earlier via copySourceActions (capped at
+MAX_MIRRORED_ACTIONS = 3), then the round-118 append
+added them a second time. Fix: the helper now snapshots
+the builder's current actions (a throwaway build; the
+builder is untouched) and skips any plain action whose
+normalized title and intent already match. Plains beyond
+the cap are still added, so a late plain action is not
+lost, and a snapshot failure falls back to the old
+behavior instead of dropping buttons. Second fix in the
+same round: the chat-rebuild path (forceUpdateChatUi)
+never runs copySourceActions, so it now passes
+requireReplyAction = false — a chat thread's plain
+actions (e.g. "mark as read") show even when the source
+currently carries no reply action. If a "mark as read"
+button is still missing for a specific app after this
+build, that app's action set needs to be named, because
+the remaining drop paths are app-specific (null intent,
+blank title, or an action the source itself stops
+posting).
