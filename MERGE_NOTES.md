@@ -1807,3 +1807,14 @@ build, that app's action set needs to be named, because
 the remaining drop paths are app-specific (null intent,
 blank title, or an action the source itself stops
 posting).
+
+Round 134 (owner request, 03/11): the Like button is
+removed from the chat frame's chip row. otherActions-
+ForReplyEditor now drops any plain action identified as
+Like — by semantic THUMBS_UP when the source sets it
+(API-guarded), or by normalized title across the app's
+10 locales ("Thích", "Like", "Me gusta", and friends).
+Scope is editor-only on purpose: the filter sits in the
+editor-extras path, so mirrors (shade / Now Bar) still
+copy plain actions unchanged, and the reply strip is
+untouched.

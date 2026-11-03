@@ -9907,7 +9907,36 @@ object LiveUpdateNotifier {
      * and the mirror. A plain action is any action with an intent
      * and a title but no RemoteInput; the reply action itself is
      * excluded by the RemoteInput check.
+     *
+     * Round 134: Like actions are filtered out here, so the
+     * editor's chip row no longer shows a Like button. This
+     * filter touches ONLY the editor extras: mirrors (shade /
+     * Now Bar) still copy plain actions via addPlainActions and
+     * are unaffected.
      */
+    private val LIKE_ACTION_TITLES = setOf(
+        "like",
+        "thích",
+        "thich",
+        "me gusta",
+        "gefällt mir",
+        "нравится",
+        "beğen",
+        "curtir",
+        "赞",
+        "讚",
+        "좋아요",
+        "thumbs up"
+    )
+
+    private fun isLikeAction(action: Notification.Action, normalizedTitle: String): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val semantic = runCatching { action.semanticAction }.getOrNull()
+            if (semantic == Notification.Action.SEMANTIC_ACTION_THUMBS_UP) return true
+        }
+        return normalizedTitle.lowercase(Locale.ROOT).trim() in LIKE_ACTION_TITLES
+    }
+
     private fun otherActionsForReplyEditor(
         source: Notification
     ): List<Pair<String, PendingIntent>> {
@@ -9916,6 +9945,7 @@ object LiveUpdateNotifier {
             if (hasRemoteInput(action)) return@mapNotNull null
             val title = NotificationTextNormalizer.normalize(action.title)
                 ?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            if (isLikeAction(action, title)) return@mapNotNull null
             title to intent
         }
     }
