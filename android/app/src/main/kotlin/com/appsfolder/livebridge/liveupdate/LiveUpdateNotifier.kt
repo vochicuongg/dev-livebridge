@@ -9902,38 +9902,6 @@ object LiveUpdateNotifier {
     }
 
     /**
-     * Round 118: the source's plain (non-reply) actions — "Mark as
-     * read", Instagram "Like", and friends — for the reply editor
-     * and the mirror. A plain action is any action with an intent
-     * and a title but no RemoteInput; the reply action itself is
-     * excluded by the RemoteInput check.
-     */
-    private fun otherActionsForReplyEditor(
-        source: Notification
-    ): List<Pair<String, PendingIntent>> {
-        return source.actions.orEmpty().mapNotNull { action ->
-            val intent = action.actionIntent ?: return@mapNotNull null
-            if (hasRemoteInput(action)) return@mapNotNull null
-            val title = NotificationTextNormalizer.normalize(action.title)
-                ?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-            title to intent
-        }
-    }
-
-    private fun putOtherActions(intent: Intent, source: Notification) {
-        val others = otherActionsForReplyEditor(source)
-        if (others.isEmpty()) return
-        intent.putStringArrayListExtra(
-            ReplyProxyService.EXTRA_REPLY_OTHER_ACTION_TITLES,
-            ArrayList(others.map { it.first })
-        )
-        intent.putParcelableArrayListExtra(
-            ReplyProxyService.EXTRA_REPLY_OTHER_ACTION_INTENTS,
-            ArrayList(others.map { it.second })
-        )
-    }
-
-    /**
      * Round 118: copies the source's plain actions onto a chat
      * mirror, so they work from the shade / Now Bar expansion too.
      * Chat mirrors only — a mirror is replyable exactly when its
@@ -10791,9 +10759,6 @@ object LiveUpdateNotifier {
                     putExtra(ReplyProxyService.EXTRA_REPLY_ACCENT_COLOR, replyAccentColor)
                 }
             }
-            // Round 118: the editor also carries the source's plain
-            // actions (Mark as read, Like, ...) as chips.
-            sourceNotification?.let { putOtherActions(proxyIntent, it) }
             PendingIntent.getActivity(
                 context,
                 (mirrorKey + resultKey).hashCode(),
@@ -10883,9 +10848,6 @@ object LiveUpdateNotifier {
             putExtra(ReplyProxyService.EXTRA_REPLY_SOURCE_PACKAGE, snapshot.packageName)
             putExtra(ReplyProxyService.EXTRA_REPLY_ACCENT_COLOR, replyAccentColor)
         }
-        // Round 118: card switches rebuild the editor from this
-        // intent, so the plain actions travel with it too.
-        putOtherActions(editorIntent, source)
         return editorIntent
     }
 

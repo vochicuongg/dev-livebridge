@@ -1807,3 +1807,18 @@ build, that app's action set needs to be named, because
 the remaining drop paths are app-specific (null intent,
 blank title, or an action the source itself stops
 posting).
+
+Round 136 (owner request, 05/11): the extra buttons
+that appeared in the chat frame when tapping Reply are
+gone. They were the round-118 plain-action chips (Like,
+Mute, Mark as read, ...) — new to the editor since
+31/10, while the frame used to be reply-only. The
+editor no longer receives them: both editor-open paths
+(createProxyReplyPendingIntent and replyEditorIntent)
+stopped calling putOtherActions, and the now-unused
+otherActionsForReplyEditor / putOtherActions helpers
+were deleted. The editor's chip UI is left dormant
+(populateActionsRow hides the row on an empty list), so
+the chips can come back with a small change if asked.
+Mirrors are untouched: shade / Now Bar buttons still
+copy plain actions via addPlainActions.
