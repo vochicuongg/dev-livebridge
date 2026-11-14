@@ -35,27 +35,16 @@ class LbStatCard extends StatelessWidget {
         child: AspectRatio(
           aspectRatio: LbSpacing.statCardAspectRatio,
           child: Container(
-            clipBehavior: Clip.antiAlias,
             padding: const EdgeInsets.all(LbSpacing.statCardPadding),
             decoration: BoxDecoration(
               color: isWarning ? palette.warningSurface : palette.surface,
               borderRadius: BorderRadius.circular(LbRadius.smallCard),
             ),
-            // Round 138: the card height is fixed by its aspect ratio
-            // while the two text lines grow with the system font size,
-            // so at a larger text scale the stack overflowed by a few
-            // pixels (debug "BOTTOM OVERFLOWED" banner). Scale the
-            // whole stack down to fit instead; at the default text
-            // scale nothing changes (scale factor 1).
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.center,
-              child: Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: <Widget>[
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: <Widget>[
                   LbIcon(
                     symbol: icon,
                     size: LbSpacing.statCardIcon,
@@ -78,8 +67,7 @@ class LbStatCard extends StatelessWidget {
                       ),
                     ),
                   ),
-                  ],
-                ),
+                ],
               ),
             ),
           ),

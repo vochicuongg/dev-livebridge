@@ -88,19 +88,10 @@ class LbBottomNavItem extends StatelessWidget {
             shape: const StadiumBorder(),
             shadows: const <BoxShadow>[],
           ),
-          // Round 138: the nav shell is a fixed 68 px tall while the
-          // icon + label grow with the system font size, so at a larger
-          // text scale the item overflowed by ~1 px (debug "BOTTOM
-          // OVERFLOWED" banner). Scale the stack down to fit instead;
-          // at the default text scale nothing changes (scale factor 1).
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.center,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: <Widget>[
-                _LbAnimatedNavIcon(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: <Widget>[
+              _LbAnimatedNavIcon(
                 motion: motion,
                 progress: motionProgress.clamp(0.0, 1.0),
                 child: LbIcon(
@@ -125,8 +116,7 @@ class LbBottomNavItem extends StatelessWidget {
                   ),
                 ),
               ),
-              ],
-            ),
+            ],
           ),
         ),
       ),

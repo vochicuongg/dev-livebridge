@@ -1874,3 +1874,18 @@ Container also gains clipBehavior: Clip.antiAlias so nothing can
 paint outside its rounded corners. Test: install the debug build and
 confirm no overflow banner on the home screen, including with the
 phone's font size set one step larger than default.
+
+Round 139 (owner bug report, 14/11): restore the home UI to round 137
+— revert the round-138 FittedBox overflow fix. In the release build
+the three stat cards and the bottom nav items rendered empty (icons
+and labels missing), a much worse regression than the few pixels of
+overflow it was fixing. The exact mechanism is not isolated yet: the
+only UI change in round 138 was wrapping both stacks in a FittedBox
+(BoxFit.scaleDown, Column min) plus Clip.antiAlias on the stat card,
+and that build is the one that broke. Release builds never paint the
+overflow banner anyway (overflowing content is clipped silently), so
+reverting restores the exact pre-138 appearance. Do NOT re-apply a
+FittedBox here without an on-device release check first; a future
+overflow fix should instead adjust the fixed budgets (stat-card
+aspect ratio / padding, nav shell height / item padding) and be
+verified in a release build, not just debug.
