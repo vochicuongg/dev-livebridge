@@ -74,7 +74,6 @@ class FlashlightForegroundService : Service() {
                 return
             }
             capability = controller.getCapability()
-            var externalChange = false
             if (capability.supportsFiveLevels) {
                 val resolved = controller.resolveLevelIndexForStrength(
                     capability,
@@ -83,12 +82,12 @@ class FlashlightForegroundService : Service() {
                 prefs.setSmartFlashlightLevel(resolved)
                 // Round 142: the strength changed somewhere else (system
                 // Quick Panel, another app). Record it so a later tap on
-                // the same level does not re-apply the torch, and rebuild
-                // the Now Bar card so its dots follow the real level.
-                externalChange = resolved != lastAppliedLevelIndex
-                if (externalChange) lastAppliedLevelIndex = resolved
+                // the same level does not re-apply the torch.
+                if (resolved != lastAppliedLevelIndex) {
+                    lastAppliedLevelIndex = resolved
+                }
             }
-            refreshNotification(forceRepost = externalChange)
+            refreshNotification()
         }
     }
 
@@ -165,11 +164,12 @@ class FlashlightForegroundService : Service() {
         }
 
         ensureTorchCallbackRegistered()
-        // Round 142: a level tap always re-posts the notification (see
-        // refreshNotification): Samsung's Now Bar reuses the cached
-        // custom view on plain updates, so the pill's dots kept showing
-        // the old level even though the shade updated.
-        refreshNotification(forceRepost = isSetLevel)
+        // Round 145: plain update again — the Round 142 force-repost
+        // (cancel + re-post on every level change) made Samsung tear
+        // down and rebuild the Now Bar card, so the pill visibly reset
+        // on every brightness change. Plain notify keeps the pill
+        // stable, like before Round 142.
+        refreshNotification()
         return START_STICKY
     }
 
@@ -182,16 +182,15 @@ class FlashlightForegroundService : Service() {
     }
 
     /**
-     * Round 142: when [forceRepost] is true, the notification is
-     * cancelled and re-posted as a foreground notification instead of
-     * a plain update. Samsung's Now Bar keeps the cached custom
-     * RemoteView on plain updates, so the pill's dots stayed on the old
-     * level while the shade (re-applied on every update) followed
-     * immediately. A cancel + re-post makes Samsung build a fresh Now
-     * Bar entry with the new RemoteView. The torch itself is untouched
-     * here, so the LED does not blink from the re-post.
+     * Round 145: plain notification update, no re-post. Round 142
+     * re-posted (cancel + startForeground) on every level change to
+     * force Samsung to rebuild the Now Bar card, but that made the pill
+     * visibly reset/collapse on every brightness change — worse than
+     * the plain update, which keeps the pill stable. The same-level
+     * torch guard (lastAppliedLevelIndex) from Round 142 stays: it only
+     * stops redundant torch applies.
      */
-    private fun refreshNotification(forceRepost: Boolean = false) {
+    private fun refreshNotification() {
         val notification = runCatching {
             notificationBuilder.build(
                 prefs = prefs,
@@ -203,12 +202,7 @@ class FlashlightForegroundService : Service() {
         }.getOrNull() ?: return
 
         runCatching {
-            if (forceRepost && isForegroundActive) {
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                notificationManager.cancel(FlashlightNotificationBuilder.NOTIFICATION_ID)
-                startForegroundCompat(notification)
-                isForegroundActive = true
-            } else if (isForegroundActive) {
+            if (isForegroundActive) {
                 notificationManager.notify(FlashlightNotificationBuilder.NOTIFICATION_ID, notification)
             } else {
                 startForegroundCompat(notification)

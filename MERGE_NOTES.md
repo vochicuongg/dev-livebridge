@@ -2000,3 +2000,28 @@ one import line. No behaviour change.
 Note: the install the owner ran after the failed build installed the
 previous (Round 142) APK, since the release APK on disk was unchanged
 — Round 143 needs a fresh pull + build.
+
+Round 145 (owner report, 14/11): two problems after Round 143/144.
+(1) Pill resets on brightness change: caused by Round 142's
+force-repost (cancel + startForeground on every level change) — it
+made Samsung tear down and rebuild the Now Bar card, so the pill
+visibly reset/collapsed instead of staying put. Reverted:
+refreshNotification is a plain notify again, the pill stays stable
+like before Round 142. The same-level torch guard
+(lastAppliedLevelIndex) stays — it only stops redundant torch
+applies. Note the re-post was solving a problem the owner never
+actually reported: the Round 142 complaint was that taps INSIDE the
+pill do nothing, not that the dots fail to follow a shade change.
+(2) Still cannot drag: the drag screen exists (Round 143) but the
+owner never reached it — tapping the pill only expands the card, and
+the pill itself cannot host a drag slider (RemoteViews deliver clicks
+only). Two ways in now: tapping the notification in the shade opens
+the drag screen via the content intent (Round 143), and NEW this
+round, tapping the pill's title ("Đèn pin đang bật") opens it too.
+Whether Samsung delivers that title tap is unproven — the segment
+taps in the same view do not seem to reach the app at all, which is
+the likely reason the pill's own slider never moved. If the title
+tap does nothing, the shade notification tap is the reliable path.
+Verify on device: change brightness from the shade — the pill must
+stay put (no reset); tap the shade notification or the pill title —
+the drag screen opens and the bar drags the LED live.
