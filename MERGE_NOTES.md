@@ -1852,3 +1852,25 @@ a later round can surface a "reply failed — resend?" prompt. Test:
 reply 10x from the watch and let the screen turn off right after
 send; watch logcat for ReplyInterceptReceiver "Reply forwarded to
 source app" vs "Failed to forward reply after 3 attempts".
+
+Round 138 (owner bug report, 14/11): after installing the Round 137
+debug build, the home screen showed red "BOTTOM OVERFLOWED BY 8.0 /
+9.6 / 6.2 PIXELS" banners on the three stat cards and "BY 1.00" on
+the bottom nav. Not caused by Round 137 — that round touched zero
+files under lib/, and the banner is a debug-only Flutter diagnostic:
+the previous install was a release build (hence the signature
+mismatch that forced an uninstall), which clips overflowing content
+silently instead of painting the banner. Root cause is the tight
+fixed budgets: LbStatCard's height is fixed by its 1.08 aspect ratio
+while its stack (15 px padding, 30 px icon, two text lines) grows
+with the system font size, and the bottom nav shell is a fixed 68 px
+with only ~1.5 px of slack (8+8 padding, 25 px icon, 4 px gap,
+11 px label). Any text scale above ~1.0 overflows by a few pixels.
+Fix: wrap both stacks in a FittedBox (BoxFit.scaleDown) with
+Column(mainAxisSize: MainAxisSize.min), so the content scales down
+to fit when the text scale pushes it past the budget; at the default
+text scale the factor is 1 and rendering is unchanged. LbStatCard's
+Container also gains clipBehavior: Clip.antiAlias so nothing can
+paint outside its rounded corners. Test: install the debug build and
+confirm no overflow banner on the home screen, including with the
+phone's font size set one step larger than default.
