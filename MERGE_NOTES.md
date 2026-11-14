@@ -2077,3 +2077,17 @@ drag events — and the pill's taps do not seem to reach the app at
 all, so the pill is a display; the working controls are the shade
 notification's slider (tap a segment) and the drag screen from the
 shade tap.
+
+Round 148 (owner request, 14/11): remove the flashlight drag
+feature entirely.
+- Deleted FlashlightActivity.kt and activity_flashlight.xml, the
+  FlashlightActivity manifest entry (including the Round 146
+  showWhenLocked flag) and the FlashlightTheme style — no references
+  to any of them remain in the tree.
+- FlashlightNotificationBuilder's content intent is back to opening
+  MainActivity (the app's home), as before Round 143; TaskStackBuilder
+  import removed, MainActivity import restored.
+- Kept, as the owner did not ask to remove them: the pill's dots
+  slider (tap-to-set, Round 141 position), the shade notification's
+  own slider, and the Round 142 same-level torch guard (it only
+  stops redundant torch applies / blink on duplicate taps).

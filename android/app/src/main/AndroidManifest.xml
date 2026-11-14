@@ -135,24 +135,6 @@
             android:windowSoftInputMode="adjustResize|stateVisible"
         />
 
-        <!-- Round 143: in-app flashlight drag screen. Opened from the
-             flashlight notification / Now Bar card; Back returns to the
-             app's home (MainActivity). -->
-        <!-- Round 146: showWhenLocked — the drag screen opens over the
-             lock screen when the notification is tapped there, without
-             asking for unlock first (a flashlight control is meant to
-             be reached fast). The pill itself cannot open it: Samsung
-             does not deliver the pill's taps to the app. -->
-        <activity
-            android:name=".liveupdate.FlashlightActivity"
-            android:exported="false"
-            android:launchMode="singleTop"
-            android:parentActivityName=".MainActivity"
-            android:theme="@style/FlashlightTheme"
-            android:screenOrientation="portrait"
-            android:showWhenLocked="true"
-        />
-
         <meta-data
             android:name="com.samsung.android.support.ongoing_activity"
             android:value="true"
