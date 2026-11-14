@@ -1964,3 +1964,29 @@ level is unchanged (same-level re-tap, duplicate intent, strength
 echo). If it still blinks once per real level change, that is the
 Samsung LED driver resetting on strength change — there is no app
 API to ramp the strength smoothly.
+
+Round 143 (owner request, 14/11): in-app flashlight drag slider, and
+the pill's slider raised a little more.
+- Drag: a drag slider cannot live in the notification or the Now Bar
+  pill (Android delivers only clicks from RemoteViews, never drag
+  events), so it lives in the app: new FlashlightActivity (dark
+  full-screen, FlashlightTheme) with a real SeekBar — 5 steps, one per
+  hardware level — plus a Tắt button, reusing the existing
+  FlashlightStrings title/turn-off texts so no new strings were
+  needed. Tapping the flashlight card (pill or shade notification)
+  now opens it: the builder's content intent is a TaskStackBuilder
+  (MainActivity -> FlashlightActivity, parent from the manifest), so
+  Back returns to the app's home. Dragging sends ACTION_SET_LEVEL to
+  FlashlightForegroundService exactly like tapping a segment, so the
+  pill's dots follow the drag; only index changes are sent (a drag
+  crosses at most 4 boundaries), never every progress tick. On resume
+  the bar re-reads the level from prefs; if the flashlight was turned
+  off elsewhere the screen closes. The pill itself is untouched: same
+  dots slider, tap-to-set.
+- Pill slider raised: notification_flashlight_slider.xml margins
+  tightened again (top 4->2dp, slider gap 4->2dp, bottom padding
+  8->10dp) — the bar sits a few dp higher with more blue below it.
+Verify on device: tap the flashlight card -> drag screen opens, the
+bar drags the LED through the levels live, the pill's dots follow,
+Tắt turns it off, Back returns to the app; lock screen pill shows
+the old dots slider a little higher than before.

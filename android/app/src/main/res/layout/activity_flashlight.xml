@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Round 143: in-app flashlight drag screen. A real SeekBar (Android
+     only delivers clicks from notification / Now Bar RemoteViews, so a
+     drag slider can only live here, in the app). The bar has 5 steps,
+     one per hardware brightness level; dragging it sends the level to
+     FlashlightForegroundService exactly like tapping a segment. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#FF0D1218"
+    android:gravity="center_vertical"
+    android:orientation="vertical"
+    android:paddingStart="24dp"
+    android:paddingEnd="24dp">
+
+    <TextView
+        android:id="@+id/flashlight_drag_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:textColor="#FFF5F7FA"
+        android:textSize="20sp"
+        android:textStyle="bold" />
+
+    <SeekBar
+        android:id="@+id/flashlight_drag_seekbar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="36dp"
+        android:max="4" />
+
+    <TextView
+        android:id="@+id/flashlight_drag_turn_off"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_marginTop="36dp"
+        android:background="@drawable/bg_flashlight_action_button"
+        android:gravity="center"
+        android:textColor="#FFF5F7FA"
+        android:textSize="16sp"
+        android:textStyle="bold" />
+</LinearLayout>

@@ -135,6 +135,18 @@
             android:windowSoftInputMode="adjustResize|stateVisible"
         />
 
+        <!-- Round 143: in-app flashlight drag screen. Opened from the
+             flashlight notification / Now Bar card; Back returns to the
+             app's home (MainActivity). -->
+        <activity
+            android:name=".liveupdate.FlashlightActivity"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:parentActivityName=".MainActivity"
+            android:theme="@style/FlashlightTheme"
+            android:screenOrientation="portrait"
+        />
+
         <meta-data
             android:name="com.samsung.android.support.ongoing_activity"
             android:value="true"

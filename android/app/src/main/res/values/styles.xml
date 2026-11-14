@@ -30,4 +30,11 @@
         <item name="android:backgroundDimEnabled">true</item>
         <item name="android:windowDisablePreview">true</item>
     </style>
+    <!-- Round 143: full-screen dark theme for the native flashlight drag
+         screen (FlashlightActivity). Opaque, unlike ReplyInputTheme: the
+         drag screen is a destination, not a floating editor. -->
+    <style name="FlashlightTheme" parent="@android:style/Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowBackground">#FF0D1218</item>
+        <item name="android:colorBackground">#FF0D1218</item>
+    </style>
 </resources>

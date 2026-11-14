@@ -13,8 +13,8 @@ import android.os.Bundle
 import android.view.View
 import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
+import androidx.core.app.TaskStackBuilder
 import androidx.core.graphics.drawable.IconCompat
-import com.kakao.taxi.MainActivity
 import com.kakao.taxi.R
 
 internal class FlashlightNotificationBuilder(
@@ -39,14 +39,18 @@ internal class FlashlightNotificationBuilder(
         }
         val secondaryText = secondaryText(capability)
         val nowBarCollapsedText = chipText()
-        val contentIntent = PendingIntent.getActivity(
-            context,
-            0,
-            Intent(context, MainActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
+        // Round 143: tapping the flashlight card opens the in-app drag
+        // screen (a drag slider cannot live in the notification / Now
+        // Bar pill — RemoteViews only deliver clicks). The back stack
+        // is MainActivity -> FlashlightActivity, from the manifest
+        // parent, so Back returns to the app's home.
+        val contentIntent = TaskStackBuilder.create(context).run {
+            addNextIntentWithParentStack(Intent(context, FlashlightActivity::class.java))
+            getPendingIntent(
+                0,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        }
         val expandedView = buildExpandedRemoteViews(
             title = title,
             capability = capability,
