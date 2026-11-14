@@ -2127,3 +2127,20 @@ Verify on device: rebuild release, check the APK file size and the
 lib/ folders (only arm64-v8a should be present), confirm the UI
 still renders Vietnamese correctly and the Now Bar / flashlight
 still work.
+
+Round 150 (owner report, 14/11): Round 149's release build FAILED
+at minifyReleaseWithR8 — R8's missing-class check stopped on
+com.google.android.play.core.* (SplitCompatApplication,
+SplitInstallManager, SplitInstallRequest, tasks.Task, ...),
+referenced from the Flutter embedding's
+FlutterPlayStoreSplitApplication and PlayStoreDeferredComponent-
+Manager. Play Core is not a dependency of this app and is never
+used (sideloaded APK, no deferred components), so the references
+are dead. Fix: -dontwarn com.google.android.play.core.** in
+proguard-rules.pro (the standard Flutter R8 fix). The
+kotlinx-serialization-common.pro warning in the same log is a
+warning only, not the failure. Also note: the install after the
+failed build could not run either — 'more than one device/
+emulator', so the owner needs adb -s <Flip5 serial> (wireless adb
+was 192.168.150.101:45605) or disconnect the other device; and the
+APK on disk after a failed build is still the previous round's.

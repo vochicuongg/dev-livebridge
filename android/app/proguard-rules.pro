@@ -22,3 +22,10 @@
 -keep class io.flutter.plugin.** { *; }
 # HyperIsland kit (Xiaomi) — kept so R8 does not strip its builders.
 -keep class io.github.d4viddf.hyperisland_kit.** { *; }
+# Round 150: the Flutter embedding references Play Core (Play Store
+# split install / deferred components) in FlutterPlayStoreSplit-
+# Application and PlayStoreDeferredComponentManager, but Play Core is
+# not a dependency of this app and is never used (sideloaded APK, no
+# deferred components). R8's missing-class check fails the release
+# build on those references; -dontwarn is the standard Flutter fix.
+-dontwarn com.google.android.play.core.**
