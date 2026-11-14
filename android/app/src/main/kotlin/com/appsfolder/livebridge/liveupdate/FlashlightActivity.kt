@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.widget.SeekBar
 import android.widget.TextView
 import androidx.core.content.ContextCompat
+import com.kakao.taxi.R
 
 /**
  * Round 143: in-app flashlight brightness screen with a real drag

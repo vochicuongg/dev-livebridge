@@ -1990,3 +1990,13 @@ Verify on device: tap the flashlight card -> drag screen opens, the
 bar drags the LED through the levels live, the pill's dots follow,
 Tắt turns it off, Back returns to the app; lock screen pill shows
 the old dots slider a little higher than before.
+
+Round 144 (build fix, 14/11): Round 143 failed to compile —
+compileReleaseKotlin reported Unresolved reference 'R' at every R
+use in FlashlightActivity.kt. The new file lives in package
+com.kakao.taxi.liveupdate, and R is com.kakao.taxi.R; the other files
+in that package import it explicitly, the new file forgot to. Fix:
+one import line. No behaviour change.
+Note: the install the owner ran after the failed build installed the
+previous (Round 142) APK, since the release APK on disk was unchanged
+— Round 143 needs a fresh pull + build.
