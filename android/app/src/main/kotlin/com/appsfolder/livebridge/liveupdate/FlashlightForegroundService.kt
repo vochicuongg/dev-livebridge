@@ -27,6 +27,15 @@ class FlashlightForegroundService : Service() {
     private var isForegroundActive = false
     private var isTorchCallbackRegistered = false
 
+    /**
+     * Round 142: the strength level the torch was last set to. A level
+     * tap that repeats the current level must not re-apply the torch:
+     * re-asserting the strength makes the LED blink even though nothing
+     * changed. -1 means "unknown" (service (re)started, torch changed
+     * elsewhere) — the next level tap always applies.
+     */
+    private var lastAppliedLevelIndex = -1
+
     private val torchCallback = object : CameraManager.TorchCallback() {
         override fun onTorchModeChanged(cameraId: String, enabled: Boolean) {
             val activeCameraId = capability.cameraId ?: return
@@ -65,12 +74,21 @@ class FlashlightForegroundService : Service() {
                 return
             }
             capability = controller.getCapability()
+            var externalChange = false
             if (capability.supportsFiveLevels) {
-                prefs.setSmartFlashlightLevel(
-                    controller.resolveLevelIndexForStrength(capability, newStrengthLevel)
+                val resolved = controller.resolveLevelIndexForStrength(
+                    capability,
+                    newStrengthLevel
                 )
+                prefs.setSmartFlashlightLevel(resolved)
+                // Round 142: the strength changed somewhere else (system
+                // Quick Panel, another app). Record it so a later tap on
+                // the same level does not re-apply the torch, and rebuild
+                // the Now Bar card so its dots follow the real level.
+                externalChange = resolved != lastAppliedLevelIndex
+                if (externalChange) lastAppliedLevelIndex = resolved
             }
-            refreshNotification()
+            refreshNotification(forceRepost = externalChange)
         }
     }
 
@@ -112,12 +130,21 @@ class FlashlightForegroundService : Service() {
         }
 
         val desiredLevel = prefs.getSmartFlashlightLevel()
-        capability = if (intent?.action == ACTION_SET_LEVEL) {
+        val isSetLevel = intent?.action == ACTION_SET_LEVEL
+        capability = if (isSetLevel) {
             runCatching {
-                controller.apply(
-                    enabled = true,
-                    requestedLevelIndex = desiredLevel
-                )
+                // Round 142: only touch the torch when the level really
+                // changed. Re-asserting the same strength makes the LED
+                // blink for no reason (same-level re-tap, duplicate
+                // intent, strength-change echo).
+                if (desiredLevel != lastAppliedLevelIndex) {
+                    controller.apply(
+                        enabled = true,
+                        requestedLevelIndex = desiredLevel
+                    ).also { lastAppliedLevelIndex = desiredLevel }
+                } else {
+                    controller.getCapability()
+                }
             }.onFailure { error ->
                 Log.e(TAG, "Failed to adjust flashlight level", error)
                 stopSelfSafely(clearPreference = false)
@@ -138,7 +165,11 @@ class FlashlightForegroundService : Service() {
         }
 
         ensureTorchCallbackRegistered()
-        refreshNotification()
+        // Round 142: a level tap always re-posts the notification (see
+        // refreshNotification): Samsung's Now Bar reuses the cached
+        // custom view on plain updates, so the pill's dots kept showing
+        // the old level even though the shade updated.
+        refreshNotification(forceRepost = isSetLevel)
         return START_STICKY
     }
 
@@ -150,7 +181,17 @@ class FlashlightForegroundService : Service() {
         super.onDestroy()
     }
 
-    private fun refreshNotification() {
+    /**
+     * Round 142: when [forceRepost] is true, the notification is
+     * cancelled and re-posted as a foreground notification instead of
+     * a plain update. Samsung's Now Bar keeps the cached custom
+     * RemoteView on plain updates, so the pill's dots stayed on the old
+     * level while the shade (re-applied on every update) followed
+     * immediately. A cancel + re-post makes Samsung build a fresh Now
+     * Bar entry with the new RemoteView. The torch itself is untouched
+     * here, so the LED does not blink from the re-post.
+     */
+    private fun refreshNotification(forceRepost: Boolean = false) {
         val notification = runCatching {
             notificationBuilder.build(
                 prefs = prefs,
@@ -162,7 +203,12 @@ class FlashlightForegroundService : Service() {
         }.getOrNull() ?: return
 
         runCatching {
-            if (isForegroundActive) {
+            if (forceRepost && isForegroundActive) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                notificationManager.cancel(FlashlightNotificationBuilder.NOTIFICATION_ID)
+                startForegroundCompat(notification)
+                isForegroundActive = true
+            } else if (isForegroundActive) {
                 notificationManager.notify(FlashlightNotificationBuilder.NOTIFICATION_ID, notification)
             } else {
                 startForegroundCompat(notification)
@@ -187,6 +233,9 @@ class FlashlightForegroundService : Service() {
     }
 
     private fun stopSelfSafely(clearPreference: Boolean) {
+        // Round 142: the torch is going away — forget the applied level
+        // so the next enable always applies it.
+        lastAppliedLevelIndex = -1
         if (clearPreference) {
             prefs.setSmartFlashlightEnabled(false)
         }

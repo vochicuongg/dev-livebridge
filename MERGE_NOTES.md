@@ -1935,3 +1935,32 @@ warning), the app, and the system tile. The builder no longer binds
 the button in the Now Bar view. Verify on device: lock screen with
 flashlight on — the old dotted slider, fully inside the pill, not
 touching the bottom edge.
+
+Round 142 (owner report, 14/11): three flashlight interaction issues.
+(1) Pill slider did not follow: the level could be changed in the
+shade, but the dots inside the Now Bar pill stayed on the old level.
+Cause: Samsung's Now Bar reuses the cached custom RemoteView on plain
+notification updates (the shade re-applies on every update, the Now
+Bar does not). Fix: a level tap now re-posts the notification
+(stopForeground REMOVE + cancel + startForeground) so Samsung builds
+a fresh Now Bar entry with the new RemoteView; the same re-post runs
+when the strength changes elsewhere (system Quick Panel) and the dots
+follow the real level. The torch itself is untouched by the re-post.
+Still open: if a tap inside the pill does not change the LED at all,
+Samsung is not delivering the taps and the pill needs a different
+interaction — owner to confirm on device.
+(2) Drag instead of click-per-notch: NOT possible in a notification /
+Now Bar view — Android delivers only clicks from RemoteViews, no drag
+or touch events, and a SeekBar there can only display, never report.
+The bar is already tap-anywhere (each fifth of the bar is its own tap
+target, so tapping any point jumps straight to that level). A real
+drag slider would have to live inside the app itself — offered to the
+owner, not built yet.
+(3) LED blinks on every brightness increase: the code already applies
+the new strength in a single turnOnTorchWithStrengthLevel call with no
+off/on toggle. What could blink it is a repeated apply: the service
+now records the last applied level and skips apply when the requested
+level is unchanged (same-level re-tap, duplicate intent, strength
+echo). If it still blinks once per real level change, that is the
+Samsung LED driver resetting on strength change — there is no app
+API to ramp the strength smoothly.
