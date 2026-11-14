@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Round 140: an unlit level is a solid grey rounded bar (was an 8dp
-     grey dot floating in the track). No fixed size: the shape stretches
-     to its ImageView slot. -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="rectangle">
-    <solid android:color="#848487" />
-    <corners android:radius="8dp" />
-</shape>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:width="8dp"
+        android:height="8dp"
+        android:gravity="center">
+        <shape android:shape="oval">
+            <solid android:color="#848487" />
+        </shape>
+    </item>
+</layer-list>

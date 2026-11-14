@@ -1914,3 +1914,24 @@ are unchanged, so no other code changed. The old track backgrounds
 Verify on device: lock screen with flashlight on — title + Tắt chip
 on one row, 5-segment bar fully inside the pill, chip turns the
 flashlight off; shade notification keeps its full button.
+
+Round 141 (owner correction, 14/11): keep the OLD brightness slider,
+raise it. Round 140's segment-bar redesign is reverted in full
+(drawables, both layouts, cumulative fill) — the owner wants the
+original dots-in-track slider. The real defect was position, not
+style: measured on the screenshot, the old Now Bar RemoteView
+(~107dp: title + slider + 36dp full-width button) is taller than the
+height Samsung gives this RemoteView on the lock screen, so the
+button was clipped away entirely and the slider ended up flush on
+the pill's bottom edge, looking cut off and "too low". Fix:
+notification_flashlight_slider.xml is now title + the original
+dots-in-track slider only, with tightened margins (top 4dp, slider
+gap 4dp, bottom padding 8dp, ~57dp total) — the slider sits clearly
+inside the pill with blue space below it instead of touching the
+edge. The full-width Tắt button is gone from the Now Bar card only:
+it never rendered there anyway, and turning off stays in the shade's
+expanded notification (unchanged, title + old slider + button +
+warning), the app, and the system tile. The builder no longer binds
+the button in the Now Bar view. Verify on device: lock screen with
+flashlight on — the old dotted slider, fully inside the pill, not
+touching the bottom edge.

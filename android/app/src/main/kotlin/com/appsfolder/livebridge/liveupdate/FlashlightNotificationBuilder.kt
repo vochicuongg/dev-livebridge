@@ -140,8 +140,11 @@ internal class FlashlightNotificationBuilder(
     ): RemoteViews {
         return RemoteViews(context.packageName, R.layout.notification_flashlight_slider).apply {
             setTextViewText(R.id.flashlight_title, title)
-            setTextViewText(R.id.flashlight_action_button, disableButtonText())
-            setOnClickPendingIntent(R.id.flashlight_action_button, disablePendingIntent())
+            // Round 141: no action button in the Now Bar view (see the
+            // layout note) — turning off stays in the shade's expanded
+            // notification, the app, and the system tile. The theme call
+            // below still sets the (now absent) button's color; RemoteViews
+            // silently skips actions whose view id is not in the layout.
             applyRemoteViewTheme(includeWarning = false)
             applySliderState(
                 remoteViews = this,
@@ -174,10 +177,7 @@ internal class FlashlightNotificationBuilder(
         )
         val selectedIndex = effectiveLevelIndex.coerceIn(0, segmentImageIds.lastIndex)
         for (index in segmentImageIds.indices) {
-            // Round 140: cumulative fill — every segment up to the current
-            // level lights up, like a brightness bar. (Was: only the
-            // selected segment lit, the rest dots in a track.)
-            val isSelected = interactive && index <= selectedIndex
+            val isSelected = interactive && index == selectedIndex
             remoteViews.setImageViewResource(
                 segmentImageIds[index],
                 if (isSelected) {
