@@ -2025,3 +2025,27 @@ tap does nothing, the shade notification tap is the reliable path.
 Verify on device: change brightness from the shade — the pill must
 stay put (no reset); tap the shade notification or the pill title —
 the drag screen opens and the bar drags the LED live.
+
+Round 146 (owner report, 14/11): pill no longer resets (Round 145
+revert confirmed working); two remaining items.
+(1) Pill slider position: in the expanded pill (screenshot) the
+slider sat right under the title with a big empty blue area below
+it. Moved down a little: the slider's top margin 2->18dp in
+notification_flashlight_slider.xml ONLY — the shade's expanded
+layout is untouched, as the owner asked. (Same layout also feeds
+the collapsed pill, where the dots still fit the ~60-70dp slot.)
+(2) Still cannot drag: the drag screen exists since Round 143, but
+the owner never reached it — they keep trying to drag the dots
+inside the pill. That cannot work: a RemoteView cannot be dragged,
+and Samsung does not even deliver the pill's taps to the app (the
+Round 145 title tap evidently did not open anything either — the
+pill only expands). The pill is display-only. The working path is
+the notification in the shade: tapping it opens the drag screen via
+the content intent (Round 143). NEW this round: FlashlightActivity
+has showWhenLocked, so from the lock screen the drag screen opens
+right over the lock screen when the shade notification is tapped,
+without asking for unlock first. Steps: lock screen -> swipe down
+-> tap the flashlight notification -> drag the bar. Verify on
+device: the drag screen opens from the shade tap and the bar drags
+the LED live; the pill's slider sits a little lower in the expanded
+card and the shade's slider is unchanged.
