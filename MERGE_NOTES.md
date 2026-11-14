@@ -2091,3 +2091,39 @@ feature entirely.
   slider (tap-to-set, Round 141 position), the shade notification's
   own slider, and the Round 142 same-level torch guard (it only
   stops redundant torch applies / blink on duplicate taps).
+
+Round 149 (owner request, 14/11): release APK ~67 MB vs a normal
+30-40 MB Flutter APK — find the excess and shrink it.
+- Ruled out: HyperIsland kit is a small library (the Hyper Bridge
+  app itself is ~5 MB total); no extra assets or .so files in the
+  repo (android assets are only 140 KB dictionaries, no jniLibs);
+  screenshots are not bundled (not in pubspec assets).
+- arm64-only, enforced twice: abiFilters already said arm64-v8a;
+  added packaging.jniLibs excludes for armeabi-v7a/armeabi/x86/
+  x86_64, so whatever the Flutter plugin builds, only arm64 .so
+  files are packaged. .so files are stored uncompressed in the APK,
+  so a second ABI costs ~22 MB (libflutter.so + libapp.so again) —
+  the likely excess, pending the owner's lib/ listing.
+- R8 on: isMinifyEnabled + isShrinkResources in release, with a new
+  proguard-rules.pro keeping the manifest entry points, the Flutter
+  embedding and the HyperIsland kit. Safe: the app's reflection
+  targets are Android framework classes only (Notification.semFlags,
+  RemoteViews.mActions, SystemProperties, ...), never app classes,
+  and every getIdentifier call targets another package (SystemUI /
+  Samsung), so shrinking cannot drop anything looked up by name.
+- Font subset (DEFERRED, not in this commit): SF-Compact-Rounded-
+  Medium.otf 4.59 MB -> 0.28 MB (7603 -> 692 glyphs) via fontTools,
+  verified 0 required codepoints missing (287 codepoints from the
+  app's Dart/Kotlin source + Latin / Latin-1 / Latin Ext-A / Latin
+  Ext Additional (Vietnamese) / punctuation ranges; family name
+  preserved). The 954 source characters NOT in the font (mostly CJK)
+  already fell back to system fonts, so dropping them changes
+  nothing. NOT pushed: the push-files snapshot tool rejects binary
+  files ("is not UTF-8"). The subset file is ready for the owner to
+  upload via the GitHub web UI (assets/fonts/, same name) or a
+  binary-capable push route. Original font stays in the repo until
+  then.
+Verify on device: rebuild release, check the APK file size and the
+lib/ folders (only arm64-v8a should be present), confirm the UI
+still renders Vietnamese correctly and the Now Bar / flashlight
+still work.

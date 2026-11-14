@@ -55,6 +55,25 @@ android {
         }
     }
 
+    packaging {
+        jniLibs {
+            // Round 149 (APK size): ship arm64-v8a native libraries
+            // only. .so files are stored uncompressed in the APK, so
+            // a second ABI costs ~22 MB (libflutter.so + libapp.so
+            // again). Both target devices are arm64 and minSdk 35
+            // implies a 64-bit device, so the other ABIs can never
+            // run this app. This is a backstop behind the abiFilters
+            // above: whatever the Flutter plugin builds, only arm64
+            // is packaged.
+            excludes += setOf(
+                "lib/armeabi-v7a/**",
+                "lib/armeabi/**",
+                "lib/x86/**",
+                "lib/x86_64/**"
+            )
+        }
+    }
+
     signingConfigs {
         if (hasReleaseSigning) {
             create("release") {
@@ -71,8 +90,20 @@ android {
             if (hasReleaseSigning) {
                 signingConfig = signingConfigs.getByName("release")
             }
-            isMinifyEnabled = false
-            isShrinkResources = false
+            // Round 149 (APK size): R8 minify + shrink resources.
+            // Safe here: the app's reflection targets are Android
+            // framework classes only (Notification.semFlags,
+            // RemoteViews.mActions, SystemProperties, ...), never app
+            // classes, and every getIdentifier call targets another
+            // package (SystemUI / Samsung), so shrinking the app's
+            // own code and resources cannot drop anything looked up
+            // by name. Entry points are kept by proguard-rules.pro.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
 }
