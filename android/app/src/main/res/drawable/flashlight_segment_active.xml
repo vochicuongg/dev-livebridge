@@ -1,14 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item
-        android:width="16dp"
-        android:height="16dp"
-        android:gravity="center">
-        <shape android:shape="oval">
-            <solid android:color="#17171A" />
-            <stroke
-                android:width="1.5dp"
-                android:color="#387AFF" />
-        </shape>
-    </item>
-</layer-list>
+<!-- Round 140: a lit level is now a solid rounded bar (was a 16dp black
+     dot with a blue ring, which read as a hole on the lock screen).
+     No fixed size: the shape stretches to its ImageView slot. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#387AFF" />
+    <corners android:radius="8dp" />
+</shape>

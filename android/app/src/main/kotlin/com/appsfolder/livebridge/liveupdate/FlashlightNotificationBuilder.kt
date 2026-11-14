@@ -174,7 +174,10 @@ internal class FlashlightNotificationBuilder(
         )
         val selectedIndex = effectiveLevelIndex.coerceIn(0, segmentImageIds.lastIndex)
         for (index in segmentImageIds.indices) {
-            val isSelected = interactive && index == selectedIndex
+            // Round 140: cumulative fill — every segment up to the current
+            // level lights up, like a brightness bar. (Was: only the
+            // selected segment lit, the rest dots in a track.)
+            val isSelected = interactive && index <= selectedIndex
             remoteViews.setImageViewResource(
                 segmentImageIds[index],
                 if (isSelected) {

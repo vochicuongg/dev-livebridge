@@ -1889,3 +1889,28 @@ FittedBox here without an on-device release check first; a future
 overflow fix should instead adjust the fixed budgets (stat-card
 aspect ratio / padding, nav shell height / item padding) and be
 verified in a release build, not just debug.
+
+Round 140 (owner bug report, 14/11): lock-screen flashlight Now Bar UI
+redone. Measured on the owner's screenshot (4320x1024 crop): the grey
+slider track's bottom sat exactly on the pill's bottom edge and the
+36dp full-width "Tắt đèn pin" button was nowhere in the pill — the old
+Now Bar RemoteView (title + 24dp slider + 36dp button, ~107dp) is
+taller than the height Samsung gives this RemoteView on the lock
+screen, so the button was clipped away and the slider looked cut off.
+Fix, Now Bar view only (notification_flashlight_slider.xml): ~66dp
+total — title row (14sp title + compact "Tắt" chip reusing the same
+flashlight_action_button id, text and disable intent) above one 20dp
+segmented bar, with bottom padding so nothing touches the pill edge.
+The brightness control is now 5 rounded bars instead of 5 dots in a
+grey track: segment drawables are stretchable rounded rects (active
+#387AFF, inactive #848487 — visible on both the dark pill and the
+light-theme shade) and applySliderState now lights every segment up
+to the current level (was: only the selected dot). The shade's
+expanded notification (notification_flashlight_expanded.xml) gets the
+same segment bar but keeps its title, warning line and full-width
+button, since the shade has room. All view ids the builder touches
+are unchanged, so no other code changed. The old track backgrounds
+(bg_flashlight_slider_track*.xml) are now unused; left in place.
+Verify on device: lock screen with flashlight on — title + Tắt chip
+on one row, 5-segment bar fully inside the pill, chip turns the
+flashlight off; shade notification keeps its full button.
