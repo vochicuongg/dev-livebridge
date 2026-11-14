@@ -2049,3 +2049,31 @@ without asking for unlock first. Steps: lock screen -> swipe down
 device: the drag screen opens from the shade tap and the bar drags
 the LED live; the pill's slider sits a little lower in the expanded
 card and the shade's slider is unchanged.
+
+Round 147 (owner report, 14/11): Round 146 was not good.
+(1) Slider outside the pill moved: Round 146 raised the slider's
+top margin 2->18dp in notification_flashlight_slider.xml. Verified
+in code: the shade's expanded layout is a separate file
+(notification_flashlight_expanded.xml, own slider, marginTop 10dp)
+and does NOT include the pill's layout, so the shade was untouched
+— what moved was the COLLAPSED pill. The pill's layout is one file
+shared by the collapsed pill and the expanded card, so a margin
+moves the slider in both states; lowering it in the expanded card
+also lowers it outside, which the owner rejected. Reverted:
+marginTop back to 2dp, outside position restored. Consequence: the
+expanded card's slider is back at the top too — it cannot be
+lowered on its own with this layout. (A centering redesign could
+move it only in the tall card, but that is a bigger change with an
+uncertain look; not attempted.)
+(2) No new tab on pill tap: removed the Round 145 title tap that
+opened the drag screen from the pill (openDragScreenPendingIntent
+and its request code deleted). Pressing the pill now only expands
+the card (Samsung's own behaviour) and opens nothing. The drag
+screen stays reachable only from the shade notification tap
+(content intent, Round 143 + showWhenLocked, Round 146). Honest
+limit, restated: the Now Bar bar cannot be dragged — it is a
+picture, Android delivers only clicks from a RemoteView, never
+drag events — and the pill's taps do not seem to reach the app at
+all, so the pill is a display; the working controls are the shade
+notification's slider (tap a segment) and the drag screen from the
+shade tap.

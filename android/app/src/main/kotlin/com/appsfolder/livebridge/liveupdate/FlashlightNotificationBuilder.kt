@@ -144,14 +144,6 @@ internal class FlashlightNotificationBuilder(
     ): RemoteViews {
         return RemoteViews(context.packageName, R.layout.notification_flashlight_slider).apply {
             setTextViewText(R.id.flashlight_title, title)
-            // Round 145: tapping the pill's title opens the in-app drag
-            // screen — the only way to reach it from the pill, since a
-            // drag slider cannot live in a RemoteView. Whether Samsung
-            // delivers this tap at all is unproven: the segment taps in
-            // this same view do not seem to reach the app. Tapping the
-            // notification in the shade always opens the drag screen via
-            // the content intent.
-            setOnClickPendingIntent(R.id.flashlight_title, openDragScreenPendingIntent())
             // Round 141: no action button in the Now Bar view (see the
             // layout note) — turning off stays in the shade's expanded
             // notification, the app, and the system tile. The theme call
@@ -312,15 +304,6 @@ internal class FlashlightNotificationBuilder(
         )
     }
 
-    private fun openDragScreenPendingIntent(): PendingIntent {
-        return PendingIntent.getActivity(
-            context,
-            REQUEST_CODE_OPEN_DRAG_SCREEN,
-            Intent(context, FlashlightActivity::class.java),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-    }
-
     private fun secondaryText(
         capability: FlashlightCapability
     ): String? {
@@ -381,6 +364,5 @@ internal class FlashlightNotificationBuilder(
         private const val LIGHT_THEME_WARNING_TEXT_COLOR = 0xFF4B5563.toInt()
         private const val REMOTE_VIEW_TAG = "flashlight_segments_remote"
         private const val REQUEST_CODE_DISABLE = 500
-        private const val REQUEST_CODE_OPEN_DRAG_SCREEN = 600
     }
 }
