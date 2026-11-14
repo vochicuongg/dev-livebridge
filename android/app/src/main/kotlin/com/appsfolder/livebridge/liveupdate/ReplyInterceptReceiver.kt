@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.Person
@@ -19,21 +20,25 @@ import com.kakao.taxi.R
 /**
  * Proxy BroadcastReceiver that intercepts Wear OS inline replies.
  *
- * Flow:
+ * Flow (round 137 — Wear OS reply loss fix):
  * 1. Extract typed RemoteInput text.
- * 2. Store it as a local reply in ChatHistoryStore (it will be merged into
+ * 2. Persist it to [PendingReplyStore] (synchronous disk write) BEFORE
+ *    anything else can lose it. [ChatHistoryStore] alone is RAM-only.
+ * 3. Store it as a local reply in ChatHistoryStore (it will be merged into
  *    the mirrored chat history when the other party replies later).
- * 3. Immediately re-post the mirrored MessagingStyle notification with the
+ * 4. Immediately re-post the mirrored MessagingStyle notification with the
  *    local echo injected (clone-and-inject). Gboard on Wear OS only renders
  *    the "local echo" bubble when the app calls NotificationManager.notify()
  *    on the existing notification after the reply is cached; Samsung/One UI
  *    Watch fakes this UI on its own, Gboard does not.
- * 4. Forward the original PendingIntent after 500 ms so the source app
- *    actually sends the message.
- * 5. After the PendingIntent is handed to the source app, wait
- *    [DISMISS_DELAY_MS] (so the updated UI from step 3 stays visible and the
- *    notify() has completed) and only then dismiss both the LiveBridge
- *    mirror and the original phone notification.
+ * 5. Forward the original PendingIntent IMMEDIATELY (no 500 ms delay) under
+ *    a PARTIAL_WAKE_LOCK, with up to [FORWARD_MAX_ATTEMPTS] attempts. The
+ *    old 500 ms Handler delay was the loss window: if the watch screen
+ *    went off / the phone dozed / the process died inside it, the reply
+ *    was never forwarded, yet step 4 had already shown a "sent" bubble.
+ *    The mirror/source dismissal still waits [DISMISS_DELAY_MS] after a
+ *    successful forward, and only then; on a failed forward the mirror
+ *    is left up so the user can retry instead of believing it sent.
  */
 class ReplyInterceptReceiver : BroadcastReceiver() {
 
@@ -48,14 +53,25 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
         const val EXTRA_MIRROR_NOTIFICATION_ID = "mirror_notification_id"
         const val EXTRA_SOURCE_KEY = "source_key"
 
-        private const val INTENT_DELAY_MS = 500L
+        /**
+         * Forward attempts for the original PendingIntent. The forward runs
+         * immediately (round 137 removed the old 500 ms pre-send delay);
+         * a transient failure is retried after [FORWARD_RETRY_DELAY_MS].
+         * A cancelled PendingIntent is never retried.
+         */
+        private const val FORWARD_MAX_ATTEMPTS = 3
+        private const val FORWARD_RETRY_DELAY_MS = 250L
+
+        /** WakeLock ceiling for the whole receive → forward → dismiss flow. */
+        private const val WAKE_LOCK_TIMEOUT_MS = 10_000L
 
         /**
          * Delay between forwarding the reply to the source app and cancelling
          * the mirror/source notifications. Keeps the re-posted local-echo UI
          * on screen long enough for Gboard to render it and guarantees the
          * cancel always runs AFTER the notify() from the local-echo update.
-         * Must stay within goAsync()'s ~10 s window (500 + 1500 = 2000 ms).
+         * Must stay within goAsync()'s ~10 s window (forward is immediate
+         * now, so ~1500 ms total).
          */
         private const val DISMISS_DELAY_MS = 1_500L
         private const val INVALID_NOTIFICATION_ID = Int.MIN_VALUE
@@ -103,6 +119,45 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
 
         Log.d(TAG, "Intercepted reply for threadKey=$threadKey, mirrorKey=$mirrorKey")
 
+        val originalPendingIntent: PendingIntent? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent.getParcelableExtra(EXTRA_ORIGINAL_PENDING_INTENT, PendingIntent::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableExtra(EXTRA_ORIGINAL_PENDING_INTENT)
+        }
+
+        if (originalPendingIntent == null) {
+            Log.e(TAG, "Original PendingIntent is null; cannot forward reply.")
+            return
+        }
+
+        // Round 137: persist the reply to disk BEFORE the echo/forward work,
+        // so a received reply survives a process death at least as a record.
+        PendingReplyStore.savePending(
+            context = context.applicationContext,
+            threadKey = threadKey,
+            mirrorKey = mirrorKey,
+            sourceKey = sourceKey,
+            mirrorNotificationId = mirrorNotificationId,
+            resultKey = resultKey,
+            text = replyText
+        )
+
+        // goAsync() up front (not after the echo work) and a WakeLock for
+        // the whole flow, so Doze / screen-off cannot freeze the delayed
+        // dismiss or kill the broadcast before the forward runs.
+        val pendingResult = goAsync()
+        val wakeLock = acquireWakeLock(context.applicationContext)
+        var flowFinished = false
+        fun finishFlow() {
+            if (flowFinished) return
+            flowFinished = true
+            runCatching {
+                if (wakeLock?.isHeld == true) wakeLock.release()
+            }
+            pendingResult.finish()
+        }
+
         if (threadKey.isNotBlank()) {
             ChatHistoryStore.setPendingReply(threadKey, replyText)
             ChatHistoryStore.appendLocalReply(threadKey, replyText)
@@ -131,41 +186,30 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
             )
         }
 
-        val originalPendingIntent: PendingIntent? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            intent.getParcelableExtra(EXTRA_ORIGINAL_PENDING_INTENT, PendingIntent::class.java)
-        } else {
-            @Suppress("DEPRECATION")
-            intent.getParcelableExtra(EXTRA_ORIGINAL_PENDING_INTENT)
-        }
-
-        if (originalPendingIntent == null) {
-            Log.e(TAG, "Original PendingIntent is null; cannot forward reply.")
-            return
-        }
-
-        val pendingResult = goAsync()
         val mainHandler = Handler(Looper.getMainLooper())
-        mainHandler.postDelayed({
-            var dismissScheduled = false
-            try {
-                val forwardIntent = Intent()
-                val resultBundle = Bundle().apply {
-                    putCharSequence(resultKey, replyText)
-                }
-                RemoteInput.addResultsToIntent(
-                    arrayOf(RemoteInput.Builder(resultKey).build()),
-                    forwardIntent,
-                    resultBundle
-                )
-                originalPendingIntent.send(context, 0, forwardIntent)
-                Log.d(TAG, "Intent forwarded after ${INTENT_DELAY_MS}ms")
+        val forwardIntent = Intent()
+        val resultBundle = Bundle().apply {
+            putCharSequence(resultKey, replyText)
+        }
+        RemoteInput.addResultsToIntent(
+            arrayOf(RemoteInput.Builder(resultKey).build()),
+            forwardIntent,
+            resultBundle
+        )
 
-                // Delay the mirror/source cancellation so it always happens
-                // AFTER the local-echo notify() has been rendered by Gboard.
-                // pendingResult.finish() is only called once the dismissal
-                // completes, keeping the process alive for the whole delay
-                // (total 500 + 1800 = 2300 ms, well inside goAsync's window).
-                dismissScheduled = true
+        // Forward IMMEDIATELY — no pre-send delay (round 137). The old
+        // 500 ms wait was the loss window: the reply sat un-forwarded in
+        // RAM while the watch screen could go off / the phone could doze.
+        // Retries are scheduled on the main Handler so onReceive itself
+        // never blocks. The mirror/source dismissal still waits
+        // DISMISS_DELAY_MS after a successful forward, and only then; a
+        // failed forward leaves the mirror up so the user can retry
+        // instead of believing the message was sent.
+        fun attemptForward(attempt: Int) {
+            try {
+                originalPendingIntent.send(context, 0, forwardIntent)
+                Log.d(TAG, "Reply forwarded to source app (attempt $attempt)")
+                PendingReplyStore.markSent(context.applicationContext, threadKey)
                 mainHandler.postDelayed({
                     try {
                         dismissAfterSuccessfulReply(
@@ -178,19 +222,60 @@ class ReplyInterceptReceiver : BroadcastReceiver() {
                     } catch (error: Throwable) {
                         Log.e(TAG, "Delayed dismissal failed.", error)
                     } finally {
-                        pendingResult.finish()
+                        finishFlow()
                     }
                 }, DISMISS_DELAY_MS)
             } catch (e: PendingIntent.CanceledException) {
-                Log.e(TAG, "Original PendingIntent was cancelled.", e)
+                Log.e(TAG, "Original PendingIntent was cancelled; reply not sent.", e)
+                PendingReplyStore.markFailed(context.applicationContext, threadKey)
+                finishFlow()
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to forward reply to original app.", e)
-            } finally {
-                if (!dismissScheduled) {
-                    pendingResult.finish()
+                if (attempt < FORWARD_MAX_ATTEMPTS) {
+                    Log.w(
+                        TAG,
+                        "Forward attempt $attempt failed, retrying in ${FORWARD_RETRY_DELAY_MS}ms",
+                        e
+                    )
+                    mainHandler.postDelayed(
+                        { attemptForward(attempt + 1) },
+                        FORWARD_RETRY_DELAY_MS
+                    )
+                } else {
+                    Log.e(
+                        TAG,
+                        "Failed to forward reply after $FORWARD_MAX_ATTEMPTS attempts; mirror left up so the user can retry.",
+                        e
+                    )
+                    PendingReplyStore.markFailed(context.applicationContext, threadKey)
+                    finishFlow()
                 }
             }
-        }, INTENT_DELAY_MS)
+        }
+        mainHandler.post { attemptForward(1) }
+    }
+
+    /**
+     * Holds a PARTIAL_WAKE_LOCK for the receive → forward → dismiss flow
+     * so Doze / screen-off cannot freeze the Handler delays mid-reply.
+     * The lock has a hard timeout ([WAKE_LOCK_TIMEOUT_MS]) so the system
+     * releases it even if this receiver crashes before [finishFlow].
+     */
+    private fun acquireWakeLock(context: Context): PowerManager.WakeLock? {
+        return try {
+            val powerManager =
+                context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+                    ?: return null
+            powerManager.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK,
+                "livebridge:WearReply"
+            ).apply {
+                setReferenceCounted(false)
+                acquire(WAKE_LOCK_TIMEOUT_MS)
+            }
+        } catch (error: Throwable) {
+            Log.w(TAG, "Could not acquire WakeLock; continuing without it.", error)
+            null
+        }
     }
 
     /**

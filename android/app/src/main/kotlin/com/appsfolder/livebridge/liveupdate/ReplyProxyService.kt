@@ -8,6 +8,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.Person
@@ -69,7 +70,19 @@ class ReplyProxyService : Service() {
         const val EXTRA_REPLY_OTHER_ACTION_TITLES = "reply_other_action_titles"
         const val EXTRA_REPLY_OTHER_ACTION_INTENTS = "reply_other_action_intents"
 
-        private const val INTENT_DELAY_MS = 500L
+        /**
+         * Forward attempts for the original PendingIntent. Round 137
+         * removed the old 500 ms pre-send delay (the Wear reply loss
+         * window); a transient failure is retried after
+         * [FORWARD_RETRY_DELAY_MS]. A cancelled PendingIntent is never
+         * retried.
+         */
+        private const val FORWARD_MAX_ATTEMPTS = 3
+        private const val FORWARD_RETRY_DELAY_MS = 250L
+
+        /** WakeLock ceiling for the whole handle → forward → dismiss flow. */
+        private const val WAKE_LOCK_TIMEOUT_MS = 10_000L
+
         private const val DISMISS_DELAY_MS = 1_500L
         private const val INVALID_NOTIFICATION_ID = Int.MIN_VALUE
     }
@@ -143,10 +156,22 @@ class ReplyProxyService : Service() {
             return
         }
 
-        // Wait before forwarding to source app
-        Thread.sleep(INTENT_DELAY_MS)
-
+        // Round 137: forward immediately (no 500 ms pre-send delay) under
+        // a WakeLock, with retries. The dismiss still waits
+        // DISMISS_DELAY_MS after a successful forward, and only then; a
+        // failed forward leaves the mirror up so the user can retry
+        // instead of believing the message was sent.
+        val wakeLock = acquireWakeLock(applicationContext)
         try {
+            PendingReplyStore.savePending(
+                context = applicationContext,
+                threadKey = threadKey,
+                mirrorKey = mirrorKey,
+                sourceKey = sourceKey,
+                mirrorNotificationId = mirrorNotificationId,
+                resultKey = resultKey,
+                text = replyText
+            )
             val forwardIntent = Intent()
             val resultBundle = Bundle().apply {
                 putCharSequence(resultKey, replyText)
@@ -156,8 +181,33 @@ class ReplyProxyService : Service() {
                 forwardIntent,
                 resultBundle
             )
-            originalPendingIntent.send(applicationContext, 0, forwardIntent)
-            Log.d(TAG, "Intent forwarded to source app")
+            var sent = false
+            var attempt = 0
+            while (!sent && attempt < FORWARD_MAX_ATTEMPTS) {
+                attempt++
+                try {
+                    originalPendingIntent.send(applicationContext, 0, forwardIntent)
+                    sent = true
+                    Log.d(TAG, "Reply forwarded to source app (attempt $attempt)")
+                } catch (e: PendingIntent.CanceledException) {
+                    Log.e(TAG, "Original PendingIntent was cancelled; reply not sent.", e)
+                    break
+                } catch (e: Exception) {
+                    Log.w(TAG, "Forward attempt $attempt failed, retrying...", e)
+                    if (attempt < FORWARD_MAX_ATTEMPTS) {
+                        runCatching { Thread.sleep(FORWARD_RETRY_DELAY_MS) }
+                    }
+                }
+            }
+            if (!sent) {
+                Log.e(
+                    TAG,
+                    "Failed to forward reply after $FORWARD_MAX_ATTEMPTS attempts; mirror left up so the user can retry."
+                )
+                PendingReplyStore.markFailed(applicationContext, threadKey)
+                return
+            }
+            PendingReplyStore.markSent(applicationContext, threadKey)
 
             // Wait before dismissing notifications
             Thread.sleep(DISMISS_DELAY_MS)
@@ -169,10 +219,34 @@ class ReplyProxyService : Service() {
                 sourceKey = sourceKey.ifBlank { mirrorKey }
             )
             Log.d(TAG, "Mirror/source notifications dismissed")
-        } catch (e: PendingIntent.CanceledException) {
-            Log.e(TAG, "Original PendingIntent was cancelled.", e)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to forward reply to original app.", e)
+        } finally {
+            runCatching {
+                if (wakeLock?.isHeld == true) wakeLock.release()
+            }
+        }
+    }
+
+    /**
+     * Holds a PARTIAL_WAKE_LOCK for the handle → forward → dismiss flow
+     * so Doze / screen-off cannot freeze the dismiss sleep mid-reply.
+     * The lock has a hard timeout ([WAKE_LOCK_TIMEOUT_MS]) so the system
+     * releases it even if this service is killed.
+     */
+    private fun acquireWakeLock(context: Context): PowerManager.WakeLock? {
+        return try {
+            val powerManager =
+                context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+                    ?: return null
+            powerManager.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK,
+                "livebridge:PhoneReply"
+            ).apply {
+                setReferenceCounted(false)
+                acquire(WAKE_LOCK_TIMEOUT_MS)
+            }
+        } catch (error: Throwable) {
+            Log.w(TAG, "Could not acquire WakeLock; continuing without it.", error)
+            null
         }
     }
 

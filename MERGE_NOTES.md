@@ -1822,3 +1822,33 @@ were deleted. The editor's chip UI is left dormant
 the chips can come back with a small change if asked.
 Mirrors are untouched: shade / Now Bar buttons still
 copy plain actions via addPlainActions.
+
+Round 137 (owner bug report, 14/11): replying from the watch lost ~70%
+of messages — if the watch screen went off after hitting send, the
+message never arrived. Root cause, all on the phone side: the Wear OS
+path (ReplyInterceptReceiver) cached the reply only in RAM
+(ChatHistoryStore) and then waited 500 ms on a main-thread Handler
+before forwarding the source app's PendingIntent, inside goAsync()'s
+~10 s window, with no WakeLock and no record on disk. If the phone
+dozed, the Handler delay froze, or the broadcast window expired inside
+that 500 ms, the forward never ran — yet the local-echo re-post had
+already shown a "sent" bubble, so the loss was silent. The phone path
+(ReplyProxyService) had the same 500 ms Thread.sleep before its send.
+Fix: (1) the reply is persisted to disk first, synchronously, in a new
+PendingReplyStore (SharedPreferences, commit() before forwarding;
+marked sent/failed right after the attempt); (2) the forward now runs
+immediately after the local echo, with up to 3 attempts 250 ms apart
+(a cancelled PendingIntent is never retried); (3) a PARTIAL_WAKE_LOCK
+(10 s timeout, new WAKE_LOCK permission) is held for the whole
+receive → forward → dismiss flow, and goAsync() is taken up front;
+(4) the mirror/source dismissal still waits 1,500 ms after a
+successful forward, and only then — a failed forward leaves the
+mirror up so the user can retry instead of believing it sent.
+Deliberately NOT done: automatic resend after a process death. The
+source app's PendingIntent cannot be persisted across a process
+death, so there is no safe auto-resend without a fresh PendingIntent
+from a new source notification; the store keeps the failed record so
+a later round can surface a "reply failed — resend?" prompt. Test:
+reply 10x from the watch and let the screen turn off right after
+send; watch logcat for ReplyInterceptReceiver "Reply forwarded to
+source app" vs "Failed to forward reply after 3 attempts".
